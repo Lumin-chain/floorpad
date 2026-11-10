@@ -1,0 +1,4 @@
+[toolchain]
+# NEAR VM does not accept wasm features enabled by default after Rust 1.86.
+channel = "1.86"
+targets = ["wasm32-unknown-unknown"]
