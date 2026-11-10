@@ -5,12 +5,12 @@ import { BUCKET_LABELS, type TokenView } from "@/lib/near";
 
 export const BUCKET_COLORS = ["#7cf29a", "#ff8f6b", "#ffd166", "#5cc8ff", "#a78bfa"];
 
-export function Avatar({ t, lg }: { t: TokenView; lg?: boolean }) {
+export function Avatar({ t, lg, small }: { t: TokenView; lg?: boolean; small?: boolean }) {
   if (t.meta.icon) {
     // eslint-disable-next-line @next/next/no-img-element
-    return <img className={`avatar${lg ? " lg" : ""}`} src={t.meta.icon} alt={t.meta.symbol} />;
+    return <img className={`avatar${lg ? " lg" : small ? " sm" : ""}`} src={t.meta.icon} alt={t.meta.symbol} />;
   }
-  return <div className={`avatar${lg ? " lg" : ""}`}>{t.meta.symbol.slice(0, 2)}</div>;
+  return <div className={`avatar${lg ? " lg" : small ? " sm" : ""}`}>{t.meta.symbol.slice(0, 2)}</div>;
 }
 
 export function Stat({ k, v, s }: { k: string; v: ReactNode; s?: ReactNode }) {

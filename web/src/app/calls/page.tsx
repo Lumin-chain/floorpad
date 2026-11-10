@@ -3,8 +3,10 @@
 import { useEffect, useState } from "react";
 import { api, fmtX, useStream, type Caller, type Callout } from "@/lib/social";
 import { CallRow } from "@/components/Callouts";
+import { useIsDesktop } from "@/lib/media";
 
 export default function CallsPage() {
+  const desktop = useIsDesktop();
   const [tab, setTab] = useState<"feed" | "leaders">("feed");
   const [calls, setCalls] = useState<Callout[] | null>(null);
   const [leaders, setLeaders] = useState<Caller[] | null>(null);
@@ -23,7 +25,7 @@ export default function CallsPage() {
     <div className="section">
       <div className="row between wrap" style={{ marginBottom: 12 }}>
         <h1>Callouts</h1>
-        <div className="seg">
+        <div className="seg mobile-only">
           <button className={tab === "feed" ? "active" : ""} onClick={() => setTab("feed")}>Live feed</button>
           <button className={tab === "leaders" ? "active" : ""} onClick={() => setTab("leaders")}>Top callers</button>
         </div>
@@ -34,15 +36,16 @@ export default function CallsPage() {
       </p>
       {err && <div className="notice warn">Callouts unavailable: {err}</div>}
 
-      {tab === "feed" && (
-        <div className="grid cards" style={{ marginTop: 12 }}>
+      <div className="calls-layout">
+      {(tab === "feed" || desktop) && (
+        <div className="grid cards calls-feed" style={{ marginTop: 12 }}>
           {calls?.map((c) => <CallRow key={c.id} c={c} showToken />)}
           {calls?.length === 0 && <div className="empty">No callouts yet.</div>}
         </div>
       )}
 
-      {tab === "leaders" && (
-        <div className="panel" style={{ marginTop: 12 }}>
+      {(tab === "leaders" || desktop) && (
+        <div className="panel leaders" style={{ marginTop: 12 }}>
           <div className="row between">
             <h2>Top callers</h2>
             <select className="select" style={{ width: 120 }} value={days} onChange={(e) => setDays(Number(e.target.value))}>
@@ -73,6 +76,7 @@ export default function CallsPage() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

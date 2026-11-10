@@ -4,7 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { WalletProvider, useWallet } from "@/lib/wallet";
-import { LAUNCHPAD, NETWORK } from "@/lib/near";
+import { useEffect } from "react";
+import { captureReferrer, LAUNCHPAD, NETWORK } from "@/lib/near";
 
 const NAV = [
   { href: "/", label: "Explore", icon: "M3 11l9-8 9 8v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z" },
@@ -26,7 +27,7 @@ function Header() {
   const path = usePathname();
   return (
     <header className="header">
-      <div className="container">
+      <div className="container wide">
         <Link href="/" className="brand">
           <span className="brand-mark" /> Floorpad
         </Link>
@@ -74,12 +75,13 @@ function Toast() {
 }
 
 export function Shell({ children }: { children: ReactNode }) {
+  useEffect(() => captureReferrer(), []);
   return (
     <WalletProvider>
       <Header />
-      <main className="container main">{children}</main>
+      <main className="container wide main">{children}</main>
       <footer className="footer desktop-only">
-        <div className="container row between wrap">
+        <div className="container wide row between wrap">
           <span>Floorpad · contract <span className="mono">{LAUNCHPAD}</span></span>
           <span>Not financial advice. Meme tokens are volatile; the floor limits, but does not remove, risk.</span>
         </div>

@@ -1,7 +1,7 @@
 // Config, JSON-RPC views, formatting and shared types.
 
 export const NETWORK = (process.env.NEXT_PUBLIC_NETWORK ?? "testnet") as "testnet" | "mainnet";
-export const RPC = process.env.NEXT_PUBLIC_RPC ?? `https://rpc.${NETWORK}.near.org`;
+export const RPC = process.env.NEXT_PUBLIC_RPC ?? `https://rpc.${NETWORK}.fastnear.com`;
 export const LAUNCHPAD = process.env.NEXT_PUBLIC_LAUNCHPAD ?? "floorpad.testnet";
 export const LINEAR =
   process.env.NEXT_PUBLIC_LINEAR ?? (NETWORK === "mainnet" ? "linear-protocol.near" : "linear-protocol.testnet");
@@ -231,6 +231,7 @@ export interface LaunchConfig {
   grad_vault_bps: number;
   grad_platform_bps: number;
   yield_platform_bps: number;
+  referral_bps: number;
   snipe_max_tokens: string;
   linear: string;
   ref_exchange: string;
@@ -262,6 +263,22 @@ export function vaultNear(t: TokenView, linearPrice?: bigint): bigint {
 
 export const progressPct = (t: TokenView) =>
   isGraduated(t) || t.grad_stage !== "Curve" ? 100 : Number((BigInt(t.sold) * 10000n) / BigInt(t.curve_supply)) / 100;
+
+const REF_KEY = "floorpad.ref";
+/** Remember `?ref=<account>` from a shared link (first touch wins for 30 days). */
+export function captureReferrer() {
+  if (typeof window === "undefined") return;
+  const ref = new URLSearchParams(window.location.search).get("ref");
+  if (!ref || !/^[a-z0-9._-]{2,64}$/.test(ref)) return;
+  const cur = JSON.parse(localStorage.getItem(REF_KEY) ?? "null") as { id: string; at: number } | null;
+  if (cur && Date.now() - cur.at < 30 * 86400_000) return;
+  localStorage.setItem(REF_KEY, JSON.stringify({ id: ref, at: Date.now() }));
+}
+export function getReferrer(self: string | null): string | null {
+  if (typeof window === "undefined") return null;
+  const cur = JSON.parse(localStorage.getItem(REF_KEY) ?? "null") as { id: string } | null;
+  return cur && cur.id !== self ? cur.id : null;
+}
 
 /** NEAR/USD as stored on-chain by the price feeder (used to size every launch). */
 export async function nearUsd(): Promise<number> {

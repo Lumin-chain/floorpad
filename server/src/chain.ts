@@ -2,7 +2,7 @@
 
 export const env = (k: string, d: string) => process.env[k] ?? d;
 const NETWORK = env("NEAR_NETWORK", "testnet");
-const RPC = env("NEAR_RPC", `https://rpc.${NETWORK}.near.org`);
+const RPC = env("NEAR_RPC", `https://rpc.${NETWORK}.fastnear.com`);
 export const LAUNCHPAD = env("LAUNCHPAD_ID", "floorpad.testnet");
 const LINEAR = env("LINEAR_ID", NETWORK === "mainnet" ? "linear-protocol.near" : "linear-protocol.testnet");
 const REF = env("REF_ID", NETWORK === "mainnet" ? "v2.ref-finance.near" : "ref-finance-101.testnet");

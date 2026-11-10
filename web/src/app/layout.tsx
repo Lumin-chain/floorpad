@@ -1,5 +1,4 @@
 import type { Metadata, Viewport } from "next";
-import "@near-wallet-selector/modal-ui/styles.css";
 import "./globals.css";
 import { Shell } from "@/components/Shell";
 

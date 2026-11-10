@@ -118,11 +118,12 @@ export default function Create() {
           <h2>What holders get</h2>
           <ul className="muted small" style={{ paddingLeft: 18, margin: 0 }}>
             <li><b>Fair launch:</b> per-wallet caps during the first minutes stop snipers.</li>
-            <li><b>Floor vault:</b> half of every fee (1% buy, 2% sell), every exit fee and 15% of the graduation raise back a redeemable floor.</li>
+            <li><b>Floor vault:</b> 40% of every fee (1.25% buy, 2.5% sell), every exit fee and 15% of the graduation raise back a redeemable floor.</li>
             <li><b>Decaying exit fee:</b> up to {cfg ? cfg.max_exit_fee_bps / 100 : 10}% for fresh buyers, falling to 0 over {cfg ? Math.round(cfg.exit_decay_secs / 86400) : 7} days. Selling always costs more than buying.</li>
             <li><b>Graduation:</b> at ~$15k the curve closes and liquidity moves to a Ref MEME/LiNEAR pool at the same price. The LP is locked forever and earns staking yield.</li>
             <li><b>Epoch votes:</b> holders split staking yield across floor, buyback &amp; burn, airdrop, AI agent and treasury.</li>
-            <li><b>Creator rewards:</b> 30% of curve fees. Half is claimable any time; half unlocks by holder vote (&gt;70%), and the DAO can claw it back.</li>
+            <li><b>Creator rewards:</b> 25% of curve fees (0.31% of buys, 0.63% of sells, above pump.fun&apos;s 0.30%). Half is claimable any time; half unlocks by holder vote (&gt;70%), and the DAO can claw it back.</li>
+            <li><b>Referrals:</b> anyone who shares a ref link earns 20% of the platform fee on the trades they bring.</li>
           </ul>
         </div>
         <div className="notice">

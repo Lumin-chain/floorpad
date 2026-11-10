@@ -41,9 +41,6 @@ export function PriceChart({ t, linearPrice }: TokenCtx) {
         <path d={area} fill="url(#g)" />
         <path d={line} fill="none" stroke="#e8eaed" strokeWidth="2" vectorEffect="non-scaling-stroke" />
       </svg>
-      <div className="desktop-only-block">
-        <TradesTable t={t} trades={trades} limit={8} />
-      </div>
     </div>
   );
 }

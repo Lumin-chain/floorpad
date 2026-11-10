@@ -1,6 +1,6 @@
 # Floorpad vs other launchpads
 
-Researched 10 Nov 2026. Most competitor figures come from third-party guides, not official fee pages, and the sources often disagree. Where they conflict, I give a range and link both. Recheck before quoting any number publicly.
+Researched 10–11 Nov 2026; updated for v3 economics. Most competitor figures come from third-party guides, not official fee pages, and the sources often disagree. Where they conflict, I give a range and link both. Recheck before quoting any number publicly.
 
 ## Side by side
 
@@ -8,8 +8,8 @@ Researched 10 Nov 2026. Most competitor figures come from third-party guides, no
 |---|---|---|---|---|---|---|---|
 | Launch model | Bonding curve | Bonding curve | Bonding curve | Bonding curve | Direct Uniswap pool | Fair auction, single price | **Bonding curve, sized in USD** |
 | Moves to a DEX at | ~$69k mcap (~85 SOL) [1][2] | ~85 SOL raised [3] | ~$50–80k mcap (sources differ) [4][5] | 42,000 VIRTUAL raised [6] | Trades on a DEX from the start | ≥4k NEAR deposited [7] | **~$15k mcap**, recalculated from the live NEAR price at each launch |
-| Curve fee | 1.25% both ways (0.95% protocol, 0.30% creator) [8] | ~1% [3] | 1%, plus optional creator tax of 1–10% [4] | not verified | 1% LP fee [9] | n/a | **1% buy, 2% sell**, plus an exit fee of 10% → 0 over 7 days |
-| Creator reward | 0.30% on the curve; tiered after graduation [8][10] | ~0.1% [3] | Optional tax | not verified | 40% (v3) / 80% (v4) of the LP fee [9] | not stated | **30% of fees** (0.3% buy, 0.6% sell). Half claimable any time, half unlocked by holder vote and can be clawed back |
+| Curve fee | 1.25% both ways (0.95% protocol, 0.30% creator) [8] | ~1% [3] | 1%, plus optional creator tax of 1–10% [4] | not verified | 1% LP fee [9] | n/a | **1.25% buy, 2.5% sell**, plus an exit fee of 10% → 0 over 7 days |
+| Creator reward | 0.30% on the curve; tiered after graduation [8][10] | ~0.1% [3] | Optional tax | not verified | 40% (v3) / 80% (v4) of the LP fee [9] | not stated | **25% of fees** (0.31% buy, 0.63% sell). Half claimable any time, half unlocked by holder vote and can be clawed back |
 | Liquidity after graduation | PumpSwap | Raydium | PancakeSwap | Locked 10 years [6] | Locked forever [9] | LP locked [7] | **Locked forever, paired with LiNEAR so it earns staking yield** |
 | Redeemable floor price | – | – | – | – | – | – | **Yes.** Funded by fees, exit fees, 15% of the graduation raise and staking yield. Redeemed tokens are burned |
 | Penalty for quick dumps | – | – | Creator tax (optional) | – | – | – | **Sell fee is double the buy fee**, plus an exit fee based on how long you've held. Both go to remaining holders |
@@ -30,19 +30,27 @@ For context, pump.fun's graduation rate fell to about **0.2–0.3%** of launches
 5. **Creators are paid but accountable.** The creator share matches or beats pump.fun's 0.30%, but half of it depends on milestones the holders vote on.
 6. **Engagement comes built in.** Chat, tracked callouts, a holder DAO and an AI agent come with every launch, which no single competitor in this table bundles.
 
-## Where Floorpad is weaker (and what to do about it)
+## The four weak spots, and how v3 closes them
 
-| Weakness | Mitigation |
-|---|---|
-| Platform revenue per trade is lower than pump.fun's (0.2–0.4% vs 0.95%) | 1% graduation fee, 5% of epoch yield and 0.7 NEAR net per launch. Raise these if the business needs more |
-| A ~$15k graduation means thin starting liquidity (~$2.6k of NEAR on the LP side) | That was the target you asked for. The floor vault and buybacks soften it. A $30–50k target would give deeper liquidity |
-| NEAR has fewer memecoin traders than Solana or BNB | Use NEAR Intents and HOT/Meteor wallet onboarding, and market the floor and the AI agents as the differentiator |
-| Locks, a DAO and epochs are more to learn | Sensible defaults: allocations persist between epochs, and the trade flow never requires a lock |
-| The NEAR/USD price is pushed by a keeper, because Pyth Core dropped NEAR after 31 Jul 2026 [15] | Two-source median, a 2× per-update cap, a 6-hour staleness limit, and the owner can override. Move to `price-oracle.near` once verified |
-| Chat and callouts run on one off-chain server | Wallet-signed sign-in; the server could later be moved onto a decentralized backend |
-| Not yet tested on-chain or audited | Run on testnet first (see the README), then get an audit before mainnet |
+| Was weak | What changed in v3 | Result |
+|---|---|---|
+| **Platform take** (0.2–0.4% vs pump.fun's 0.95%) | Curve fee raised to pump.fun's level on buys (**1.25%**) and doubled on sells (**2.5%**). Platform gets 35% of it, plus a 1% graduation fee, **10% of epoch yield** and 0.7 NEAR per launch | ~0.44% of buys and ~0.88% of sells to the platform (before referrals): a blended ~0.66% of volume, plus revenue pump.fun doesn't have (graduation fee, yield). Holders still get 40% of every fee into the floor |
+| **Thin liquidity at $15k** | Curve reshaped (1.16B virtual / 760M curve / 240M LP) so more NEAR is raised for the same $15k graduation; the vault is seeded with 15% of the raise | ~29% more NEAR in the pool (~$3.3k instead of ~$2.6k). The floor starts at **~4% of price** (about 10× v1) and acts as a permanent bid under the pool. The LP earns staking yield and its 0.3% fees compound |
+| **Fewer NEAR traders** | Wallets on **NEAR Connect** (HOT, Meteor, Intear, MyNearWallet, Ledger, plus WalletConnect: the connector NEAR-DevHub's Trezu uses). A **referral program** pays referrers 20% of the platform fee. Callouts leaderboard. Installable mobile app | Telegram-native HOT users and mobile WalletConnect users can trade. KOLs earn from every trade their link brings, which is how pump.fun-style platforms grow |
+| **Keeper-dependent price** | At every launch the contract **reads NEAR/USD from Ref pool #4512 itself** (wNEAR/native USDC, ~$1.3M TVL). Each update is clamped to 20%/hour of drift. The keeper is now optional (`refresh_near_usd_price` is permissionless) | No trusted price pusher on mainnet. A flash manipulation can move a launch's sizing by at most a fraction of the hourly band. Pyth on NEAR is frozen (last NEAR price $1.88, Aug 2026); Burrow's and Outlayer's oracles returned no current price when checked |
 
-"Best" depends on what you optimize for. Floorpad is built to beat these platforms on holder protection, holder engagement and token survival, at the cost of lower platform take and more moving parts.
+### What's still true
+- pump.fun still takes more per trade (0.95%). Floorpad gives that difference to holders by design.
+- $15k is a low graduation target; pools are deeper than before but still small. That's the trade-off for more tokens graduating.
+- NEAR's meme audience is smaller than Solana's. Wallet reach and referrals help, but don't erase that.
+- The chat and callouts server is centralized (wallet-signed sign-in). It could later move to a decentralized backend.
+- No audit yet.
+
+## What Floorpad reuses from Sputnik DAO and Trezu (scanned Nov 2026)
+
+- **Sputnik DAO v2.3.1** (`near-daos/sputnik-dao-contract`, commit `5434a59`): each token's DAO runs the **official code by global hash** `DtHZA1…`, the same code `sputnik-dao.near` deploys. The launchpad is the DAO's staking contract (the same pattern as `sputnik-staking`), so lock weight is vote weight. The full proposal set is used, including **bounties** (claim → `bounty_done` → holders vote). Anyone may submit finished bounty work; only lockers propose or vote on anything else.
+- **Trezu** (`NEAR-DevHub/trezu`) is a RoleWeight multisig treasury app (payments, vesting, Intents exchange, staking). It doesn't model token-weighted holder voting, so Floorpad keeps its own holder DAO UI and doesn't rebuild Trezu's treasury tooling. Floorpad adopts Trezu's **wallet stack** (NEAR Connect + WalletConnect) and its **proposal description format** (`* Title: … <br>* Notes: …`), so Floorpad proposals read correctly in Trezu and other Sputnik UIs.
+- Ideas for later, from Trezu: gas-sponsored transactions (`signDelegateActions` + relayer), NEAR Intents deposits from other chains, and vote delegation to other holders (as in `sputnik-staking`).
 
 ## Sources
 

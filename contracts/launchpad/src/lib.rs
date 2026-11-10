@@ -25,7 +25,7 @@ mod views;
 
 use near_contract_standards::fungible_token::receiver::FungibleTokenReceiver;
 use crate::math::bps;
-use near_sdk::json_types::U128;
+use near_sdk::json_types::{Base58CryptoHash, U128};
 use near_sdk::store::{LookupMap, Vector};
 use near_sdk::{
     env, near, require, serde_json, AccountId, BorshStorageKey, NearToken, PanicOnDefault,
@@ -59,15 +59,17 @@ enum StorageKey {
     Posts,
     Epochs,
     PendingTokens,
+    Referrals,
 }
 
 #[near(serializers = [borsh, json])]
 #[derive(Clone)]
 pub struct Config {
     pub owner_id: AccountId,
-    /// Account holding the meme-token code as a global contract.
-    pub token_code_account: AccountId,
-    pub sputnik_factory: AccountId,
+    /// Global contract code hashes (immutable: nobody can swap code under live tokens/DAOs).
+    /// `dao_code_hash` is the official Sputnik DAO v2 global code.
+    pub token_code_hash: Base58CryptoHash,
+    pub dao_code_hash: Base58CryptoHash,
     pub ref_exchange: AccountId,
     pub linear: AccountId,
     pub default_agent: AccountId,
@@ -85,10 +87,15 @@ pub struct Config {
     /// Fully-diluted market cap (USD) at which a token graduates to Ref.
     /// Each launch sizes its curve from the NEAR/USD price at launch time.
     pub grad_mcap_usd: u64,
-    /// Max age of the NEAR/USD price used to size a new curve.
+    /// On-chain NEAR/USD source: a Ref pool quote, read at every launch. `None` = feeder mode (testnet).
+    pub price_pool: Option<PricePool>,
+    /// The accepted price may move at most this much per hour of elapsed time (manipulation guard).
+    pub max_price_move_bps_per_hour: u16,
+    /// Feeder mode only: max age of the pushed price, and who may push it (owner always can).
     pub max_price_age_secs: u64,
-    /// Account allowed to push NEAR/USD (the keeper). The owner can always push.
     pub price_feeder: AccountId,
+    /// Share of the platform fee paid to a trade's referrer.
+    pub referral_bps: u16,
 
     pub buy_fee_bps: u16,
     pub sell_fee_bps: u16,
@@ -117,6 +124,19 @@ pub struct Config {
     pub dao_quorum: U128,
     pub ref_pool_fee: u32,
     pub agent_post_cost: NearToken,
+}
+
+#[near(serializers = [borsh, json])]
+#[derive(Clone)]
+pub struct PricePool {
+    pub pool_id: u64,
+    /// wNEAR account (wrap.near)
+    pub near_token: AccountId,
+    /// USD stablecoin account and its decimals (native USDC: 6)
+    pub usd_token: AccountId,
+    pub usd_decimals: u8,
+    /// Pool fee in bps; the quote is grossed up by it
+    pub pool_fee_bps: u16,
 }
 
 #[near(serializers = [borsh, json])]
@@ -278,9 +298,14 @@ pub struct EpochReport {
 #[near(serializers = [json])]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum TransferMsg {
-    Sell { min_near_out: Option<U128> },
+    Sell { min_near_out: Option<U128>, referrer: Option<AccountId> },
     Redeem { min_out: Option<U128> },
     Lock { days: u64 },
+}
+
+#[near(serializers = [json])]
+pub struct FundYieldMsg {
+    pub fund_yield: AccountId,
 }
 
 #[near(contract_state)]
@@ -304,6 +329,8 @@ pub struct Contract {
     /// NEAR/USD in micro-USD (1_590_000 = $1.59) and when it was set.
     pub near_usd_micro: u128,
     pub price_updated_at: u64,
+    /// NEAR fees owed to referrers.
+    pub referral_balance: LookupMap<AccountId, u128>,
 }
 
 pub(crate) fn now_secs() -> u64 {
@@ -346,6 +373,7 @@ impl Contract {
             ref_registered: false,
             near_usd_micro: 0,
             price_updated_at: 0,
+            referral_balance: LookupMap::new(StorageKey::Referrals),
         }
     }
 
@@ -388,14 +416,16 @@ impl Contract {
     // ---------- internal helpers ----------
 
     /// Virtual NEAR reserve that makes the curve graduate at `grad_mcap_usd`
-    /// at the current NEAR/USD price.
+    /// at the accepted NEAR/USD price.
     pub(crate) fn launch_virtual_near(&self) -> u128 {
         let c = &self.config;
         require!(self.near_usd_micro > 0, "ERR_NO_PRICE");
-        require!(
-            now_secs() <= self.price_updated_at + c.max_price_age_secs,
-            "ERR_PRICE_STALE"
-        );
+        if c.price_pool.is_none() {
+            require!(
+                now_secs() <= self.price_updated_at + c.max_price_age_secs,
+                "ERR_PRICE_STALE"
+            );
+        }
         math::virtual_near_for_mcap(
             c.grad_mcap_usd,
             self.near_usd_micro,
@@ -405,17 +435,45 @@ impl Contract {
         )
     }
 
-    /// Split a curve fee into vault, creator (instant + escrow) and platform.
-    pub(crate) fn distribute_fee(&mut self, idx: u32, fee: u128) {
+    /// Split a curve fee into vault, creator (instant + escrow), referrer and platform.
+    pub(crate) fn distribute_fee(&mut self, idx: u32, fee: u128, referrer: Option<&AccountId>) {
         let c = self.config.clone();
         let vault = bps(fee, c.fee_vault_bps as u128);
         let creator = bps(fee, c.fee_creator_bps as u128);
         let instant = bps(creator, c.creator_instant_bps as u128);
-        let tok = self.tok_mut(idx);
-        tok.backing_near += vault;
-        tok.creator_claimable += instant;
-        tok.creator_escrow += creator - instant;
-        self.platform_fees += fee - vault - creator;
+        let mut platform = fee - vault - creator;
+        {
+            let tok = self.tok_mut(idx);
+            tok.backing_near += vault;
+            tok.creator_claimable += instant;
+            tok.creator_escrow += creator - instant;
+        }
+        if let Some(r) = referrer {
+            let cut = bps(platform, c.referral_bps as u128);
+            platform -= cut;
+            let cur = self.referral_balance.get(r).copied().unwrap_or(0);
+            self.referral_balance.insert(r.clone(), cur + cut);
+        }
+        self.platform_fees += platform;
+    }
+
+    /// Accept a NEAR/USD observation, clamped to `max_price_move_bps_per_hour` x hours
+    /// since the last accepted price (at most +/-90%). Returns the accepted price.
+    pub(crate) fn accept_price(&mut self, observed_micro: u128) -> u128 {
+        let now = now_secs();
+        let old = self.near_usd_micro;
+        let p = if old == 0 {
+            observed_micro
+        } else {
+            let elapsed = now.saturating_sub(self.price_updated_at) as u128;
+            let allowed = (self.config.max_price_move_bps_per_hour as u128 * elapsed / 3600).clamp(1, 9_000);
+            let lo = old * (math::BPS - allowed) / math::BPS;
+            let hi = old * (math::BPS + allowed) / math::BPS;
+            observed_micro.clamp(lo, hi)
+        };
+        self.near_usd_micro = p;
+        self.price_updated_at = now;
+        p
     }
 
     pub(crate) fn assert_owner(&self) {
@@ -461,13 +519,28 @@ impl FungibleTokenReceiver for Contract {
         msg: String,
     ) -> PromiseOrValue<U128> {
         let token_id = env::predecessor_account_id();
-        let idx = self.idx_of(&token_id);
         require!(amount.0 > 0, "ERR_ZERO");
+        // LiNEAR sent with {"fund_yield":"<meme token>"} tops up that token's yield pool:
+        // it is split by the next epoch's holder vote like staking yield (never principal).
+        if token_id == self.config.linear {
+            let f: FundYieldMsg = serde_json::from_str(&msg).expect("ERR_BAD_MSG");
+            let idx = self.idx_of(&f.fund_yield);
+            let tok = self.tok_mut(idx);
+            require!(tok.grad_stage == GradStage::Graduated, "ERR_NOT_GRADUATED");
+            tok.linear_shares += amount.0;
+            env::log_str(&format!("{} funded {} LiNEAR of yield for {}", sender_id, amount.0, f.fund_yield));
+            return PromiseOrValue::Value(U128(0));
+        }
+        let idx = self.idx_of(&token_id);
         let parsed: TransferMsg = serde_json::from_str(&msg).expect("ERR_BAD_MSG");
         match parsed {
-            TransferMsg::Sell { min_near_out } => {
-                self.start_sell(idx, sender_id, amount.0, min_near_out.map(|v| v.0).unwrap_or(0))
-            }
+            TransferMsg::Sell { min_near_out, referrer } => self.start_sell(
+                idx,
+                sender_id,
+                amount.0,
+                min_near_out.map(|v| v.0).unwrap_or(0),
+                referrer,
+            ),
             TransferMsg::Redeem { min_out } => {
                 self.start_redeem(idx, sender_id, amount.0, min_out.map(|v| v.0).unwrap_or(0))
             }

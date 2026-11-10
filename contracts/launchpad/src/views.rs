@@ -109,6 +109,10 @@ impl Contract {
         U128(self.pending_tokens.get(&(idx, account_id)).copied().unwrap_or(0))
     }
 
+    pub fn get_referral_balance(&self, account_id: AccountId) -> U128 {
+        U128(self.referral_balance.get(&account_id).copied().unwrap_or(0))
+    }
+
     pub fn get_platform_fees(&self) -> U128 {
         U128(self.platform_fees)
     }

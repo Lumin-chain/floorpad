@@ -9,12 +9,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@near-wallet-selector/core": "8.10.2",
-    "@near-wallet-selector/here-wallet": "8.10.2",
-    "@near-wallet-selector/meteor-wallet": "8.10.2",
-    "@near-wallet-selector/modal-ui": "8.10.2",
-    "@near-wallet-selector/my-near-wallet": "8.10.2",
-    "buffer": "^6.0.3",
+    "@hot-labs/near-connect": "^0.12.0",
+    "@walletconnect/sign-client": "^2.26.0",
     "next": "15.5.29",
     "react": "19.1.10",
     "react-dom": "19.1.10"

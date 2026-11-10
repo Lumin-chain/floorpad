@@ -1,5 +1,5 @@
 //! Interfaces of the external contracts the launchpad drives.
-use near_sdk::json_types::{Base64VecU8, U128, U64};
+use near_sdk::json_types::{U128, U64};
 use near_sdk::serde_json::Value;
 use near_sdk::{ext_contract, AccountId, Gas};
 
@@ -29,7 +29,7 @@ pub trait ExtFt {
 #[allow(dead_code)]
 #[ext_contract(ext_linear)]
 pub trait ExtLinear {
-    fn deposit_and_stake(&mut self);
+    fn deposit_and_stake(&mut self) -> U128;
     fn ft_price(&self) -> U128;
 }
 
@@ -40,6 +40,7 @@ pub trait ExtRef {
     fn storage_deposit(&mut self, account_id: Option<AccountId>, registration_only: Option<bool>);
     fn register_tokens(&mut self, token_ids: Vec<AccountId>);
     fn add_simple_pool(&mut self, tokens: Vec<AccountId>, fee: u32) -> u64;
+    fn get_return(&self, pool_id: u64, token_in: AccountId, amount_in: U128, token_out: AccountId) -> U128;
     fn add_liquidity(
         &mut self,
         pool_id: u64,
@@ -60,8 +61,3 @@ pub trait ExtDao {
     fn get_staking_contract(&self) -> String;
 }
 
-#[allow(dead_code)]
-#[ext_contract(ext_factory)]
-pub trait ExtFactory {
-    fn create(&mut self, name: AccountId, args: Base64VecU8);
-}

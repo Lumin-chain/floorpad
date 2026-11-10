@@ -31,6 +31,12 @@ export default function Portfolio() {
     20000,
   );
   const { data: claimable } = useView(accountId ? () => lp<string>("get_claimable_linear", { account_id: accountId }) : null, [accountId], 15000);
+  const { data: referral } = useView(accountId ? () => lp<string>("get_referral_balance", { account_id: accountId }) : null, [accountId], 15000);
+  const { data: created } = useView(
+    accountId ? async () => (await lp<TokenView[]>("get_tokens", { from_index: 0, limit: 100 })).filter((t) => t.creator === accountId) : null,
+    [accountId],
+    20000,
+  );
 
   if (!accountId) {
     return (
@@ -50,9 +56,41 @@ export default function Portfolio() {
     <div className="section stack">
       <div className="row between wrap">
         <h1>Portfolio</h1>
+        <button
+          className="btn sm"
+          onClick={async () => {
+            const url = `${window.location.origin}/?ref=${accountId}`;
+            await navigator.clipboard.writeText(url).catch(() => {});
+          }}
+          title="Earn 20% of the platform fee on every trade your link brings"
+        >
+          🔗 Copy my ref link
+        </button>
         <div className="row">
           <span className="muted">Claimable: <b>{fmtNear(claimable ?? "0")} LiNEAR</b></span>
           <button className="btn primary sm" disabled={busy || !claimable || claimable === "0"} onClick={withdraw}>Withdraw</button>
+        </div>
+      </div>
+      <div className="grid half">
+        <div className="panel">
+          <h2>Referral earnings</h2>
+          <p className="small muted">You earn 20% of the platform fee on every curve trade made through your ref link.</p>
+          <div className="row between">
+            <b>{fmtNear(referral ?? "0")} NEAR</b>
+            <button className="btn sm primary" disabled={busy || !referral || referral === "0"} onClick={() => send([{ receiverId: LAUNCHPAD, calls: [{ method: "claim_referral_fees", args: {}, gas: 20 }] }])}>Claim</button>
+          </div>
+        </div>
+        <div className="panel">
+          <h2>Creator fees</h2>
+          {!created?.length && <p className="small muted">Tokens you launch show up here. Half of your 25% fee share is claimable any time.</p>}
+          {created?.map((t) => (
+            <div key={t.token_id} className="row between" style={{ marginTop: 6 }}>
+              <span><b>${t.meta.symbol}</b> <span className="small muted">escrow {fmtNear(t.creator_escrow, 3)} N (DAO-released)</span></span>
+              <button className="btn sm" disabled={busy || t.creator_claimable === "0"} onClick={() => send([{ receiverId: LAUNCHPAD, calls: [{ method: "claim_creator_fees", args: { token_id: t.token_id }, gas: 20 }] }])}>
+                Claim {fmtNear(t.creator_claimable, 3)} N
+              </button>
+            </div>
+          ))}
         </div>
       </div>
       <div className="panel">

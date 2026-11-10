@@ -1,0 +1,8 @@
+{
+  "name": "floorpad-e2e",
+  "private": true,
+  "type": "module",
+  "description": "End-to-end lifecycle test of Floorpad on NEAR testnet (faucet-funded throwaway accounts)",
+  "scripts": { "testnet": "node testnet.mjs" },
+  "dependencies": { "near-api-js": "^7.4.0" }
+}

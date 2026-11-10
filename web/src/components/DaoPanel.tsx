@@ -4,6 +4,8 @@ import { useState } from "react";
 import { ago, fmtNear, fmtTok, LAUNCHPAD, LINEAR, parseUnits, view } from "@/lib/near";
 import { useView, useWallet } from "@/lib/wallet";
 import { Kv, Stat } from "./ui";
+import { Bounties } from "./Bounties";
+import { decodeDescription, encodeDescription } from "@/lib/proposal-format";
 import type { TokenCtx } from "@/app/token/[id]/page";
 
 // ---- Sputnik DAO v2 shapes (subset) ----
@@ -20,6 +22,7 @@ interface Proposal {
 }
 interface Policy {
   proposal_bond: string;
+  bounty_bond: string;
   proposal_period: string;
   default_vote_policy: { quorum: string; threshold: [number, number] | string };
   roles: { name: string; vote_policy: Record<string, { threshold: [number, number] | string; quorum: string }> }[];
@@ -141,7 +144,15 @@ export function DaoPanel({ t }: TokenCtx) {
                 <b>#{p.id} · {describeKind(p.kind, t.meta.symbol)}</b>
                 <span className={`badge ${STATUS_BADGE[p.status] ?? ""}`}>{expired ? "Expired" : p.status}</span>
               </div>
-              {p.description && <p className="small" style={{ margin: "6px 0" }}>{p.description}</p>}
+              {(() => {
+                const d = decodeDescription(p.description);
+                return (
+                  <>
+                    {d.title && <div style={{ fontWeight: 600, marginTop: 6 }}>{d.title}</div>}
+                    {d.notes && <p className="small" style={{ margin: "4px 0 6px" }}>{d.notes}</p>}
+                  </>
+                );
+              })()}
               <div className="vote-bar">
                 <div className="yes" style={{ width: `${pct(yes)}%` }} />
                 <div className="no" style={{ width: `${pct(no)}%` }} />
@@ -182,6 +193,7 @@ export function DaoPanel({ t }: TokenCtx) {
         ) : (
           <div className="notice">Only lockers can create proposals. Lock ${t.meta.symbol} in the Lock &amp; vote tab, then propose here.</div>
         )}
+        {policy && <Bounties t={t} bountyBond={policy.bounty_bond} />}
         {policy && (
           <div className="panel tight small">
             <Kv k="Who can propose" v="Any locker (bond refunded unless voted spam)" />
@@ -211,6 +223,7 @@ function NewProposal({ t, bond, onDone }: { t: TokenCtx["t"]; bond: string; onDo
   const { send, busy, accountId, signIn } = useWallet();
   const [tpl, setTpl] = useState<Template>("signal");
   const [desc, setDesc] = useState("");
+  const [title, setTitle] = useState("");
   const [f, setF] = useState({ receiver: "", amount: "", token: "NEAR", persona: t.agent_persona, agent: "", method: "", args: "{}", deposit: "0", gas: "100", times: "1", days: "7" });
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setF({ ...f, [k]: e.target.value });
 
@@ -237,7 +250,7 @@ function NewProposal({ t, bond, onDone }: { t: TokenCtx["t"]; bond: string; onDo
         return {
           AddBounty: {
             bounty: {
-              description: desc,
+              description: [title, desc].filter(Boolean).join(": "),
               token: "",
               amount: parseUnits(f.amount, 24).toString(),
               times: Number(f.times) || 1,
@@ -267,9 +280,12 @@ function NewProposal({ t, bond, onDone }: { t: TokenCtx["t"]; bond: string; onDo
   async function submit() {
     if (!accountId) return signIn();
     if (!k) return;
-    const ok = await send([{ receiverId: t.dao_id, calls: [{ method: "add_proposal", args: { proposal: { description: desc, kind: k } }, gas: 100, deposit: bond }] }]);
+    // Trezu-compatible description so the proposal reads well in any Sputnik UI
+    const description = encodeDescription({ title, notes: desc, proposal_action: `floorpad-${tpl}` });
+    const ok = await send([{ receiverId: t.dao_id, calls: [{ method: "add_proposal", args: { proposal: { description, kind: k } }, gas: 100, deposit: bond }] }]);
     if (ok) {
       setDesc("");
+      setTitle("");
       onDone();
     }
   }
@@ -322,8 +338,9 @@ function NewProposal({ t, bond, onDone }: { t: TokenCtx["t"]; bond: string; onDo
         </>
       )}
       {tpl === "clawback" && <div className="notice small" style={{ marginBottom: 10 }}>Moves the creator&apos;s remaining {fmtNear(t.creator_escrow)} NEAR escrow into the DAO treasury.</div>}
-      <label className="field"><span>Description</span><textarea className="textarea" value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Why should holders approve this?" /></label>
-      <button className="btn primary block" disabled={busy || !k || !desc.trim()} onClick={submit}>
+      <label className="field"><span>Title</span><input className="input" value={title} maxLength={120} onChange={(e) => setTitle(e.target.value)} placeholder="Short headline" /></label>
+      <label className="field"><span>Notes</span><textarea className="textarea" value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Why should holders approve this?" /></label>
+      <button className="btn primary block" disabled={busy || !k || !title.trim()} onClick={submit}>
         Submit · {fmtNear(bond)} NEAR bond
       </button>
     </div>

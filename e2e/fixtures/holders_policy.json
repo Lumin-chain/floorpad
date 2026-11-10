@@ -1,0 +1,73 @@
+{
+  "holders_policy": {
+    "roles": [
+      {
+        "name": "bounty-hunters",
+        "kind": "Everyone",
+        "permissions": [
+          "bounty_done:AddProposal"
+        ],
+        "vote_policy": {}
+      },
+      {
+        "name": "holders",
+        "kind": {
+          "Member": "1"
+        },
+        "permissions": [
+          "*:AddProposal",
+          "*:VoteApprove",
+          "*:VoteReject",
+          "*:VoteRemove",
+          "*:Finalize"
+        ],
+        "vote_policy": {
+          "policy": {
+            "weight_kind": "TokenWeight",
+            "quorum": "0",
+            "threshold": [
+              4,
+              5
+            ]
+          },
+          "upgrade_self": {
+            "weight_kind": "TokenWeight",
+            "quorum": "0",
+            "threshold": [
+              4,
+              5
+            ]
+          },
+          "upgrade_remote": {
+            "weight_kind": "TokenWeight",
+            "quorum": "0",
+            "threshold": [
+              4,
+              5
+            ]
+          },
+          "set_vote_token": {
+            "weight_kind": "TokenWeight",
+            "quorum": "0",
+            "threshold": [
+              4,
+              5
+            ]
+          }
+        }
+      }
+    ],
+    "default_vote_policy": {
+      "weight_kind": "TokenWeight",
+      "quorum": "0",
+      "threshold": [
+        7,
+        10
+      ]
+    },
+    "proposal_bond": "100000000000000000000000",
+    "proposal_period": "259200000000000",
+    "bounty_bond": "100000000000000000000000",
+    "bounty_forgiveness_period": "86400000000000"
+  }
+}

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import {
+  getReferrer,
   fmtNear,
   fmtTok,
   LAUNCHPAD,
@@ -68,12 +69,12 @@ function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: T
     const min = (BigInt(q.amount_out) * (10000n - SLIPPAGE_BPS)) / 10000n;
     const tx: Tx =
       side === "buy"
-        ? { receiverId: LAUNCHPAD, calls: [{ method: "buy", args: { token_id: t.token_id, min_tokens_out: min.toString() }, gas: 100, deposit: base }] }
+        ? { receiverId: LAUNCHPAD, calls: [{ method: "buy", args: { token_id: t.token_id, min_tokens_out: min.toString(), referrer: getReferrer(accountId) }, gas: 100, deposit: base }] }
         : {
             receiverId: t.token_id,
             calls: [{
               method: "ft_transfer_call",
-              args: { receiver_id: LAUNCHPAD, amount: base.toString(), msg: JSON.stringify({ action: "sell", min_near_out: min.toString() }) },
+              args: { receiver_id: LAUNCHPAD, amount: base.toString(), msg: JSON.stringify({ action: "sell", min_near_out: min.toString(), referrer: getReferrer(accountId) }) },
               gas: 150,
               deposit: "1",
             }],
@@ -121,7 +122,7 @@ function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: T
       {q && (
         <div>
           <Kv k="You receive" v={side === "buy" ? `${fmtTok(q.amount_out)} $${t.meta.symbol}` : `${fmtNear(q.amount_out)} NEAR`} />
-          <Kv k={`${side === "buy" ? "Buy" : "Sell"} fee (${((side === "buy" ? cfg?.buy_fee_bps ?? 100 : cfg?.sell_fee_bps ?? 200) / 100).toFixed(1)}%, half to the floor)`} v={`${fmtNear(q.fee)} N`} />
+          <Kv k={`${side === "buy" ? "Buy" : "Sell"} fee (${((side === "buy" ? cfg?.buy_fee_bps ?? 125 : cfg?.sell_fee_bps ?? 250) / 100).toFixed(1)}%, 40% to the floor)`} v={`${fmtNear(q.fee)} N`} />
           {side === "sell" && <Kv k={`Exit fee (${exitPct.toFixed(1)}%, to the floor)`} v={`${fmtNear(q.exit_fee)} N`} />}
           {BigInt(q.refund) > 0n && <Kv k="Refund (curve sells out)" v={`${fmtNear(q.refund)} N`} />}
         </div>

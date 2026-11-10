@@ -29,7 +29,7 @@ const env = (k: string, d?: string) => {
 };
 
 const NETWORK = env("NEAR_NETWORK", "testnet");
-const RPC = env("NEAR_RPC", `https://rpc.${NETWORK}.near.org`);
+const RPC = env("NEAR_RPC", `https://rpc.${NETWORK}.fastnear.com`);
 const LAUNCHPAD = env("LAUNCHPAD_ID");
 const OPERATOR = env("OPERATOR_ID");
 const AI_BASE = env("AI_BASE_URL", "https://cloud-api.near.ai/v1");
@@ -240,6 +240,14 @@ async function liveNearUsd(): Promise<number | null> {
 }
 
 async function pushPrice() {
+  // Mainnet: the contract reads NEAR/USD from a Ref pool itself; the keeper just keeps
+  // the reference warm (permissionless). Testnet (no price_pool): push a 2-source price.
+  const cfg = await view<{ price_pool: unknown | null }>("get_config");
+  if (cfg.price_pool) {
+    const [, updatedAt] = await view<[string, number]>("get_near_usd_price");
+    if (Date.now() / 1000 - updatedAt > 3600) await call("refresh_near_usd_price", {}, 50n);
+    return;
+  }
   const live = await liveNearUsd().catch(() => null);
   if (!live) return;
   const [onchain, updatedAt] = await view<[string, number]>("get_near_usd_price");

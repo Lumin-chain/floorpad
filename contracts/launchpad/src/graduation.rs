@@ -130,14 +130,15 @@ impl Contract {
         idx: u32,
         price: U128,
         amount: U128,
-        #[callback_result] r: Result<(), PromiseError>,
+        #[callback_result] r: Result<U128, PromiseError>,
     ) {
         let tok = self.tok_mut(idx);
         tok.grad_busy = false;
-        if r.is_err() {
+        // LiNEAR returns the exact number of shares minted.
+        let Ok(minted) = r else {
             return; // NEAR refunded by LiNEAR; retry the step
-        }
-        let total = math::near_to_shares_conservative(amount.0, price.0);
+        };
+        let total = minted.0;
         tok.lp_shares = math::mul_div(total, tok.lp_near, amount.0);
         tok.linear_shares += total - tok.lp_shares;
         tok.principal_near += tok.backing_near;

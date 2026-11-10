@@ -1,11 +1,15 @@
 "use client";
 
+/**
+ * Wallet layer on NEAR Connect (@hot-labs/near-connect), the connector NEAR-DevHub's
+ * Trezu uses. Wallets run in sandboxed executors (HOT, Meteor, Intear, MyNearWallet,
+ * Nightly, Ledger, ...) and are discovered from a live manifest, so new wallets appear
+ * without an app update. WalletConnect is enabled when a project id is configured.
+ */
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import type { WalletSelector } from "@near-wallet-selector/core";
-import type { WalletSelectorModal } from "@near-wallet-selector/modal-ui";
-import { Buffer } from "buffer";
-import { LAUNCHPAD, NETWORK, view } from "./near";
-import { completeRedirectSignIn, getSession, signInChat, clearSession, type Session } from "./social";
+import type { NearConnector } from "@hot-labs/near-connect";
+import { NETWORK, RPC, view } from "./near";
+import { clearSession, completeRedirectSignIn, getSession, signInChat, type Session } from "./social";
 
 export interface Call {
   method: string;
@@ -35,15 +39,65 @@ interface WalletCtx {
 }
 
 const Ctx = createContext<WalletCtx | null>(null);
+const WC_PROJECT_ID = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
+
+async function walletConnectClient() {
+  if (!WC_PROJECT_ID) return undefined;
+  const { default: SignClient } = await import("@walletconnect/sign-client");
+  return SignClient.init({
+    projectId: WC_PROJECT_ID,
+    metadata: {
+      name: "Floorpad",
+      description: "Meme launches with a floor that only goes up",
+      url: typeof window !== "undefined" ? window.location.origin : "https://floorpad.app",
+      icons: ["/icon.svg"],
+    },
+  });
+}
 
 export function WalletProvider({ children }: { children: ReactNode }) {
-  const selector = useRef<WalletSelector | null>(null);
-  const modal = useRef<WalletSelectorModal | null>(null);
+  const connector = useRef<NearConnector | null>(null);
   const [accountId, setAccountId] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<WalletCtx["toast"]>(null);
   const [chat, setChat] = useState<Session | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { NearConnector } = await import("@hot-labs/near-connect");
+      const wc = walletConnectClient();
+      const c = new NearConnector({
+        network: NETWORK,
+        providers: { [NETWORK]: [RPC] },
+        walletConnect: WC_PROJECT_ID ? (wc as never) : undefined,
+        footerBranding: {
+          icon: "/icon.svg",
+          link: "https://wallet.near.org",
+          linkText: "Need a NEAR wallet?",
+          heading: "Floorpad",
+        },
+      });
+      c.on("wallet:signIn", (e) => setAccountId(e.accounts[0]?.accountId ?? null));
+      c.on("wallet:signOut", () => {
+        setAccountId(null);
+        clearSession();
+        setChat(null);
+      });
+      connector.current = c;
+      try {
+        const { accounts } = await c.getConnectedWallet();
+        if (!cancelled) setAccountId(accounts[0]?.accountId ?? null);
+      } catch {
+        /* not connected yet */
+      }
+      if (!cancelled) setReady(true);
+    })().catch((e) => console.error("wallet init failed", e));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => setChat(getSession(accountId)), [accountId]);
   useEffect(() => {
@@ -54,100 +108,84 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   }, [ready]);
 
   useEffect(() => {
-    let unsub: (() => void) | undefined;
-    (async () => {
-      const [{ setupWalletSelector }, { setupModal }, mnw, meteor, here] = await Promise.all([
-        import("@near-wallet-selector/core"),
-        import("@near-wallet-selector/modal-ui"),
-        import("@near-wallet-selector/my-near-wallet"),
-        import("@near-wallet-selector/meteor-wallet"),
-        import("@near-wallet-selector/here-wallet"),
-      ]);
-      const s = await setupWalletSelector({
-        network: NETWORK,
-        modules: [mnw.setupMyNearWallet(), meteor.setupMeteorWallet(), here.setupHereWallet()],
-      });
-      selector.current = s;
-      modal.current = setupModal(s, { contractId: LAUNCHPAD });
-      const sync = () => {
-        const acc = s.store.getState().accounts.find((a) => a.active) ?? null;
-        setAccountId(acc?.accountId ?? null);
-      };
-      sync();
-      const sub = s.store.observable.subscribe(sync);
-      unsub = () => sub.unsubscribe();
-      setReady(true);
-    })().catch((e) => console.error("wallet init failed", e));
-    return () => unsub?.();
-  }, []);
-
-  useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), 6000);
     return () => clearTimeout(t);
   }, [toast]);
 
-  const signIn = useCallback(() => modal.current?.show(), []);
-  const signOut = useCallback(async () => {
-    const w = await selector.current?.wallet();
-    clearSession();
-    setChat(null);
-    await w?.signOut();
+  const signIn = useCallback(async () => {
+    try {
+      await connector.current?.connect();
+    } catch (e) {
+      const msg = (e as Error)?.message;
+      if (msg && !/reject|cancel|closed/i.test(msg)) setToast({ kind: "err", text: msg });
+    }
   }, []);
 
+  const signOut = useCallback(async () => {
+    clearSession();
+    setChat(null);
+    await connector.current?.disconnect().catch(() => {});
+    setAccountId(null);
+  }, []);
+
+  const send = useCallback(
+    async (txs: Tx[]) => {
+      if (!connector.current) return false;
+      if (!accountId) {
+        signIn();
+        return false;
+      }
+      setBusy(true);
+      try {
+        const wallet = await connector.current.wallet();
+        await wallet.signAndSendTransactions({
+          network: NETWORK,
+          signerId: accountId,
+          transactions: txs.map((tx) => ({
+            receiverId: tx.receiverId,
+            actions: tx.calls.map((c) => ({
+              type: "FunctionCall" as const,
+              params: {
+                methodName: c.method,
+                args: c.args,
+                gas: (BigInt(c.gas ?? 100) * 10n ** 12n).toString(),
+                deposit: (c.deposit ?? "0").toString(),
+              },
+            })),
+          })),
+        });
+        setToast({ kind: "ok", text: "Transaction sent" });
+        return true;
+      } catch (e) {
+        setToast({ kind: "err", text: (e as Error)?.message ?? "Transaction failed" });
+        return false;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [accountId, signIn],
+  );
+
   const chatSignIn = useCallback(async () => {
-    if (!selector.current || !accountId) {
-      modal.current?.show();
+    if (!connector.current || !accountId) {
+      signIn();
       return;
     }
     try {
-      const w = await selector.current.wallet();
+      const wallet = await connector.current.wallet();
       const s = await signInChat(async (p) => {
-        const r = await w.signMessage({ ...p, nonce: Buffer.from(p.nonce) });
-        return r ? { accountId: r.accountId, publicKey: r.publicKey, signature: r.signature } : undefined;
+        const r = await wallet.signMessage({ message: p.message, recipient: p.recipient, nonce: p.nonce, network: NETWORK, signerId: accountId });
+        return { accountId: r.accountId, publicKey: r.publicKey, signature: r.signature };
       });
       if (s) {
         setChat(s);
         setToast({ kind: "ok", text: "Signed in to chat" });
       }
     } catch (e) {
-      setToast({ kind: "err", text: (e as Error).message ?? "Sign-in failed" });
+      setToast({ kind: "err", text: (e as Error)?.message ?? "Sign-in failed" });
     }
-  }, [accountId]);
-
-  const send = useCallback(async (txs: Tx[]) => {
-    if (!selector.current) return false;
-    if (!accountId) {
-      modal.current?.show();
-      return false;
-    }
-    setBusy(true);
-    try {
-      const wallet = await selector.current.wallet();
-      await wallet.signAndSendTransactions({
-        transactions: txs.map((tx) => ({
-          signerId: accountId,
-          receiverId: tx.receiverId,
-          actions: tx.calls.map((c) => ({
-            type: "FunctionCall" as const,
-            params: {
-              methodName: c.method,
-              args: c.args,
-              gas: (BigInt(c.gas ?? 100) * 10n ** 12n).toString(),
-              deposit: (c.deposit ?? "0").toString(),
-            },
-          })),
-        })),
-      });
-      setToast({ kind: "ok", text: "Transaction sent" });
-      return true;
-    } catch (e) {
-      setToast({ kind: "err", text: (e as Error).message ?? "Transaction failed" });
-      return false;
-    } finally {
-      setBusy(false);
-    }
-  }, [accountId]);
+  }, [accountId, signIn]);
 
   return (
     <Ctx.Provider value={{ accountId, ready, signIn, signOut, send, busy, toast, setToast, chat, chatSignIn }}>

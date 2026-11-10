@@ -1,5 +1,5 @@
 //! Token creation and bonding-curve trading.
-use crate::ext::{ext_ft, tgas};
+use crate::ext::{ext_ft, ext_ref, tgas};
 use crate::math::{self, bps};
 use crate::*;
 use near_sdk::json_types::{U128, U64};
@@ -13,13 +13,82 @@ const MAX_ICON_LEN: usize = 12_000;
 
 #[near]
 impl Contract {
-    /// Launches a token: deploys the NEP-141 contract, creates its Sputnik DAO
-    /// and opens the bonding curve. Attach `creation_fee` and 300 Tgas.
+    /// Launches a token: reads NEAR/USD on-chain (Ref pool), deploys the NEP-141
+    /// contract, creates its Sputnik DAO and opens the bonding curve.
+    /// Attach `creation_fee` and 300 Tgas.
     #[payable]
-    pub fn create_token(&mut self, meta: TokenMeta, agent_persona: Option<String>) -> AccountId {
+    pub fn create_token(&mut self, meta: TokenMeta, agent_persona: Option<String>) -> PromiseOrValue<Option<AccountId>> {
         let deposit = env::attached_deposit().as_yoctonear();
-        let cfg = self.config.clone();
-        require!(deposit >= cfg.creation_fee.as_yoctonear(), "ERR_CREATION_FEE");
+        require!(deposit >= self.config.creation_fee.as_yoctonear(), "ERR_CREATION_FEE");
+        let persona = self.validate_launch(&meta, &agent_persona);
+        let creator = env::predecessor_account_id();
+        match self.config.price_pool.clone() {
+            None => {
+                let v0 = self.launch_virtual_near();
+                PromiseOrValue::Value(Some(self.internal_launch(creator, deposit, meta, persona, v0)))
+            }
+            Some(p) => ext_ref::ext(self.config.ref_exchange.clone())
+                .with_static_gas(tgas(10))
+                .get_return(p.pool_id, p.near_token, U128(math::PRICE_SCALE), p.usd_token)
+                .then(
+                    Self::ext(env::current_account_id())
+                        .with_static_gas(tgas(200))
+                        .on_launch_price(creator, U128(deposit), meta, persona),
+                )
+                .into(),
+        }
+    }
+
+    /// Permissionless: refresh the accepted NEAR/USD price from the Ref pool.
+    pub fn refresh_near_usd_price(&mut self) -> Promise {
+        let p = self.config.price_pool.clone().expect("ERR_NO_PRICE_POOL");
+        ext_ref::ext(self.config.ref_exchange.clone())
+            .with_static_gas(tgas(10))
+            .get_return(p.pool_id, p.near_token, U128(math::PRICE_SCALE), p.usd_token)
+            .then(Self::ext(env::current_account_id()).with_static_gas(tgas(10)).on_price_quote())
+    }
+
+    #[private]
+    pub fn on_price_quote(&mut self, #[callback_result] r: Result<U128, PromiseError>) -> U128 {
+        let q = r.expect("ERR_PRICE_QUOTE");
+        U128(self.accept_price(self.quote_to_micro_usd(q.0)))
+    }
+
+    #[private]
+    pub fn on_launch_price(
+        &mut self,
+        creator: AccountId,
+        deposit: U128,
+        meta: TokenMeta,
+        persona: String,
+        #[callback_result] r: Result<U128, PromiseError>,
+    ) -> Option<AccountId> {
+        let token_id = self.token_account_for(&meta.symbol);
+        let ok = r.as_ref().map(|q| q.0 > 0).unwrap_or(false);
+        if !ok || self.token_index.contains_key(&token_id) {
+            env::log_str("launch aborted (price unavailable or ticker taken); refunding");
+            Promise::new(creator).transfer(NearToken::from_yoctonear(deposit.0)).detach();
+            return None;
+        }
+        self.accept_price(self.quote_to_micro_usd(r.unwrap().0));
+        let v0 = self.launch_virtual_near();
+        Some(self.internal_launch(creator, deposit.0, meta, persona, v0))
+    }
+}
+
+impl Contract {
+    fn token_account_for(&self, symbol: &str) -> AccountId {
+        format!("{}.{}", symbol.to_lowercase(), env::current_account_id()).parse().expect("ERR_TOKEN_ID")
+    }
+
+    /// Ref `get_return` for 1 NEAR -> micro-USD per NEAR, grossed up by the pool fee.
+    fn quote_to_micro_usd(&self, out: u128) -> u128 {
+        let p = self.config.price_pool.as_ref().expect("ERR_NO_PRICE_POOL");
+        let micro = math::mul_div(out, 1_000_000, 10u128.pow(p.usd_decimals as u32));
+        math::mul_div(micro, math::BPS, math::BPS - p.pool_fee_bps as u128)
+    }
+
+    fn validate_launch(&self, meta: &TokenMeta, agent_persona: &Option<String>) -> String {
         let sym = meta.symbol.clone();
         require!(
             (2..=10).contains(&sym.len()) && sym.chars().all(|c| c.is_ascii_alphanumeric()),
@@ -28,21 +97,28 @@ impl Contract {
         require!(!meta.name.is_empty() && meta.name.len() <= 40, "ERR_NAME");
         require!(meta.description.len() <= 600, "ERR_DESCRIPTION");
         require!(meta.icon.as_ref().map_or(true, |i| i.len() <= MAX_ICON_LEN), "ERR_ICON_TOO_BIG");
-        let persona = agent_persona.unwrap_or_else(|| {
+        let persona = agent_persona.clone().unwrap_or_else(|| {
             format!("You are the voice of ${}. Be funny, upbeat and never give financial advice.", sym)
         });
         require!(persona.len() <= 1500, "ERR_PERSONA");
+        require!(!self.token_index.contains_key(&self.token_account_for(&sym)), "ERR_TICKER_TAKEN");
+        persona
+    }
 
-        let sub = sym.to_lowercase();
+    pub(crate) fn internal_launch(
+        &mut self,
+        creator: AccountId,
+        deposit: u128,
+        meta: TokenMeta,
+        persona: String,
+        v0: u128,
+    ) -> AccountId {
+        let cfg = self.config.clone();
         let me = env::current_account_id();
-        let token_id: AccountId = format!("{}.{}", sub, me).parse().expect("ERR_TOKEN_ID");
-        require!(!self.token_index.contains_key(&token_id), "ERR_TICKER_TAKEN");
-        let dao_id: AccountId =
-            format!("{}-fp.{}", sub, cfg.sputnik_factory).parse().expect("ERR_DAO_ID");
-
-        let v0 = self.launch_virtual_near();
+        let sub = meta.symbol.to_lowercase();
+        let token_id = self.token_account_for(&meta.symbol);
+        let dao_id: AccountId = format!("{}-dao.{}", sub, me).parse().expect("ERR_DAO_ID");
         let idx = self.tokens.len();
-        let creator = env::predecessor_account_id();
         self.tokens.push(TokenState {
             token_id: token_id.clone(),
             creator,
@@ -114,7 +190,7 @@ impl Contract {
         Promise::new(token_id.clone())
             .create_account()
             .transfer(cfg.token_account_deposit)
-            .use_global_contract_by_account_id(cfg.token_code_account.clone())
+            .use_global_contract(cfg.token_code_hash)
             .function_call(
                 "new".to_string(),
                 near_sdk::serde_json::to_vec(&init).unwrap(),
@@ -126,6 +202,10 @@ impl Contract {
         self.internal_create_dao(idx);
         token_id
     }
+}
+
+#[near]
+impl Contract {
 
     #[private]
     pub fn on_token_deployed(&mut self, idx: u32, #[callback_result] r: Result<(), PromiseError>) {
@@ -140,7 +220,7 @@ impl Contract {
     /// Buy on the bonding curve. Attach NEAR; first buy of a token also pays
     /// 0.00125 NEAR storage. Excess past the graduation cap is refunded.
     #[payable]
-    pub fn buy(&mut self, token_id: AccountId, min_tokens_out: U128) -> U128 {
+    pub fn buy(&mut self, token_id: AccountId, min_tokens_out: U128, referrer: Option<AccountId>) -> U128 {
         let idx = self.idx_of(&token_id);
         let cfg = self.config.clone();
         let buyer = env::predecessor_account_id();
@@ -198,7 +278,8 @@ impl Contract {
                 tok.holders += 1;
             }
         }
-        self.distribute_fee(idx, fee);
+        let referrer = referrer.filter(|r| r != &buyer);
+        self.distribute_fee(idx, fee, referrer.as_ref());
         let (vn, vt) = (self.tok(idx).v_near, self.tok(idx).v_tokens);
         self.record_trade(
             idx,
@@ -260,6 +341,14 @@ impl Contract {
         }
     }
 
+    /// Referrers withdraw their share of platform fees.
+    pub fn claim_referral_fees(&mut self) -> Promise {
+        let account = env::predecessor_account_id();
+        let amount = self.referral_balance.remove(&account).unwrap_or(0);
+        require!(amount > 0, "ERR_NOTHING_TO_CLAIM");
+        Promise::new(account).transfer(NearToken::from_yoctonear(amount))
+    }
+
     /// Creator withdraws the instantly-claimable part of their fees.
     pub fn claim_creator_fees(&mut self, token_id: AccountId) -> Promise {
         let idx = self.idx_of(&token_id);
@@ -299,6 +388,7 @@ impl Contract {
         seller: AccountId,
         amount: U128,
         min_near_out: U128,
+        referrer: Option<AccountId>,
         #[callback_result] since: Result<Option<U64>, PromiseError>,
     ) -> U128 {
         let cfg = self.config.clone();
@@ -327,7 +417,8 @@ impl Contract {
             tok.volume_near += gross;
             tok.backing_near += exit;
         }
-        self.distribute_fee(idx, fee);
+        let referrer = referrer.filter(|r| r != &seller);
+        self.distribute_fee(idx, fee, referrer.as_ref());
         let (vn, vt) = (self.tok(idx).v_near, self.tok(idx).v_tokens);
         self.record_trade(
             idx,
@@ -353,6 +444,7 @@ impl Contract {
         seller: AccountId,
         amount: u128,
         min_near_out: u128,
+        referrer: Option<AccountId>,
     ) -> PromiseOrValue<U128> {
         require!(self.tok(idx).grad_stage == GradStage::Curve, "ERR_CURVE_CLOSED");
         let token_id = self.tok(idx).token_id.clone();
@@ -362,7 +454,7 @@ impl Contract {
             .then(
                 Self::ext(env::current_account_id())
                     .with_static_gas(tgas(15))
-                    .on_sell_age(idx, seller, U128(amount), U128(min_near_out)),
+                    .on_sell_age(idx, seller, U128(amount), U128(min_near_out), referrer),
             )
             .into()
     }

@@ -29,9 +29,25 @@ import { AgentPanel } from "@/components/AgentPanel";
 import { OpsBar } from "@/components/OpsBar";
 import { Chat } from "@/components/Chat";
 import { TokenCallouts } from "@/components/Callouts";
+import { useIsDesktop } from "@/lib/media";
 
 const TABS = ["Chat", "Calls", "Trades", "Floor", "Lock & vote", "DAO", "Treasury", "Agent"] as const;
 type Tab = (typeof TABS)[number];
+
+function ShareButton({ tokenId }: { tokenId: string }) {
+  const { accountId, setToast } = useWallet();
+  const share = async () => {
+    const url = `${window.location.origin}/token/${tokenId}${accountId ? `?ref=${accountId}` : ""}`;
+    try {
+      if (navigator.share) await navigator.share({ url });
+      else await navigator.clipboard.writeText(url);
+      setToast({ kind: "ok", text: accountId ? "Ref link copied: you earn 20% of platform fees on trades it brings" : "Link copied" });
+    } catch {
+      /* dismissed */
+    }
+  };
+  return <button className="btn sm" onClick={share} title="Share with your referral code">🔗 Share</button>;
+}
 
 export interface TokenCtx {
   t: TokenView;
@@ -44,7 +60,13 @@ export interface TokenCtx {
 export default function TokenPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { accountId } = useWallet();
+  const desktop = useIsDesktop();
   const [tab, setTab] = useState<Tab>("Chat");
+  // On desktop chat is docked beside the chart, so the tab row starts at Trades.
+  useEffect(() => {
+    if (desktop && tab === "Chat") setTab("Trades");
+  }, [desktop, tab]);
+  const tabs = TABS.filter((x) => !(desktop && x === "Chat"));
   const [sheet, setSheet] = useState<null | "buy" | "sell">(null);
   const tok = useView(() => lp<TokenView | null>("get_token", { token_id: id }), [id], 6000);
   const price = useView(() => view<string>(LINEAR, "ft_price"), [], 60000);
@@ -111,7 +133,11 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
             ))}
           </div>
         </div>
-        <div className="desktop-only"><OpsBar t={t} reload={ctx.reload} /></div>
+        <div className="row desktop-only" style={{ gap: 8 }}>
+          <ShareButton tokenId={t.token_id} />
+          <OpsBar t={t} reload={ctx.reload} />
+        </div>
+        <div className="mobile-only"><ShareButton tokenId={t.token_id} /></div>
       </div>
 
       <div className="chips">
@@ -139,7 +165,7 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
         <div className="token-main">
           <PriceChart {...ctx} />
           <div className="tabs" role="tablist">
-            {TABS.map((x) => (
+            {tabs.map((x) => (
               <button key={x} role="tab" className={tab === x ? "active" : ""} onClick={() => setTab(x)}>
                 {x}
               </button>
@@ -161,9 +187,22 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
             </div>
           )}
         </div>
-        <aside className="token-aside desktop-only">
+        {desktop && <aside className="token-aside">
           <TradePanel {...ctx} />
-        </aside>
+          <div className="panel flush">
+            <div className="aside-head row between">
+              <b>💬 Live chat</b>
+              <span className="small muted">${t.meta.symbol}</span>
+            </div>
+            <Chat t={t} compact />
+          </div>
+          <div className="panel tight small">
+            <div className="kv"><span>Contract</span><span className="mono ellipsis" style={{ maxWidth: 200 }}>{t.token_id}</span></div>
+            <div className="kv"><span>DAO</span><span className="mono ellipsis" style={{ maxWidth: 200 }}>{t.dao_id}</span></div>
+            <div className="kv"><span>Creator</span><span className="mono ellipsis" style={{ maxWidth: 200 }}>{t.creator}</span></div>
+            <div className="kv"><span>Sized at</span><span>NEAR ${(Number(t.launch_near_usd) / 1e6).toFixed(2)}</span></div>
+          </div>
+        </aside>}
       </div>
 
       {/* mobile: sticky trade bar + bottom sheet */}

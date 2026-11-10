@@ -9,9 +9,9 @@
 //! The DAO can call back into the launchpad for the token-specific powers
 //! below (`dao_*`): creator milestone releases/clawback and the AI agent's
 //! account and persona. It can never touch the floor vault's principal.
-use crate::ext::{ext_dao, ext_factory, tgas};
+use crate::ext::{ext_dao, tgas};
 use crate::*;
-use near_sdk::json_types::{Base64VecU8, U128};
+use near_sdk::json_types::U128;
 use near_sdk::serde_json::{json, Value};
 use near_sdk::{Promise, PromiseError};
 
@@ -20,9 +20,9 @@ const NS: u64 = 1_000_000_000;
 #[near]
 impl Contract {
     #[private]
-    pub fn on_dao_created(&mut self, idx: u32, #[callback_result] r: Result<bool, PromiseError>) {
+    pub fn on_dao_created(&mut self, idx: u32, #[callback_result] r: Result<(), PromiseError>) {
         let tok = self.tok_mut(idx);
-        tok.dao_stage = if matches!(r, Ok(true)) { DaoStage::Created } else { DaoStage::Failed };
+        tok.dao_stage = if r.is_ok() { DaoStage::Created } else { DaoStage::Failed };
     }
 
     /// Permissionless: hand the freshly created DAO over to holders.
@@ -68,11 +68,11 @@ impl Contract {
     /// under a new name. Attach 200 Tgas.
     pub fn retry_dao(&mut self, token_id: AccountId) {
         let idx = self.idx_of(&token_id);
-        let factory = self.config.sputnik_factory.clone();
+        let me = env::current_account_id();
         let tok = self.tok_mut(idx);
         require!(tok.dao_stage == DaoStage::Failed, "ERR_DAO_NOT_FAILED");
         tok.dao_attempt += 1;
-        tok.dao_id = format!("{}-fp{}.{}", tok.meta.symbol.to_lowercase(), tok.dao_attempt, factory)
+        tok.dao_id = format!("{}-dao{}.{}", tok.meta.symbol.to_lowercase(), tok.dao_attempt, me)
             .parse()
             .unwrap();
         tok.dao_stage = DaoStage::Creating;
@@ -156,18 +156,24 @@ impl Contract {
                 "bounty_forgiveness_period": (86_400 * NS).to_string()
             }
         });
-        ext_factory::ext(cfg.sputnik_factory)
-            .with_attached_deposit(cfg.dao_deposit)
-            .with_static_gas(tgas(150))
-            .create(
-                short.parse().unwrap(),
-                Base64VecU8::from(near_sdk::serde_json::to_vec(&args).unwrap()),
+        // The official Sputnik v2 code, used by hash (the same code the Sputnik factory deploys).
+        Promise::new(dao_id)
+            .create_account()
+            .transfer(cfg.dao_deposit)
+            .use_global_contract(cfg.dao_code_hash)
+            .function_call(
+                "new".to_string(),
+                near_sdk::serde_json::to_vec(&args).unwrap(),
+                NearToken::from_yoctonear(0),
+                tgas(30),
             )
-            .then(Self::ext(me).with_static_gas(tgas(5)).on_dao_created(idx)).detach();
+            .then(Self::ext(me).with_static_gas(tgas(5)).on_dao_created(idx))
+            .detach();
     }
 
     /// Holders-only, ve-weighted policy.
-    /// * Only lockers (delegated weight > 0) can create proposals and vote.
+    /// * Only lockers (delegated weight > 0) can create proposals and vote; anyone may
+    ///   submit a `BountyDone` for a bounty they claimed (still decided by lockers).
     /// * A proposal passes when MORE than 70% of all delegated lock weight
     ///   votes yes (Sputnik's ratio threshold is strict: > n/d).
     /// * Policy changes, upgrades and vote-token changes need more than 80%.
@@ -185,6 +191,14 @@ impl Contract {
         });
         json!({
             "roles": [
+                {
+                    // Anyone who claimed a bounty can submit the finished work for the
+                    // holders' vote; every other proposal kind stays lockers-only.
+                    "name": "bounty-hunters",
+                    "kind": "Everyone",
+                    "permissions": ["bounty_done:AddProposal"],
+                    "vote_policy": {}
+                },
                 {
                     "name": "holders",
                     "kind": { "Member": "1" },

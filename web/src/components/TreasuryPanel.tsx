@@ -3,6 +3,7 @@
 import { BUCKET_LABELS, fmtNear, isGraduated, LINEAR, lp, view, YOCTO, type EpochReport } from "@/lib/near";
 import { useView } from "@/lib/wallet";
 import { BUCKET_COLORS, Kv, Stat } from "./ui";
+import { FundYield } from "./FundYield";
 import type { TokenCtx } from "@/app/token/[id]/page";
 
 /** Treasury dashboard: DAO wallet, floor vault, creator escrow, agent budget and epoch history. */
@@ -28,6 +29,7 @@ export function TreasuryPanel({ t, linearPrice }: TokenCtx) {
         <Stat k="Creator escrow" v={`${fmtNear(t.creator_escrow, 3)} N`} s={`${fmtNear(t.creator_released, 3)} N released by vote`} />
       </div>
 
+      <FundYield t={t} linearPrice={linearPrice} />
       <div className="grid half">
         <div className="panel">
           <h2>Vault breakdown</h2>
