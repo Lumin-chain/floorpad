@@ -40,6 +40,7 @@ impl Contract {
         let dao_id: AccountId =
             format!("{}-fp.{}", sub, cfg.sputnik_factory).parse().expect("ERR_DAO_ID");
 
+        let v0 = self.launch_virtual_near();
         let idx = self.tokens.len();
         let creator = env::predecessor_account_id();
         self.tokens.push(TokenState {
@@ -51,7 +52,7 @@ impl Contract {
             dao_id,
             dao_stage: DaoStage::Creating,
             dao_attempt: 0,
-            v_near: cfg.virtual_near.0,
+            v_near: v0,
             v_tokens: cfg.virtual_tokens.0,
             sold: 0,
             real_near: 0,
@@ -64,11 +65,15 @@ impl Contract {
             principal_near: 0,
             creator_escrow: 0,
             creator_released: 0,
+            creator_claimable: 0,
+            grad_mcap_usd: cfg.grad_mcap_usd,
+            launch_near_usd: self.near_usd_micro,
             grad_stage: GradStage::Curve,
             grad_busy: false,
             pool_id: None,
             lp_near: 0,
             lp_shares: 0,
+            lp_tokens: 0,
             lp_meme_deposited: false,
             lp_linear_deposited: false,
             graduated_at: 0,
@@ -154,7 +159,7 @@ impl Contract {
             "ERR_BELOW_MIN_TRADE"
         );
         let gross = deposit - storage_fee;
-        let mut fee = bps(gross, cfg.trade_fee_bps as u128);
+        let mut fee = bps(gross, cfg.buy_fee_bps as u128);
         let mut used = gross - fee;
         let mut refund = 0u128;
 
@@ -167,7 +172,7 @@ impl Contract {
         if out >= remaining {
             out = remaining;
             used = math::curve_near_for_tokens(v_near, v_tokens, out);
-            fee = bps(used, cfg.trade_fee_bps as u128);
+            fee = bps(used, cfg.buy_fee_bps as u128);
             refund = gross - used - fee;
         }
         require!(out > 0 && out >= min_tokens_out.0, "ERR_SLIPPAGE");
@@ -181,7 +186,6 @@ impl Contract {
             self.known_holders.insert(key, true);
         }
 
-        let creator_fee;
         {
             let tok = self.tok_mut(idx);
             tok.v_near += used;
@@ -193,12 +197,8 @@ impl Contract {
             if new_holder {
                 tok.holders += 1;
             }
-            let vault = bps(fee, cfg.fee_vault_bps as u128);
-            creator_fee = bps(fee, cfg.fee_creator_bps as u128);
-            tok.backing_near += vault;
-            tok.creator_escrow += creator_fee;
-            self.platform_fees += fee - vault - creator_fee;
         }
+        self.distribute_fee(idx, fee);
         let (vn, vt) = (self.tok(idx).v_near, self.tok(idx).v_tokens);
         self.record_trade(
             idx,
@@ -260,6 +260,18 @@ impl Contract {
         }
     }
 
+    /// Creator withdraws the instantly-claimable part of their fees.
+    pub fn claim_creator_fees(&mut self, token_id: AccountId) -> Promise {
+        let idx = self.idx_of(&token_id);
+        let tok = self.tok_mut(idx);
+        require!(env::predecessor_account_id() == tok.creator, "ERR_NOT_CREATOR");
+        let amount = tok.creator_claimable;
+        require!(amount > 0, "ERR_NOTHING_TO_CLAIM");
+        tok.creator_claimable = 0;
+        tok.creator_released += amount;
+        Promise::new(tok.creator.clone()).transfer(NearToken::from_yoctonear(amount))
+    }
+
     /// Retry delivery of tokens whose transfer failed (e.g. missing storage).
     pub fn claim_tokens(&mut self, token_id: AccountId) -> Promise {
         let idx = self.idx_of(&token_id);
@@ -297,7 +309,7 @@ impl Contract {
         let age = since.ok().flatten().map(|s| now.saturating_sub(s.0)).unwrap_or(0);
         let (v_near, v_tokens) = (self.tok(idx).v_near, self.tok(idx).v_tokens);
         let gross = math::curve_near_out(v_near, v_tokens, amount.0);
-        let fee = bps(gross, cfg.trade_fee_bps as u128);
+        let fee = bps(gross, cfg.sell_fee_bps as u128);
         let exit = bps(
             gross,
             math::exit_fee_bps(cfg.max_exit_fee_bps as u128, cfg.exit_decay_secs, age),
@@ -313,12 +325,9 @@ impl Contract {
             tok.sold -= amount.0;
             tok.real_near -= gross;
             tok.volume_near += gross;
-            let vault = bps(fee, cfg.fee_vault_bps as u128);
-            let creator = bps(fee, cfg.fee_creator_bps as u128);
-            tok.backing_near += vault + exit;
-            tok.creator_escrow += creator;
-            self.platform_fees += fee - vault - creator;
+            tok.backing_near += exit;
         }
+        self.distribute_fee(idx, fee);
         let (vn, vt) = (self.tok(idx).v_near, self.tok(idx).v_tokens);
         self.record_trade(
             idx,

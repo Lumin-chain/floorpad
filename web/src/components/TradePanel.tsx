@@ -31,18 +31,19 @@ function refOut(amountIn: bigint, rIn: bigint, rOut: bigint, feeBps: number) {
   return (inFee * rOut) / (rIn * 10000n + inFee);
 }
 
-export function TradePanel(ctx: TokenCtx) {
-  const { t } = ctx;
-  return t.grad_stage === "Graduated" ? <RefTrade {...ctx} /> : <CurveTrade {...ctx} />;
+type TradeProps = TokenCtx & { initialSide?: "buy" | "sell"; onDone?: () => void };
+
+export function TradePanel(props: TradeProps) {
+  return props.t.grad_stage === "Graduated" ? <RefTrade {...props} /> : <CurveTrade {...props} />;
 }
 
 function useAge(holdingSince: number | null) {
   return holdingSince ? Math.max(0, Math.floor(Date.now() / 1000) - holdingSince) : 0;
 }
 
-function CurveTrade({ t, balance, holdingSince, reload }: TokenCtx) {
+function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: TradeProps) {
   const { send, busy, accountId } = useWallet();
-  const [side, setSide] = useState<"buy" | "sell">("buy");
+  const [side, setSide] = useState<"buy" | "sell">(initialSide ?? "buy");
   const [amt, setAmt] = useState("");
   const [q, setQ] = useState<Quote | null>(null);
   const { data: cfg } = useView(() => lp<LaunchConfig>("get_config"), [], 0);
@@ -80,6 +81,7 @@ function CurveTrade({ t, balance, holdingSince, reload }: TokenCtx) {
     if (await send([tx])) {
       setAmt("");
       reload();
+      onDone?.();
     }
   }
 
@@ -90,8 +92,8 @@ function CurveTrade({ t, balance, holdingSince, reload }: TokenCtx) {
     <div className="panel stack">
       <div className="row between">
         <div className="seg">
-          <button className={side === "buy" ? "active buy" : ""} onClick={() => setSide("buy")}>Buy</button>
-          <button className={side === "sell" ? "active sell" : ""} onClick={() => setSide("sell")}>Sell</button>
+          <button className={side === "buy" ? "active buy" : ""} onClick={() => { setSide("buy"); setAmt(""); }}>Buy</button>
+          <button className={side === "sell" ? "active sell" : ""} onClick={() => { setSide("sell"); setAmt(""); }}>Sell</button>
         </div>
         <span className="small muted">Balance {fmtTok(balance.toString())}</span>
       </div>
@@ -100,6 +102,13 @@ function CurveTrade({ t, balance, holdingSince, reload }: TokenCtx) {
         <input className="input" inputMode="decimal" placeholder="0.0" value={amt} onChange={(e) => setAmt(e.target.value)} />
         <em>{side === "buy" ? "NEAR" : `$${t.meta.symbol}`}</em>
       </div>
+      {side === "buy" && (
+        <div className="row">
+          {["1", "5", "10", "25"].map((v) => (
+            <button key={v} className="btn sm ghost" onClick={() => setAmt(v)}>{v} N</button>
+          ))}
+        </div>
+      )}
       {side === "sell" && (
         <div className="row">
           {[25, 50, 100].map((p) => (
@@ -112,7 +121,7 @@ function CurveTrade({ t, balance, holdingSince, reload }: TokenCtx) {
       {q && (
         <div>
           <Kv k="You receive" v={side === "buy" ? `${fmtTok(q.amount_out)} $${t.meta.symbol}` : `${fmtNear(q.amount_out)} NEAR`} />
-          <Kv k="Trade fee (1%: 70% to the floor)" v={`${fmtNear(q.fee)} N`} />
+          <Kv k={`${side === "buy" ? "Buy" : "Sell"} fee (${((side === "buy" ? cfg?.buy_fee_bps ?? 100 : cfg?.sell_fee_bps ?? 200) / 100).toFixed(1)}%, half to the floor)`} v={`${fmtNear(q.fee)} N`} />
           {side === "sell" && <Kv k={`Exit fee (${exitPct.toFixed(1)}%, to the floor)`} v={`${fmtNear(q.exit_fee)} N`} />}
           {BigInt(q.refund) > 0n && <Kv k="Refund (curve sells out)" v={`${fmtNear(q.refund)} N`} />}
         </div>
@@ -134,9 +143,9 @@ function CurveTrade({ t, balance, holdingSince, reload }: TokenCtx) {
 }
 
 /** After graduation: swap through the locked Ref MEME/LiNEAR pool, all in-app. */
-function RefTrade({ t, balance, linearPrice, reload }: TokenCtx) {
+function RefTrade({ t, balance, linearPrice, reload, initialSide, onDone }: TradeProps) {
   const { send, busy, accountId } = useWallet();
-  const [side, setSide] = useState<"buy" | "sell">("buy");
+  const [side, setSide] = useState<"buy" | "sell">(initialSide ?? "buy");
   const [amt, setAmt] = useState("");
   const { data: pool } = useView(() => view<RefPool>(REF, "get_pool", { pool_id: t.pool_id }), [t.pool_id], 8000);
   const { data: linBal } = useView(
@@ -175,6 +184,7 @@ function RefTrade({ t, balance, linearPrice, reload }: TokenCtx) {
     if (await send(txs)) {
       setAmt("");
       reload();
+      onDone?.();
     }
   }
 
@@ -182,8 +192,8 @@ function RefTrade({ t, balance, linearPrice, reload }: TokenCtx) {
     <div className="panel stack">
       <div className="row between">
         <div className="seg">
-          <button className={side === "buy" ? "active buy" : ""} onClick={() => setSide("buy")}>Buy</button>
-          <button className={side === "sell" ? "active sell" : ""} onClick={() => setSide("sell")}>Sell</button>
+          <button className={side === "buy" ? "active buy" : ""} onClick={() => { setSide("buy"); setAmt(""); }}>Buy</button>
+          <button className={side === "sell" ? "active sell" : ""} onClick={() => { setSide("sell"); setAmt(""); }}>Sell</button>
         </div>
         <span className="small muted">
           {side === "buy" ? `LiNEAR ${fmtNear(linBal ?? "0", 3)}` : `Balance ${fmtTok(balance.toString())}`}

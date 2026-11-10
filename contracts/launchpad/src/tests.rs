@@ -27,21 +27,28 @@ fn cfg() -> Config {
         ref_exchange: acc("ref-finance-101.testnet"),
         linear: acc("linear-protocol.testnet"),
         default_agent: acc("agent.floorpad.testnet"),
-        creation_fee: NearToken::from_near(3),
-        dao_deposit: NearToken::from_near(1),
-        token_account_deposit: NearToken::from_millinear(500),
+        creation_fee: NearToken::from_millinear(1500),
+        dao_deposit: NearToken::from_millinear(500),
+        token_account_deposit: NearToken::from_millinear(300),
         graduation_reserve: NearToken::from_millinear(500),
         min_trade: NearToken::from_millinear(100),
         total_supply: U128(1_000_000_000 * TOK),
         curve_supply: U128(800_000_000 * TOK),
         lp_supply: U128(200_000_000 * TOK),
-        virtual_near: U128(30 * NEAR),
         virtual_tokens: U128(1_073_000_000 * TOK),
-        trade_fee_bps: 100,
-        fee_vault_bps: 7000,
-        fee_creator_bps: 2000,
+        grad_mcap_usd: 15_000,
+        max_price_age_secs: 6 * 3600,
+        price_feeder: acc("keeper.testnet"),
+        buy_fee_bps: 100,
+        sell_fee_bps: 200,
+        fee_vault_bps: 5000,
+        fee_creator_bps: 3000,
+        creator_instant_bps: 5000,
+        grad_vault_bps: 1500,
+        grad_platform_bps: 100,
+        yield_platform_bps: 500,
         max_exit_fee_bps: 1000,
-        exit_decay_secs: 30 * DAY,
+        exit_decay_secs: 7 * DAY,
         redeem_fee_bps: 200,
         snipe_window_secs: 120,
         snipe_max_tokens: U128(20_000_000 * TOK),
@@ -99,7 +106,8 @@ fn meta() -> TokenMeta {
 fn launched() -> Contract {
     ctx(&acc("owner.testnet"), 0, T0);
     let mut c = Contract::new(cfg());
-    ctx(&acc("alice.testnet"), 3 * NEAR, T0);
+    c.set_near_usd_price(U128(3_590_000)); // $3.59
+    ctx(&acc("alice.testnet"), 3 * NEAR / 2, T0);
     let id = c.create_token(meta(), None);
     assert_eq!(id, token());
     ctx(&lp(), 0, T0);
@@ -122,17 +130,20 @@ fn create_sets_up_curve_and_dao_ids() {
     let c = launched();
     let t = c.get_token(token()).unwrap();
     assert_eq!(t.dao_id, acc("moon-fp.sputnik-v2.testnet"));
-    assert_eq!(t.v_near.0, 30 * NEAR);
     assert!(t.deployed);
-    // 3 NEAR fee - 1 DAO - 0.5 token account
-    assert_eq!(c.platform_fees, 3 * NEAR / 2);
+    // 1.5 NEAR fee - 0.5 DAO - 0.3 token account
+    assert_eq!(c.platform_fees, 7 * NEAR / 10);
+    // curve sized so it graduates at ~$15k FDV with NEAR at $3.59 (~4,178 NEAR)
+    let grad = t.grad_fdv_near.0 / NEAR;
+    assert!((4_170..=4_190).contains(&grad), "grad fdv {grad}");
+    assert_eq!(t.grad_mcap_usd, 15_000);
 }
 
 #[test]
 #[should_panic(expected = "ERR_TICKER_TAKEN")]
 fn duplicate_ticker_rejected() {
     let mut c = launched();
-    ctx(&acc("bob.testnet"), 3 * NEAR, T0);
+    ctx(&acc("bob.testnet"), 3 * NEAR / 2, T0);
     c.create_token(meta(), None);
 }
 
@@ -145,9 +156,10 @@ fn buy_splits_fees_into_floor_creator_platform() {
     let t = c.tok(0);
     assert_eq!(t.sold, out);
     let fee = NEAR / 100;
-    assert_eq!(t.backing_near, fee * 70 / 100);
-    assert_eq!(t.creator_escrow, fee * 20 / 100);
-    assert_eq!(c.platform_fees - before_platform, fee * 10 / 100);
+    assert_eq!(t.backing_near, fee * 50 / 100);
+    assert_eq!(t.creator_claimable, fee * 15 / 100);
+    assert_eq!(t.creator_escrow, fee * 15 / 100);
+    assert_eq!(c.platform_fees - before_platform, fee * 20 / 100);
     assert_eq!(t.real_near, NEAR - fee);
     assert_eq!(t.holders, 1);
     assert_eq!(c.get_trades(token(), None).len(), 1);
@@ -157,13 +169,13 @@ fn buy_splits_fees_into_floor_creator_platform() {
 #[should_panic(expected = "ERR_LAUNCH_WALLET_CAP")]
 fn anti_snipe_caps_launch_wallets() {
     let mut c = launched();
-    buy(&mut c, "sniper.testnet", 10 * NEAR, T0 + 5);
+    buy(&mut c, "sniper.testnet", 20 * NEAR, T0 + 5);
 }
 
 #[test]
 fn snipe_cap_lifts_after_window() {
     let mut c = launched();
-    let out = buy(&mut c, "whale.testnet", 10 * NEAR, T0 + 200);
+    let out = buy(&mut c, "whale.testnet", 20 * NEAR, T0 + 200);
     assert!(out > 20_000_000 * TOK);
 }
 
@@ -243,7 +255,7 @@ fn unlock_after_expiry_clears_weight() {
 fn graduated() -> (Contract, u128) {
     let mut c = launched();
     let bob = buy(&mut c, "bob.testnet", 5 * NEAR, T0 + 200);
-    buy(&mut c, "whale.testnet", 200 * NEAR, T0 + 201);
+    buy(&mut c, "whale.testnet", 2_500 * NEAR, T0 + 201);
     assert_eq!(c.tok(0).grad_stage, GradStage::CreatePool);
     assert_eq!(c.tok(0).sold, 800_000_000 * TOK);
 
@@ -258,9 +270,9 @@ fn graduated() -> (Contract, u128) {
     assert_eq!(t.grad_stage, GradStage::Deposit);
     assert!(t.lp_shares > 0 && t.linear_shares > 0);
 
-    let lp_shares = t.lp_shares;
+    let (lp_shares, lp_tokens) = (t.lp_shares, t.lp_tokens);
     let ok = |v: u128| PromiseResult::Successful(near_sdk::serde_json::to_vec(&U128(v)).unwrap());
-    ctx_results(T0 + 301, vec![ok(200_000_000 * TOK), ok(lp_shares)]);
+    ctx_results(T0 + 301, vec![ok(lp_tokens), ok(lp_shares)]);
     c.on_grad_deposited(0, true, true);
     assert_eq!(c.tok(0).grad_stage, GradStage::AddLiquidity);
 
@@ -274,9 +286,21 @@ fn graduated() -> (Contract, u128) {
 fn graduation_prices_lp_continuously_and_funds_floor() {
     let (c, _) = graduated();
     let t = c.tok(0);
-    // LP NEAR ~= 200M tokens at the final curve price (~86 NEAR for these params).
+    // Raise ~850 NEAR: 15% seeds the floor, 1% platform, 0.5 NEAR reserve, rest is LP.
     let lp_near = t.lp_near / NEAR;
-    assert!((80..=90).contains(&lp_near), "lp_near {lp_near}");
+    assert!((705..=720).contains(&lp_near), "lp_near {lp_near}");
+    // Ref opens exactly at the final curve price: lp_near / lp_tokens == v_near / v_tokens.
+    let lhs = math::mul_div(t.lp_near, 1_000_000_000_000, t.lp_tokens);
+    let rhs = math::mul_div(t.v_near, 1_000_000_000_000, t.v_tokens);
+    assert!(lhs.abs_diff(rhs) <= 1, "{lhs} vs {rhs}");
+    // Unused LP tokens are burned.
+    assert!(t.lp_tokens < 200_000_000 * TOK);
+    assert_eq!(t.burned, 200_000_000 * TOK - t.lp_tokens);
+    // The floor starts at ~2-3% of the graduation price (vs ~0.4% before).
+    let fdv = math::fdv_near(t.v_near, t.v_tokens, 1_000_000_000 * TOK - t.burned);
+    let vault = math::shares_to_near(t.linear_shares, NEAR * 12 / 10);
+    let pct = vault * 10_000 / fdv;
+    assert!((200..=400).contains(&pct), "floor/price bps {pct}");
     // Vault principal = pre-graduation fee backing + leftover raise.
     assert!(t.principal_near > 0);
     assert_eq!(t.backing_near, 0);
@@ -285,15 +309,16 @@ fn graduation_prices_lp_continuously_and_funds_floor() {
 #[test]
 fn partial_deposit_is_retryable() {
     let mut c = launched();
-    buy(&mut c, "whale.testnet", 200 * NEAR, T0 + 201);
+    buy(&mut c, "whale.testnet", 2_500 * NEAR, T0 + 201);
     ctx(&lp(), 0, T0 + 300);
     c.on_grad_pool_created(0, Ok(1));
     let amount = c.tok(0).lp_near + c.tok(0).backing_near;
     c.on_grad_staked(0, U128(NEAR), U128(amount), Ok(()));
+    let lp_tokens = c.tok(0).lp_tokens;
     ctx_results(
         T0 + 301,
         vec![
-            PromiseResult::Successful(near_sdk::serde_json::to_vec(&U128(200_000_000 * TOK)).unwrap()),
+            PromiseResult::Successful(near_sdk::serde_json::to_vec(&U128(lp_tokens)).unwrap()),
             PromiseResult::Failed,
         ],
     );
@@ -325,14 +350,16 @@ fn epoch_splits_only_yield_by_vote() {
     let principal_shares = math::mul_div_ceil(principal0, math::PRICE_SCALE, new_price);
     let yield_shares = shares0 - principal_shares;
     assert!(yield_shares > 0);
-    // Principal untouched, yield left the vault.
-    assert_eq!(t.principal_near, principal0);
+    // Principal untouched except rounding dust compounding into the floor.
+    assert!(t.principal_near - principal0 < NEAR / 1_000_000);
     assert!(t.linear_shares >= principal_shares);
-    assert_eq!(t.agent_budget_shares, yield_shares / 2);
+    let after_platform = yield_shares - yield_shares * 500 / 10_000;
+    assert!(t.agent_budget_shares.abs_diff(after_platform / 2) <= 1);
+    assert_eq!(c.get_claimable_linear(acc("owner.testnet")).0, yield_shares * 500 / 10_000);
 
     ctx(&acc("bob.testnet"), 0, T0 + 4001);
     let r = c.claim_rewards(token());
-    assert!(r.0 + 1 >= yield_shares / 2 - 1_000 && r.0 <= yield_shares / 2);
+    assert!(r.0 + 1_000 >= after_platform / 2 && r.0 <= after_platform / 2 + 1);
     assert_eq!(c.get_claimable_linear(acc("bob.testnet")), r);
 
     let reports = c.get_epochs(token(), None);
@@ -346,7 +373,10 @@ fn epoch_without_votes_compounds_into_floor() {
     ctx(&lp(), 0, T0 + 4000);
     c.on_epoch_price(0, Ok(U128(NEAR * 15 / 10)));
     let t = c.tok(0);
-    assert_eq!(t.linear_shares, shares0);
+    // only the 5% platform cut of the yield leaves; the rest compounds
+    let platform = c.get_claimable_linear(acc("owner.testnet")).0;
+    assert!(platform > 0);
+    assert_eq!(t.linear_shares, shares0 - platform);
     assert!(math::shares_to_near(t.linear_shares, NEAR * 15 / 10) >= t.principal_near);
 }
 
@@ -354,12 +384,13 @@ fn epoch_without_votes_compounds_into_floor() {
 fn redeem_after_graduation_pays_linear_and_burns() {
     let (mut c, bob) = graduated();
     let shares0 = c.tok(0).linear_shares;
+    let burned0 = c.tok(0).burned;
     let q = c.quote_redeem(token(), U128(bob), 300);
     ctx(&lp(), 0, T0 + 500);
     let r = c.on_redeem_age(0, acc("bob.testnet"), U128(bob), U128(0), Ok(Some(U64(T0 + 200))));
     assert_eq!(r, U128(0));
     let t = c.tok(0);
-    assert_eq!(t.burned, bob);
+    assert_eq!(t.burned, burned0 + bob);
     let paid = c.get_claimable_linear(acc("bob.testnet")).0;
     assert!(paid > 0 && paid <= q.amount_out.0 + 1);
     assert_eq!(t.linear_shares, shares0 - paid);
@@ -423,8 +454,13 @@ fn holders_policy_is_token_weighted() {
     let c = launched();
     let p = c.holders_policy();
     assert_eq!(p["default_vote_policy"]["weight_kind"], "TokenWeight");
-    assert_eq!(p["roles"][1]["kind"]["Member"], "1");
-    assert_eq!(p["roles"][1]["vote_policy"]["policy"]["threshold"][0], 2);
+    // only lockers exist as a role: they create proposals and vote
+    assert_eq!(p["roles"].as_array().unwrap().len(), 1);
+    assert_eq!(p["roles"][0]["kind"]["Member"], "1");
+    assert!(p["roles"][0]["permissions"].as_array().unwrap().iter().any(|x| x == "*:AddProposal"));
+    // > 70% of lock weight to pass; > 80% for policy / upgrades
+    assert_eq!(p["default_vote_policy"]["threshold"], near_sdk::serde_json::json!([7, 10]));
+    assert_eq!(p["roles"][0]["vote_policy"]["policy"]["threshold"], near_sdk::serde_json::json!([4, 5]));
 }
 
 #[test]
@@ -435,7 +471,70 @@ fn testnet_deploy_config_parses() {
     let c: Config = near_sdk::serde_json::from_str(&raw).expect("config.testnet.json must match Config");
     ctx(&acc("owner.testnet"), 0, T0);
     let lp = Contract::new(c);
-    // demo params: ~8.8 NEAR raise graduates a token
-    let raise = math::curve_near_for_tokens(lp.config.virtual_near.0, lp.config.virtual_tokens.0, lp.config.curve_supply.0);
-    assert!((8 * NEAR..10 * NEAR).contains(&raise));
+    // testnet demo: $100 graduation target -> ~5.7 NEAR raise at $3.59
+    let c = &lp.config;
+    let v0 = math::virtual_near_for_mcap(c.grad_mcap_usd, 3_590_000, c.virtual_tokens.0, c.curve_supply.0, c.total_supply.0);
+    let raise = math::curve_near_for_tokens(v0, c.virtual_tokens.0, c.curve_supply.0);
+    assert!((5 * NEAR..7 * NEAR).contains(&raise), "testnet raise {}", raise / NEAR);
+}
+
+#[test]
+fn creator_claims_instant_share() {
+    let mut c = launched();
+    buy(&mut c, "bob.testnet", 10 * NEAR, T0 + 200);
+    let claimable = c.tok(0).creator_claimable;
+    assert!(claimable > 0);
+    ctx(&acc("alice.testnet"), 0, T0 + 300);
+    c.claim_creator_fees(token());
+    assert_eq!(c.tok(0).creator_claimable, 0);
+    assert_eq!(c.tok(0).creator_released, claimable);
+}
+
+#[test]
+#[should_panic(expected = "ERR_NOT_CREATOR")]
+fn only_creator_claims_fees() {
+    let mut c = launched();
+    buy(&mut c, "bob.testnet", 10 * NEAR, T0 + 200);
+    ctx(&acc("bob.testnet"), 0, T0 + 300);
+    c.claim_creator_fees(token());
+}
+
+#[test]
+fn selling_costs_more_than_buying() {
+    let mut c = launched();
+    let out = buy(&mut c, "bob.testnet", 10 * NEAR, T0 + 200);
+    let q_buy = c.quote_buy(token(), U128(10 * NEAR), Some(acc("bob.testnet")));
+    let q_sell = c.quote_sell(token(), U128(out), 365 * DAY);
+    let sell_gross = q_sell.amount_out.0 + q_sell.fee.0;
+    assert_eq!(q_buy.fee.0, 10 * NEAR / 100); // 1%
+    assert_eq!(q_sell.fee.0, sell_gross * 2 / 100); // 2%
+}
+
+#[test]
+#[should_panic(expected = "ERR_PRICE_STALE")]
+fn launch_needs_fresh_price() {
+    ctx(&acc("owner.testnet"), 0, T0);
+    let mut c = Contract::new(cfg());
+    c.set_near_usd_price(U128(3_590_000));
+    ctx(&acc("alice.testnet"), 3 * NEAR / 2, T0 + 7 * 3600);
+    c.create_token(meta(), None);
+}
+
+#[test]
+#[should_panic(expected = "ERR_PRICE_JUMP")]
+fn feeder_cannot_move_price_more_than_2x() {
+    ctx(&acc("owner.testnet"), 0, T0);
+    let mut c = Contract::new(cfg());
+    c.set_near_usd_price(U128(3_590_000));
+    ctx(&acc("keeper.testnet"), 0, T0 + 60);
+    c.set_near_usd_price(U128(3_600_000));
+    c.set_near_usd_price(U128(9_000_000));
+}
+
+#[test]
+fn launch_price_tracks_near_usd() {
+    // NEAR doubling halves the virtual NEAR so the USD target stays $15k
+    let v_a = math::virtual_near_for_mcap(15_000, 1_590_000, 1_073_000_000 * TOK, 800_000_000 * TOK, 1_000_000_000 * TOK);
+    let v_b = math::virtual_near_for_mcap(15_000, 3_180_000, 1_073_000_000 * TOK, 800_000_000 * TOK, 1_000_000_000 * TOK);
+    assert!(v_a.abs_diff(v_b * 2) <= 2);
 }

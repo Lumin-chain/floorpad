@@ -146,11 +146,17 @@ export interface TokenView {
   principal_near: string;
   creator_escrow: string;
   creator_released: string;
+  creator_claimable: string;
+  grad_mcap_usd: number;
+  launch_near_usd: string;
+  fdv_near: string;
+  grad_fdv_near: string;
   grad_stage: GradStage;
   grad_busy: boolean;
   pool_id: number | null;
   lp_near: string;
   lp_shares: string;
+  lp_tokens: string;
   graduated_at: number;
   total_locked: string;
   total_weight: string;
@@ -216,7 +222,15 @@ export interface LaunchConfig {
   max_exit_fee_bps: number;
   exit_decay_secs: number;
   redeem_fee_bps: number;
-  trade_fee_bps: number;
+  buy_fee_bps: number;
+  sell_fee_bps: number;
+  fee_vault_bps: number;
+  fee_creator_bps: number;
+  creator_instant_bps: number;
+  grad_mcap_usd: number;
+  grad_vault_bps: number;
+  grad_platform_bps: number;
+  yield_platform_bps: number;
   snipe_max_tokens: string;
   linear: string;
   ref_exchange: string;
@@ -248,3 +262,12 @@ export function vaultNear(t: TokenView, linearPrice?: bigint): bigint {
 
 export const progressPct = (t: TokenView) =>
   isGraduated(t) || t.grad_stage !== "Curve" ? 100 : Number((BigInt(t.sold) * 10000n) / BigInt(t.curve_supply)) / 100;
+
+/** NEAR/USD as stored on-chain by the price feeder (used to size every launch). */
+export async function nearUsd(): Promise<number> {
+  const [micro] = await lp<[string, number]>("get_near_usd_price");
+  return Number(micro) / 1e6;
+}
+
+/** yoctoNEAR -> USD number */
+export const yoctoToUsd = (v: string | bigint, usd: number) => (Number(BigInt(v) / 10n ** 18n) / 1e6) * usd;

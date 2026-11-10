@@ -1,76 +1,96 @@
 # Floorpad
 
-A NEAR meme-coin launchpad where every token has a **floor that only goes up**.
+A NEAR meme-coin launchpad where every token has a **floor that only goes up**, live **chat**, tracked **callouts**, a **holder DAO** and its own **AI agent**. It works on phones and desktops.
 
-* **Floor vault.** Curve fees and exit fees back each token. Anyone can redeem at the floor at any time, and redeemed tokens are burned.
-* **LP that earns yield.** At graduation, liquidity goes into a Ref `MEME/LiNEAR` pool. The LP is locked forever and earns NEAR staking yield.
-* **ve-locks.** Lock 7–180 days for 1×–4× weight. Weight is your DAO vote, your yield-allocation vote and your airdrop share.
-* **Holder DAO.** Each token gets its own Sputnik DAO. The launchpad is the DAO's staking contract, so lock weight is Sputnik vote weight. Proposals are created, voted on and executed inside the Floorpad UI, with no Astra or Trezu links.
-* **Epoch yield vote.** Staking yield, never principal, is split by vote across floor, buyback & burn, airdrop to lockers, the AI agent and the DAO treasury.
-* **AI agent.** Each token has an agent whose persona is set by DAO vote. After graduation, every post is paid on-chain from the agent budget that holders vote in. With no budget, it stops posting.
-* **Anti-dump design.** Fair-launch wallet caps and a decaying exit fee (10% → 0 over 30 days, routed to the floor). The creator's fee share sits in escrow and is released by DAO milestones; the DAO can claw it back.
+For how it compares with pump.fun, LetsBonk, four.meme, Virtuals, Clanker and meme.cooking, with sources, see [docs/COMPARISON.md](docs/COMPARISON.md).
+
+## Token economics
+
+| | |
+|---|---|
+| Supply | 1B tokens (18 decimals): 800M sold on the curve, up to 200M for the LP. No premint and no dev allocation |
+| Curve | Constant product on virtual reserves (x·y=k). Each launch sizes its virtual NEAR reserve from the **on-chain NEAR/USD price**, so every token graduates at **~$15k FDV** (`grad_mcap_usd`) |
+| At NEAR = $3.59 | Starts at ~$0.9k mcap, ~850 NEAR (~$3.05k) raised, graduates at ~4,178 NEAR ≈ $15k (≈15.4× from launch) |
+| Buy fee | **1%** |
+| Sell fee | **2%**, plus an **exit fee** that falls from 10% to 0 over 7 days of holding (age is tracked by the token contract) |
+| Fee split | 50% floor vault · 30% creator (half claimable any time, half released by DAO vote and can be clawed back) · 20% platform |
+| Graduation | Of the raise: 15% seeds the floor vault, 1% platform fee, 0.5 NEAR covers storage, and the rest becomes Ref `MEME/LiNEAR` liquidity at exactly the final curve price. LP tokens not needed are **burned**. The LP is locked forever and earns staking yield |
+| Floor | Anyone can redeem for their share of the vault (2% fee plus the exit fee, both stay in the vault). Redeemed tokens are burned. Starts at ~2–3% of the graduation price and only rises |
+| Epochs | Staking yield (never principal): 5% to the platform, the rest split by ve-weighted vote across floor, buyback & burn, airdrop to lockers, AI agent budget and DAO treasury |
+| Anti-snipe | Max 20M tokens (2% of supply) per wallet for the first 120 s |
+| Launch fee | 1.5 NEAR (0.5 DAO deposit + 0.3 token account; 0.7 to the platform) |
+
+## DAO rules
+
+- Each token gets a Sputnik DAO. The launchpad is its staking contract, so **lock weight (1× at 7 days → 4× at 180 days) is vote weight**.
+- **Only lockers can create proposals** (0.1 NEAR bond, refunded unless the proposal is voted down as spam).
+- A proposal passes only when **more than 70% of all delegated lock weight votes yes**. Policy changes, upgrades and vote-token changes need **more than 80%**. Sputnik's ratio threshold is strict (`floor(total × 7/10) + 1`).
+- The DAO can release or claw back creator escrow, change the AI agent's persona and operator, fund bounties, and make any call (for example, a House of Stake lock). It **cannot touch the floor vault's principal**.
+
+## Repo
 
 ```
 contracts/
   meme-token/   NEP-141 + holding-age tracking + owner burn (deployed once as a global contract)
-  launchpad/    curve · vault · ve-locks · Sputnik wiring · Ref/LiNEAR graduation · epochs · agent
-agent/          keeper (finalize DAO, graduate, settle epochs) + AI agent poster (NEAR AI Cloud / any OpenAI-compatible API)
-web/            Next.js app: explore, launch, trade, floor, lock & vote, DAO, treasury, agent feed, portfolio
-deploy/         testnet config + near-cli-rs deploy script
+  launchpad/    USD-sized curve · fees · vault · ve-locks · Sputnik wiring · graduation · epochs · agent · price feed
+agent/          keeper: NEAR/USD price feed (CoinGecko + Binance), finalize DAO, graduate, settle epochs; AI agent poster
+server/         social API: per-token chat + callouts (NEP-413 wallet sign-in, SSE live updates, node:sqlite, zero runtime deps)
+web/            Next.js app (mobile-first, PWA): explore, launch, trade sheet, chat, callouts, floor, lock & vote, DAO, treasury, agent
+deploy/         testnet + mainnet configs, near-cli-rs deploy script
+docs/           competitor comparison
 ```
-
-## Lifecycle
-
-1. **Launch.** `create_token` (3 NEAR) deploys `<ticker>.<launchpad>` from the global token code, creates `<ticker>-fp.<sputnik factory>` with the launchpad as its sole council member, and opens the curve. Supply is 1B: 800M on the curve, 200M for LP. There is no premint.
-2. **Activate DAO.** `finalize_dao` (permissionless) submits and approves two proposals: *set staking contract = launchpad* and *change policy to holders-only, token-weighted (50%; 66% for policy and upgrades)*. After this the launchpad has no DAO powers.
-3. **Curve.** `buy` / sell via `ft_transfer_call {"action":"sell"}`. The 1% fee splits 70% vault, 20% creator escrow, 10% platform. Sells pay an exit fee based on the token's own weighted holding age.
-4. **Graduate.** Selling out the curve freezes it. `advance_graduation` (permissionless, retryable) then runs: create Ref pool → stake NEAR into LiNEAR → deposit MEME + LiNEAR → add liquidity. LP is priced at the final curve price.
-5. **Epochs.** `settle_epoch` reads the LiNEAR price, computes yield = vault shares − principal, and splits it by the live ve-weighted tally.
-6. **Redeem.** `ft_transfer_call {"action":"redeem"}` pays NEAR before graduation and LiNEAR after, and burns the tokens.
 
 ## Run it
 
-### Contracts
 ```bash
-cd contracts
-export CARGO_TARGET_DIR=~/.cargo-target/floorpad   # short path: avoids Windows LNK1104
-cargo test                                         # 32 unit tests
-cargo build --target wasm32-unknown-unknown --release
-```
-The toolchain is pinned to Rust 1.86 with near-sdk 5.26.1. Newer rustc emits wasm features that the NEAR VM may reject.
+# contracts (Rust 1.86 pinned; a short target dir avoids Windows LNK1104)
+cd contracts && export CARGO_TARGET_DIR=~/.cargo-target/floorpad
+cargo test && cargo build --target wasm32-unknown-unknown --release
 
-### Deploy (testnet, near-cli-rs)
-```bash
+# deploy (near-cli-rs); NET=mainnet uses deploy/config.mainnet.json
 MASTER=you.testnet LAUNCHPAD=floorpad-you.testnet ./deploy/deploy-testnet.sh
+
+# keeper + agent (operator = price_feeder)
+cd agent && cp .env.example .env && npm install && npm start
+
+# social API (Node >= 23.6)
+cd server && cp .env.example .env && npm start          # tests: npm test
+
+# web
+cd web && cp .env.example .env.local && npm install && npm run dev
 ```
-The testnet config uses a 3 NEAR virtual reserve, so about 8.8 NEAR graduates a token. Epochs and DAO votes are 1 hour.
 
-### Web
-```bash
-cd web && cp .env.example .env.local   # set NEXT_PUBLIC_LAUNCHPAD
-npm install && npm run dev
-```
+The testnet config targets a **$100** graduation (about 5.7 NEAR at $3.59) so a demo token can graduate with faucet funds. Mainnet uses $15,000.
 
-### Agent / keeper
-```bash
-cd agent && cp .env.example .env       # LAUNCHPAD_ID, OPERATOR_ID, AI_API_KEY
-npm install && npm start
-```
-The operator's key must be in `~/.near-credentials/<network>/`. Anyone can run the keeper. The "⚙" buttons on a token page run the same permissionless steps from the UI.
+## How chat and callouts work
 
-## Status: what is and isn't verified
+- **Sign-in:** the wallet signs a NEP-413 message once. There's no transaction and no gas. The server checks the signature and confirms the key is a full-access key of the account on-chain.
+- **Chat:** live through SSE. Each message carries a **DEV** badge for the creator and the sender's **% of supply** (wallet plus locked), read on-chain when they post. The creator can hide messages in their own token's chat, and admins can hide any.
+- **Callouts:** a callout stores the market cap at the time of the call (curve price before graduation, Ref pool price after). The server updates current and peak values every minute for 30 days, and the **Top callers** leaderboard ranks callers by average peak multiple.
 
-**Verified locally:** 32 contract unit tests pass. They cover curve math, fee splits, anti-snipe caps, the exit-fee decay, locks, tallies, graduation accounting (including partial-deposit retry), epoch yield split, airdrop claims, post-graduation redemption raising the floor, agent budget gating, DAO-only methods and config parsing. Both wasm files build. The web app typechecks and `next build` passes.
+## Status
 
-**Not yet tested on-chain:** every cross-contract flow (Sputnik factory/finalize, Ref pool and liquidity, LiNEAR staking, buyback swap). Before the demo, confirm on testnet:
-- `sputnik-v2.testnet` accepts `create` with the policy JSON in `dao.rs`, and the two-proposal hand-over succeeds.
-- The `ref-finance-101.testnet` and `linear-protocol.testnet` account IDs and methods (`add_simple_pool`, `register_tokens`, `add_liquidity`, instant-swap `ft_transfer_call` msg; `deposit_and_stake`, `ft_price`).
-- The cost of `deploy-as-global` for the token code.
-- The NEAR AI Cloud model ID in `agent/.env`.
+**Verified locally:**
+- 39 contract unit tests pass, covering:
+  - USD sizing at $3.59 (graduation ≈ $15k)
+  - the price-feed staleness check and the 2× per-update limit
+  - buy and sell fees, the fee split, creator claims
+  - graduation: vault seed, platform fee, LP priced at the final curve price, burning unused LP tokens
+  - the platform cut of epoch yield
+  - the DAO policy (>70%, lockers-only)
+  - the earlier coverage of locks, redemptions, the agent budget and the DAO-only methods
+- Both wasm files build.
+- The NEP-413 verifier passes 4 tests.
+- The social API passed a smoke test of every route.
+- The web app typechecks and `next build` passes.
+- I checked the UI at 375×812 (mobile) and 1280×860 (desktop) against a mock RPC.
 
-**Known limitations / next steps**
-- Lock weight is fixed at lock time and doesn't decay. Weight changes reach the DAO on the next lock, unlock or `sync_delegation` call.
-- The decaying exit fee applies to curve sells and floor redemptions only. Ref sells are untaxed by design, to keep the token composable.
-- House of Stake works through the DAO's *custom call* proposal template. There is no dedicated veNEAR flow yet.
-- The launchpad pays storage for positions and posts out of the creation fee. Production would charge per position.
-- No security audit has been done.
+**Not yet verified on-chain:**
+- the Sputnik factory and hand-over,
+- Ref pool creation and add-liquidity,
+- LiNEAR staking,
+- the buyback swap,
+- signMessage across real wallets (MyNearWallet's redirect flow especially),
+- the cost of deploying the token code as a global contract.
+
+The NEAR/USD price comes from a keeper, because Pyth Core no longer supports NEAR. That puts trust in the feeder, limited by the 2× cap, the staleness limit and the owner's override. The contracts have not been audited.

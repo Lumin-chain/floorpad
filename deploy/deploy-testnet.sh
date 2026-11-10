@@ -5,7 +5,7 @@
 set -euo pipefail
 : "${MASTER:?set MASTER=<your funded testnet account>}"
 : "${LAUNCHPAD:?set LAUNCHPAD=<new launchpad account, e.g. floorpad-you.testnet>}"
-NET=testnet
+NET=${NET:-testnet}   # NET=mainnet uses deploy/config.mainnet.json
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$HOME/.cargo-target/floorpad}"
 WASM="$CARGO_TARGET_DIR/wasm32-unknown-unknown/release"
@@ -30,10 +30,14 @@ near contract deploy-as-global use-file "$WASM/meme_token.wasm" as-global-accoun
   network-config $NET sign-with-keychain send
 
 echo "== launchpad"
-CONFIG=$(sed -e "s/OWNER_ID/$MASTER/" -e "s/LAUNCHPAD_ID/$LAUNCHPAD/g" "$ROOT/deploy/config.testnet.json" | tr -d '\n')
+CONFIG=$(sed -e "s/OWNER_ID/$MASTER/" -e "s/LAUNCHPAD_ID/$LAUNCHPAD/g" "$ROOT/deploy/config.$NET.json" | tr -d '\n')
 near contract deploy "$LAUNCHPAD" use-file "$WASM/floorpad_launchpad.wasm" \
   with-init-call new json-args "{\"config\":$CONFIG}" prepaid-gas '100 Tgas' attached-deposit '0 NEAR' \
   network-config $NET sign-with-keychain send
+
+echo "== seed NEAR/USD (the keeper keeps it fresh afterwards)"
+PRICE=$(curl -s 'https://api.coingecko.com/api/v3/simple/price?ids=near&vs_currencies=usd' | python -c 'import sys,json; print(round(json.load(sys.stdin)["near"]["usd"]*1e6))')
+near contract call-function as-transaction "$LAUNCHPAD" set_near_usd_price json-args "{\"price_micro_usd\":\"$PRICE\"}"   prepaid-gas '10 Tgas' attached-deposit '0 NEAR' sign-as "$MASTER" network-config $NET sign-with-keychain send
 
 echo "done. web/.env.local:  NEXT_PUBLIC_LAUNCHPAD=$LAUNCHPAD"
 echo "      agent/.env:      LAUNCHPAD_ID=$LAUNCHPAD  OPERATOR_ID=agent.$LAUNCHPAD"

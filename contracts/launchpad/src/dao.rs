@@ -166,27 +166,25 @@ impl Contract {
             .then(Self::ext(me).with_static_gas(tgas(5)).on_dao_created(idx)).detach();
     }
 
-    /// Holders-only, ve-weighted policy. Sensitive actions need 2/3.
+    /// Holders-only, ve-weighted policy.
+    /// * Only lockers (delegated weight > 0) can create proposals and vote.
+    /// * A proposal passes when MORE than 70% of all delegated lock weight
+    ///   votes yes (Sputnik's ratio threshold is strict: > n/d).
+    /// * Policy changes, upgrades and vote-token changes need more than 80%.
     pub(crate) fn holders_policy(&self) -> Value {
         let cfg = &self.config;
         let simple = json!({
             "weight_kind": "TokenWeight",
             "quorum": cfg.dao_quorum,
-            "threshold": [1, 2]
+            "threshold": [7, 10]
         });
         let strict = json!({
             "weight_kind": "TokenWeight",
             "quorum": cfg.dao_quorum,
-            "threshold": [2, 3]
+            "threshold": [4, 5]
         });
         json!({
             "roles": [
-                {
-                    "name": "all",
-                    "kind": "Everyone",
-                    "permissions": ["*:AddProposal"],
-                    "vote_policy": {}
-                },
                 {
                     "name": "holders",
                     "kind": { "Member": "1" },

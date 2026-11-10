@@ -5,3 +5,6 @@ target/
 .env.local
 *.tsbuildinfo
 next-env.d.ts
+*.db
+*.db-wal
+*.db-shm

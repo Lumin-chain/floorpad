@@ -1,0 +1,17 @@
+{
+  "name": "floorpad-social",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Floorpad chat + callouts API (zero runtime deps: node:http, node:sqlite, SSE)",
+  "engines": { "node": ">=23.6" },
+  "scripts": {
+    "start": "node src/index.ts",
+    "test": "node --test src/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.7.0"
+  }
+}

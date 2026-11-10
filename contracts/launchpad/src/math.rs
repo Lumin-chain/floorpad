@@ -79,6 +79,26 @@ pub fn shares_to_near(shares: u128, price: u128) -> u128 {
     mul_div(shares, price, PRICE_SCALE)
 }
 
+/// Virtual NEAR reserve such that selling `curve_supply` of `v_tokens` virtual
+/// tokens ends at a fully-diluted market cap of `mcap_usd`.
+/// mcap = V0 * T0 * S / Tf^2  =>  V0 = mcap * Tf^2 / (T0 * S)
+pub fn virtual_near_for_mcap(
+    mcap_usd: u64,
+    near_usd_micro: u128,
+    v_tokens: u128,
+    curve_supply: u128,
+    total_supply: u128,
+) -> u128 {
+    let mcap_near = mul_div(mcap_usd as u128 * 1_000_000, PRICE_SCALE, near_usd_micro);
+    let tf = v_tokens - curve_supply;
+    mul_div(mul_div(mcap_near, tf, v_tokens), tf, total_supply)
+}
+
+/// Fully-diluted market cap (yoctoNEAR) at the curve's spot price.
+pub fn fdv_near(v_near: u128, v_tokens: u128, supply: u128) -> u128 {
+    mul_div(v_near, supply, v_tokens)
+}
+
 /// Split `total` across buckets proportionally to `tally`. Rounding dust goes to bucket 0.
 pub fn split_by_tally(total: u128, tally: &[u128; 5]) -> [u128; 5] {
     let sum: u128 = tally.iter().sum();
@@ -143,6 +163,19 @@ mod tests {
         assert_eq!(lock_mult_bps(1, 7, 180), 10_000);
         assert_eq!(lock_mult_bps(999, 7, 180), 40_000);
         assert_eq!(lock_weight(100, 180, 7, 180), 400);
+    }
+
+    #[test]
+    fn curve_sized_for_15k_usd() {
+        // NEAR = $3.59 -> $15k = ~4,178 NEAR FDV at graduation
+        let v0 = virtual_near_for_mcap(15_000, 3_590_000, 1_073_000_000 * TOK, 800_000_000 * TOK, 1_000_000_000 * TOK);
+        let out = 800_000_000 * TOK;
+        let cost = curve_near_for_tokens(v0, 1_073_000_000 * TOK, out);
+        let (vf, tf) = (v0 + cost, 273_000_000 * TOK);
+        let fdv = fdv_near(vf, tf, 1_000_000_000 * TOK) / NEAR;
+        assert!((4_170..=4_190).contains(&fdv), "fdv {fdv}");
+        // ~850 NEAR (~$3.05k) raised on the curve
+        assert!((845..=856).contains(&(cost / NEAR)), "raise {}", cost / NEAR);
     }
 
     #[test]

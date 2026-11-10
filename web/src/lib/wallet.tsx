@@ -3,7 +3,9 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import type { WalletSelector } from "@near-wallet-selector/core";
 import type { WalletSelectorModal } from "@near-wallet-selector/modal-ui";
+import { Buffer } from "buffer";
 import { LAUNCHPAD, NETWORK, view } from "./near";
+import { completeRedirectSignIn, getSession, signInChat, clearSession, type Session } from "./social";
 
 export interface Call {
   method: string;
@@ -27,6 +29,9 @@ interface WalletCtx {
   busy: boolean;
   toast: { kind: "ok" | "err"; text: string } | null;
   setToast: (t: WalletCtx["toast"]) => void;
+  /** Chat/callouts session (NEP-413 sign-in, no gas). */
+  chat: Session | null;
+  chatSignIn: () => Promise<void>;
 }
 
 const Ctx = createContext<WalletCtx | null>(null);
@@ -38,6 +43,15 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<WalletCtx["toast"]>(null);
+  const [chat, setChat] = useState<Session | null>(null);
+
+  useEffect(() => setChat(getSession(accountId)), [accountId]);
+  useEffect(() => {
+    if (!ready) return;
+    completeRedirectSignIn()
+      .then((s) => s && setChat(s))
+      .catch((e) => setToast({ kind: "err", text: `Chat sign-in failed: ${(e as Error).message}` }));
+  }, [ready]);
 
   useEffect(() => {
     let unsub: (() => void) | undefined;
@@ -76,8 +90,30 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const signIn = useCallback(() => modal.current?.show(), []);
   const signOut = useCallback(async () => {
     const w = await selector.current?.wallet();
+    clearSession();
+    setChat(null);
     await w?.signOut();
   }, []);
+
+  const chatSignIn = useCallback(async () => {
+    if (!selector.current || !accountId) {
+      modal.current?.show();
+      return;
+    }
+    try {
+      const w = await selector.current.wallet();
+      const s = await signInChat(async (p) => {
+        const r = await w.signMessage({ ...p, nonce: Buffer.from(p.nonce) });
+        return r ? { accountId: r.accountId, publicKey: r.publicKey, signature: r.signature } : undefined;
+      });
+      if (s) {
+        setChat(s);
+        setToast({ kind: "ok", text: "Signed in to chat" });
+      }
+    } catch (e) {
+      setToast({ kind: "err", text: (e as Error).message ?? "Sign-in failed" });
+    }
+  }, [accountId]);
 
   const send = useCallback(async (txs: Tx[]) => {
     if (!selector.current) return false;
@@ -114,7 +150,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   }, [accountId]);
 
   return (
-    <Ctx.Provider value={{ accountId, ready, signIn, signOut, send, busy, toast, setToast }}>
+    <Ctx.Provider value={{ accountId, ready, signIn, signOut, send, busy, toast, setToast, chat, chatSignIn }}>
       {children}
     </Ctx.Provider>
   );

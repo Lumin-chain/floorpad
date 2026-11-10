@@ -70,7 +70,7 @@ export default function Create() {
         <h1>Launch a token</h1>
         <p className="muted">
           A single transaction deploys the token, opens the bonding curve and creates the holders&apos; DAO.
-          Total supply is 1B: 800M sell on the curve and 200M seed the locked Ref LP at graduation.
+          Total supply is 1B: 800M sell on the curve, which is sized from the live NEAR price so every token graduates to Ref at about ${cfg ? cfg.grad_mcap_usd.toLocaleString() : "15,000"} market cap.
           There is no premint and no dev allocation.
         </p>
         <div className="grid half">
@@ -109,7 +109,7 @@ export default function Create() {
         </label>
         {err && <div className="notice warn" style={{ marginBottom: 12 }}>{err}</div>}
         <button className="btn primary block" disabled={!valid || busy} onClick={submit}>
-          {accountId ? `Launch $${f.symbol || "…"} · ${cfg ? fmtNear(cfg.creation_fee, 2) : "3"} NEAR` : "Connect wallet to launch"}
+          {accountId ? `Launch $${f.symbol || "…"} · ${cfg ? fmtNear(cfg.creation_fee, 2) : "1.5"} NEAR` : "Connect wallet to launch"}
         </button>
       </div>
 
@@ -118,11 +118,11 @@ export default function Create() {
           <h2>What holders get</h2>
           <ul className="muted small" style={{ paddingLeft: 18, margin: 0 }}>
             <li><b>Fair launch:</b> per-wallet caps during the first minutes stop snipers.</li>
-            <li><b>Floor vault:</b> 70% of the 1% trade fee and every exit fee back a redeemable floor.</li>
-            <li><b>Decaying exit fee:</b> up to {cfg ? cfg.max_exit_fee_bps / 100 : 10}% for fresh buyers, falling to 0 over {cfg ? Math.round(cfg.exit_decay_secs / 86400) : 30} days.</li>
-            <li><b>Graduation:</b> the curve sells out, liquidity moves to a Ref MEME/LiNEAR pool and the LP is locked forever while it earns staking yield.</li>
+            <li><b>Floor vault:</b> half of every fee (1% buy, 2% sell), every exit fee and 15% of the graduation raise back a redeemable floor.</li>
+            <li><b>Decaying exit fee:</b> up to {cfg ? cfg.max_exit_fee_bps / 100 : 10}% for fresh buyers, falling to 0 over {cfg ? Math.round(cfg.exit_decay_secs / 86400) : 7} days. Selling always costs more than buying.</li>
+            <li><b>Graduation:</b> at ~$15k the curve closes and liquidity moves to a Ref MEME/LiNEAR pool at the same price. The LP is locked forever and earns staking yield.</li>
             <li><b>Epoch votes:</b> holders split staking yield across floor, buyback &amp; burn, airdrop, AI agent and treasury.</li>
-            <li><b>Creator escrow:</b> the creator&apos;s 20% fee share unlocks only by DAO vote, and the DAO can claw it back.</li>
+            <li><b>Creator rewards:</b> 30% of curve fees. Half is claimable any time; half unlocks by holder vote (&gt;70%), and the DAO can claw it back.</li>
           </ul>
         </div>
         <div className="notice">

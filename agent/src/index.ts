@@ -215,9 +215,44 @@ async function agent(t: TokenView) {
   }
 }
 
+// ---------------- NEAR/USD price feed ----------------
+// New launches size their curve so they graduate at `grad_mcap_usd` at the
+// NEAR/USD price stored on-chain. Two live sources must agree within 3%.
+
+async function fetchJson(url: string) {
+  const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+  if (!r.ok) throw new Error(`${url} ${r.status}`);
+  return r.json();
+}
+
+async function liveNearUsd(): Promise<number | null> {
+  const [cg, bn] = await Promise.allSettled([
+    fetchJson("https://api.coingecko.com/api/v3/simple/price?ids=near&vs_currencies=usd").then((j) => Number(j.near.usd)),
+    fetchJson("https://api.binance.com/api/v3/ticker/price?symbol=NEARUSDT").then((j) => Number(j.price)),
+  ]);
+  const prices = [cg, bn].filter((p): p is PromiseFulfilledResult<number> => p.status === "fulfilled" && p.value > 0).map((p) => p.value);
+  if (prices.length === 0) return null;
+  if (prices.length === 2 && Math.abs(prices[0] - prices[1]) / prices[0] > 0.03) {
+    console.warn(`price sources disagree: ${prices.join(" vs ")}; skipping update`);
+    return null;
+  }
+  return prices.reduce((a, b) => a + b, 0) / prices.length;
+}
+
+async function pushPrice() {
+  const live = await liveNearUsd().catch(() => null);
+  if (!live) return;
+  const [onchain, updatedAt] = await view<[string, number]>("get_near_usd_price");
+  const cur = Number(onchain) / 1e6;
+  const age = Date.now() / 1000 - updatedAt;
+  if (cur > 0 && Math.abs(live - cur) / cur < 0.005 && age < 3600) return;
+  await call("set_near_usd_price", { price_micro_usd: Math.round(live * 1e6).toString() }, 10n);
+}
+
 // ---------------- main loop ----------------
 
 async function tick() {
+  await pushPrice().catch((e) => console.warn("price push failed:", (e as Error).message));
   const tokens = await allTokens();
   for (const t of tokens) {
     await keep(t);

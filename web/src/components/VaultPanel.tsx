@@ -61,7 +61,8 @@ export function VaultPanel({ t, linearPrice, balance, holdingSince, reload }: To
         <div className="panel">
           <h2>How the floor rises</h2>
           <ul className="muted small" style={{ paddingLeft: 18, margin: 0 }}>
-            <li>70% of every 1% curve trade fee goes into the vault.</li>
+            <li>Half of every curve fee (1% buy, 2% sell) goes into the vault.</li>
+            <li>At graduation, 15% of the raise seeds the vault and unused LP tokens are burned.</li>
             <li>Exit fees on curve sells and on redemptions stay in the vault for remaining holders.</li>
             <li>At graduation the leftover raise joins the vault, and the whole vault is staked as LiNEAR.</li>
             <li>Each epoch, holders vote how to split staking yield. The &quot;Floor&quot; share compounds into principal.</li>

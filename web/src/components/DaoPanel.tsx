@@ -109,7 +109,7 @@ export function DaoPanel({ t }: TokenCtx) {
     const label = { ChangePolicy: "policy", UpgradeSelf: "upgrade_self", UpgradeRemote: "upgrade_remote", SetStakingContract: "set_vote_token" }[kindName(k)];
     const role = policy?.roles.find((r) => r.name === "holders");
     const vp = (label && role?.vote_policy[label]) || policy?.default_vote_policy;
-    return Array.isArray(vp?.threshold) ? (vp!.threshold as [number, number]) : [1, 2];
+    return Array.isArray(vp?.threshold) ? (vp!.threshold as [number, number]) : [7, 10];
   };
 
   async function act(p: Proposal, action: "VoteApprove" | "VoteReject" | "VoteRemove" | "Finalize") {
@@ -147,7 +147,7 @@ export function DaoPanel({ t }: TokenCtx) {
                 <div className="no" style={{ width: `${pct(no)}%` }} />
               </div>
               <div className="row between small muted wrap">
-                <span>Yes {pct(yes).toFixed(1)}% · No {pct(no).toFixed(1)}% · passes at {((n / d) * 100).toFixed(0)}% ({fmtTok(needed.toString(), 0)} weight)</span>
+                <span>Yes {pct(yes).toFixed(1)}% · No {pct(no).toFixed(1)}% · passes above {((n / d) * 100).toFixed(0)}% ({fmtTok(needed.toString(), 0)} weight)</span>
                 <span>by {p.proposer} · {ago(Number(BigInt(p.submission_time) / 1_000_000_000n))}</span>
               </div>
               {p.status === "InProgress" && (
@@ -177,13 +177,18 @@ export function DaoPanel({ t }: TokenCtx) {
           <Stat k="Your vote weight" v={fmtTok(mineW.toString(), 0)} s={totalW > 0n ? `${(Number((mineW * 10000n) / totalW) / 100).toFixed(2)}% of total` : "–"} />
           <Stat k="Total delegated" v={fmtTok(totalW.toString(), 0)} s="ve-weight across lockers" />
         </div>
-        <NewProposal t={t} bond={policy?.proposal_bond ?? "100000000000000000000000"} onDone={reload} />
+        {mineW > 0n ? (
+          <NewProposal t={t} bond={policy?.proposal_bond ?? "100000000000000000000000"} onDone={reload} />
+        ) : (
+          <div className="notice">Only lockers can create proposals. Lock ${t.meta.symbol} in the Lock &amp; vote tab, then propose here.</div>
+        )}
         {policy && (
           <div className="panel tight small">
+            <Kv k="Who can propose" v="Any locker (bond refunded unless voted spam)" />
             <Kv k="Proposal bond" v={`${fmtNear(policy.proposal_bond)} NEAR`} />
             <Kv k="Voting period" v={`${Number(BigInt(policy.proposal_period) / 3_600_000_000_000n)}h`} />
-            <Kv k="Default threshold" v="50% of delegated weight" />
-            <Kv k="Policy / upgrades" v="66% of delegated weight" />
+            <Kv k="To pass" v="> 70% of all lock weight votes yes" />
+            <Kv k="Policy / upgrades" v="> 80% of all lock weight" />
           </div>
         )}
       </div>

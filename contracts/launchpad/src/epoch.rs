@@ -44,7 +44,8 @@ impl Contract {
         let tok = self.tok(idx);
         let principal_shares = math::mul_div_ceil(tok.principal_near, PRICE_SCALE, price);
         let yield_shares = tok.linear_shares.saturating_sub(principal_shares);
-        let mut split = math::split_by_tally(yield_shares, &tok.alloc_tally);
+        let platform_cut = math::mul_div(yield_shares, cfg.yield_platform_bps as u128, math::BPS);
+        let mut split = math::split_by_tally(yield_shares - platform_cut, &tok.alloc_tally);
         if tok.total_weight == 0 {
             split[BUCKET_FLOOR] += split[BUCKET_AIRDROP];
             split[BUCKET_AIRDROP] = 0;
@@ -66,6 +67,7 @@ impl Contract {
                 math::mul_div(split[BUCKET_AIRDROP], ACC_SCALE, tok.total_weight);
         }
         tok.agent_budget_shares += split[BUCKET_AGENT];
+        tok.linear_shares -= platform_cut;
         tok.linear_shares -= split[BUCKET_BUYBACK]
             + split[BUCKET_AIRDROP]
             + split[BUCKET_AGENT]
@@ -76,6 +78,8 @@ impl Contract {
         let epoch = tok.epoch_index;
         tok.epoch_index += 1;
 
+        let owner = cfg.owner_id.clone();
+        self.credit_linear(&owner, platform_cut);
         self.epochs.insert(
             (idx, epoch % MAX_EPOCHS),
             EpochReport {

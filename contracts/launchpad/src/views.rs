@@ -28,11 +28,19 @@ pub struct TokenView {
     pub principal_near: U128,
     pub creator_escrow: U128,
     pub creator_released: U128,
+    pub creator_claimable: U128,
+    pub grad_mcap_usd: u64,
+    pub launch_near_usd: U128,
+    /// Fully-diluted market cap now (curve spot price x live supply), yoctoNEAR.
+    pub fdv_near: U128,
+    /// FDV at which the curve graduates, yoctoNEAR.
+    pub grad_fdv_near: U128,
     pub grad_stage: GradStage,
     pub grad_busy: bool,
     pub pool_id: Option<u64>,
     pub lp_near: U128,
     pub lp_shares: U128,
+    pub lp_tokens: U128,
     pub graduated_at: u64,
     pub total_locked: U128,
     pub total_weight: U128,
@@ -141,7 +149,7 @@ impl Contract {
             .unwrap_or(true);
         let storage = if new_holder { crate::curve::STORAGE_FEE } else { 0 };
         let gross = near_in.0.saturating_sub(storage);
-        let mut fee = bps(gross, cfg.trade_fee_bps as u128);
+        let mut fee = bps(gross, cfg.buy_fee_bps as u128);
         let mut used = gross - fee;
         let remaining = cfg.curve_supply.0 - t.sold;
         let mut out = math::curve_tokens_out(t.v_near, t.v_tokens, used);
@@ -149,7 +157,7 @@ impl Contract {
         if out >= remaining && remaining > 0 {
             out = remaining;
             used = math::curve_near_for_tokens(t.v_near, t.v_tokens, out);
-            fee = bps(used, cfg.trade_fee_bps as u128);
+            fee = bps(used, cfg.buy_fee_bps as u128);
             refund = gross - used - fee;
         }
         Quote { amount_out: U128(out), fee: U128(fee), exit_fee: U128(0), refund: U128(refund) }
@@ -161,7 +169,7 @@ impl Contract {
         let cfg = &self.config;
         let t = self.tok(idx);
         let gross = math::curve_near_out(t.v_near, t.v_tokens, tokens_in.0);
-        let fee = bps(gross, cfg.trade_fee_bps as u128);
+        let fee = bps(gross, cfg.sell_fee_bps as u128);
         let exit = bps(gross, math::exit_fee_bps(cfg.max_exit_fee_bps as u128, cfg.exit_decay_secs, age_secs));
         Quote { amount_out: U128(gross - fee - exit), fee: U128(fee), exit_fee: U128(exit), refund: U128(0) }
     }
@@ -214,11 +222,17 @@ impl Contract {
             principal_near: U128(t.principal_near),
             creator_escrow: U128(t.creator_escrow),
             creator_released: U128(t.creator_released),
+            creator_claimable: U128(t.creator_claimable),
+            grad_mcap_usd: t.grad_mcap_usd,
+            launch_near_usd: U128(t.launch_near_usd),
+            fdv_near: U128(math::fdv_near(t.v_near, t.v_tokens, c.total_supply.0 - t.burned)),
+            grad_fdv_near: U128(grad_fdv(t, c)),
             grad_stage: t.grad_stage,
             grad_busy: t.grad_busy,
             pool_id: t.pool_id,
             lp_near: U128(t.lp_near),
             lp_shares: U128(t.lp_shares),
+            lp_tokens: U128(t.lp_tokens),
             graduated_at: t.graduated_at,
             total_locked: U128(t.total_locked),
             total_weight: U128(t.total_weight),
@@ -240,6 +254,14 @@ impl Contract {
             snipe_window_ends: t.created_at + c.snipe_window_secs,
         }
     }
+}
+
+/// FDV (yoctoNEAR) at the end of this token's curve.
+fn grad_fdv(t: &TokenState, c: &Config) -> u128 {
+    // Invariant k = v_near * v_tokens; at the end v_tokens = v_tokens0 - curve_supply.
+    let tf = c.virtual_tokens.0 - c.curve_supply.0;
+    let v_end = math::mul_div(t.v_near, t.v_tokens, tf);
+    math::fdv_near(v_end, tf, c.total_supply.0)
 }
 
 /// Slots of a ring buffer of size `cap` holding `n` total writes, newest first.

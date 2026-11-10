@@ -5,7 +5,7 @@
 //! `advance_graduation` call (UI or keeper) so a failed step can simply be retried.
 use crate::curve::ONE_YOCTO;
 use crate::ext::{ext_ft, ext_linear, ext_ref, tgas};
-use crate::math;
+use crate::math::{self, bps};
 use crate::*;
 use near_sdk::json_types::U128;
 use near_sdk::{Promise, PromiseError};
@@ -66,7 +66,7 @@ impl Contract {
                 let meme = ext_ft::ext(tok.token_id.clone())
                     .with_attached_deposit(ONE_YOCTO)
                     .with_static_gas(tgas(60))
-                    .ft_transfer_call(ref_id.clone(), cfg.lp_supply, None, String::new());
+                    .ft_transfer_call(ref_id.clone(), U128(tok.lp_tokens), None, String::new());
                 let lin = ext_ft::ext(cfg.linear.clone())
                     .with_attached_deposit(ONE_YOCTO)
                     .with_static_gas(tgas(60))
@@ -85,7 +85,7 @@ impl Contract {
                 .with_static_gas(tgas(30))
                 .add_liquidity(
                     tok.pool_id.expect("ERR_NO_POOL"),
-                    vec![cfg.lp_supply, U128(tok.lp_shares)],
+                    vec![U128(tok.lp_tokens), U128(tok.lp_shares)],
                     None,
                 )
                 .then(cb.on_grad_liquidity(idx)),
@@ -148,8 +148,8 @@ impl Contract {
 
     #[private]
     pub fn on_grad_deposited(&mut self, idx: u32, sent_meme: bool, sent_lin: bool) {
-        let lp_supply = self.config.lp_supply.0;
         let tok = self.tok_mut(idx);
+        let lp_tokens = tok.lp_tokens;
         tok.grad_busy = false;
         let used = |i: u64| -> u128 {
             match env::promise_result_checked(i, 64) {
@@ -161,7 +161,7 @@ impl Contract {
         };
         let mut i = 0;
         if sent_meme {
-            if used(i) == lp_supply {
+            if used(i) == lp_tokens {
                 tok.lp_meme_deposited = true;
             }
             i += 1;
@@ -187,18 +187,51 @@ impl Contract {
 }
 
 impl Contract {
-    /// Called by the buy that sells out the curve: freezes the curve and earmarks
-    /// NEAR for liquidity (at the final curve price, so price is continuous),
-    /// the graduation reserve (storage deposits) and the vault.
+    /// Called by the buy that sells out the curve. Splits the raise:
+    /// * `grad_vault_bps` seeds the floor vault,
+    /// * `grad_platform_bps` is the platform's graduation fee,
+    /// * `graduation_reserve` pays Ref/LiNEAR storage,
+    /// * the rest becomes liquidity, paired with exactly as many tokens as keep
+    ///   the Ref price equal to the final curve price. Unused LP tokens are burned.
     pub(crate) fn enter_graduation(&mut self, idx: u32) {
         let cfg = self.config.clone();
+        let (raise, v_near, v_tokens) = {
+            let t = self.tok(idx);
+            (t.real_near, t.v_near, t.v_tokens)
+        };
+        let vault_seed = bps(raise, cfg.grad_vault_bps as u128);
+        let platform = bps(raise, cfg.grad_platform_bps as u128);
+        let reserve = cfg.graduation_reserve.as_yoctonear().min(raise - vault_seed - platform);
+        let mut lp_near = raise - vault_seed - platform - reserve;
+        let mut lp_tokens = math::mul_div(lp_near, v_tokens, v_near);
+        let mut extra_vault = 0;
+        if lp_tokens > cfg.lp_supply.0 {
+            lp_tokens = cfg.lp_supply.0;
+            let needed = math::mul_div(lp_tokens, v_near, v_tokens);
+            extra_vault = lp_near - needed;
+            lp_near = needed;
+        }
+        let burn = cfg.lp_supply.0 - lp_tokens;
+        self.platform_fees += platform;
         let tok = self.tok_mut(idx);
-        let reserve = cfg.graduation_reserve.as_yoctonear().min(tok.real_near);
-        let avail = tok.real_near - reserve;
-        let lp_near = math::mul_div(cfg.lp_supply.0, tok.v_near, tok.v_tokens).min(avail);
         tok.lp_near = lp_near;
-        tok.backing_near += avail - lp_near;
+        tok.lp_tokens = lp_tokens;
+        tok.backing_near += vault_seed + extra_vault;
         tok.real_near = 0;
         tok.grad_stage = GradStage::CreatePool;
+        if burn > 0 {
+            tok.burned += burn;
+            tok.tokens_in_flight += burn;
+            let token_id = tok.token_id.clone();
+            ext_ft::ext(token_id)
+                .with_static_gas(tgas(10))
+                .burn(U128(burn))
+                .then(
+                    Self::ext(env::current_account_id())
+                        .with_static_gas(tgas(5))
+                        .on_redeem_burned(idx, U128(burn)),
+                )
+                .detach();
+        }
     }
 }

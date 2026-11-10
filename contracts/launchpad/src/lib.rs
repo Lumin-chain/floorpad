@@ -24,6 +24,7 @@ mod vault;
 mod views;
 
 use near_contract_standards::fungible_token::receiver::FungibleTokenReceiver;
+use crate::math::bps;
 use near_sdk::json_types::U128;
 use near_sdk::store::{LookupMap, Vector};
 use near_sdk::{
@@ -80,12 +81,27 @@ pub struct Config {
     pub total_supply: U128,
     pub curve_supply: U128,
     pub lp_supply: U128,
-    pub virtual_near: U128,
     pub virtual_tokens: U128,
+    /// Fully-diluted market cap (USD) at which a token graduates to Ref.
+    /// Each launch sizes its curve from the NEAR/USD price at launch time.
+    pub grad_mcap_usd: u64,
+    /// Max age of the NEAR/USD price used to size a new curve.
+    pub max_price_age_secs: u64,
+    /// Account allowed to push NEAR/USD (the keeper). The owner can always push.
+    pub price_feeder: AccountId,
 
-    pub trade_fee_bps: u16,
+    pub buy_fee_bps: u16,
+    pub sell_fee_bps: u16,
+    /// Split of every curve fee: vault and creator; the rest is platform.
     pub fee_vault_bps: u16,
     pub fee_creator_bps: u16,
+    /// Share of creator fees claimable at once; the rest is DAO-escrowed.
+    pub creator_instant_bps: u16,
+    /// Graduation: share of the raise to the floor vault and to the platform.
+    pub grad_vault_bps: u16,
+    pub grad_platform_bps: u16,
+    /// Platform share of each epoch's staking yield.
+    pub yield_platform_bps: u16,
     pub max_exit_fee_bps: u16,
     pub exit_decay_secs: u64,
     pub redeem_fee_bps: u16,
@@ -170,6 +186,11 @@ pub struct TokenState {
     pub principal_near: u128,
     pub creator_escrow: u128,
     pub creator_released: u128,
+    /// Creator fees claimable now (no vote needed).
+    pub creator_claimable: u128,
+    /// Graduation target and the NEAR/USD price (micro-USD) the curve was sized at.
+    pub grad_mcap_usd: u64,
+    pub launch_near_usd: u128,
 
     // Graduation
     pub grad_stage: GradStage,
@@ -177,6 +198,8 @@ pub struct TokenState {
     pub pool_id: Option<u64>,
     pub lp_near: u128,
     pub lp_shares: u128,
+    /// Meme tokens paired into the LP (the unused rest of lp_supply is burned).
+    pub lp_tokens: u128,
     pub lp_meme_deposited: bool,
     pub lp_linear_deposited: bool,
     pub graduated_at: u64,
@@ -278,6 +301,9 @@ pub struct Contract {
     pub epochs: LookupMap<(u32, u32), EpochReport>,
     pub platform_fees: u128,
     pub ref_registered: bool,
+    /// NEAR/USD in micro-USD (1_590_000 = $1.59) and when it was set.
+    pub near_usd_micro: u128,
+    pub price_updated_at: u64,
 }
 
 pub(crate) fn now_secs() -> u64 {
@@ -300,6 +326,10 @@ impl Contract {
             config.fee_vault_bps as u128 + config.fee_creator_bps as u128 <= math::BPS,
             "ERR_FEE_SPLIT"
         );
+        require!(
+            config.grad_vault_bps as u128 + config.grad_platform_bps as u128 <= 5_000,
+            "ERR_GRAD_SPLIT"
+        );
         Self {
             config,
             tokens: Vector::new(StorageKey::Tokens),
@@ -314,6 +344,8 @@ impl Contract {
             epochs: LookupMap::new(StorageKey::Epochs),
             platform_fees: 0,
             ref_registered: false,
+            near_usd_micro: 0,
+            price_updated_at: 0,
         }
     }
 
@@ -332,7 +364,59 @@ impl Contract {
             .transfer(NearToken::from_yoctonear(amount.0))
     }
 
+    /// Push the NEAR/USD price (micro-USD). The feeder may move it at most 2x per
+    /// update; the owner is unrestricted (e.g. first price or recovery).
+    pub fn set_near_usd_price(&mut self, price_micro_usd: U128) {
+        let caller = env::predecessor_account_id();
+        let is_owner = caller == self.config.owner_id;
+        require!(is_owner || caller == self.config.price_feeder, "ERR_NOT_FEEDER");
+        let p = price_micro_usd.0;
+        require!(p > 0, "ERR_PRICE");
+        if !is_owner && self.near_usd_micro > 0 {
+            let old = self.near_usd_micro;
+            require!(p * 2 >= old && p <= old * 2, "ERR_PRICE_JUMP");
+        }
+        self.near_usd_micro = p;
+        self.price_updated_at = now_secs();
+    }
+
+    /// (NEAR/USD in micro-USD, updated_at secs)
+    pub fn get_near_usd_price(&self) -> (U128, u64) {
+        (U128(self.near_usd_micro), self.price_updated_at)
+    }
+
     // ---------- internal helpers ----------
+
+    /// Virtual NEAR reserve that makes the curve graduate at `grad_mcap_usd`
+    /// at the current NEAR/USD price.
+    pub(crate) fn launch_virtual_near(&self) -> u128 {
+        let c = &self.config;
+        require!(self.near_usd_micro > 0, "ERR_NO_PRICE");
+        require!(
+            now_secs() <= self.price_updated_at + c.max_price_age_secs,
+            "ERR_PRICE_STALE"
+        );
+        math::virtual_near_for_mcap(
+            c.grad_mcap_usd,
+            self.near_usd_micro,
+            c.virtual_tokens.0,
+            c.curve_supply.0,
+            c.total_supply.0,
+        )
+    }
+
+    /// Split a curve fee into vault, creator (instant + escrow) and platform.
+    pub(crate) fn distribute_fee(&mut self, idx: u32, fee: u128) {
+        let c = self.config.clone();
+        let vault = bps(fee, c.fee_vault_bps as u128);
+        let creator = bps(fee, c.fee_creator_bps as u128);
+        let instant = bps(creator, c.creator_instant_bps as u128);
+        let tok = self.tok_mut(idx);
+        tok.backing_near += vault;
+        tok.creator_claimable += instant;
+        tok.creator_escrow += creator - instant;
+        self.platform_fees += fee - vault - creator;
+    }
 
     pub(crate) fn assert_owner(&self) {
         require!(env::predecessor_account_id() == self.config.owner_id, "ERR_NOT_OWNER");
