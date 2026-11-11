@@ -446,8 +446,8 @@ export function PnlModal({
     const shareUrl = `${origin}/pnl/${t.token_id}?symbol=${encodeURIComponent(t.meta.symbol)}&name=${encodeURIComponent(t.meta.name)}&pnl=${pnlParam}&account=${encodeURIComponent(accountId || "")}&floor=${floorValNear.toFixed(2)}&usd=${currentValUsd.toFixed(2)}&entry=${entryPriceUsd.toFixed(4)}&price=${spotPriceUsd.toFixed(4)}${hideNetworthParam}${refParam}`;
 
     const text = isProfit
-      ? `🚀 Up +${pnlParam}% on $${t.meta.symbol} on @Floorpad! 📈\n\n🛡️ Floor vault only rises\n🔒 100% LP locked in Ref Finance earning staking yield\n🏛️ Holder DAO\n\nView my position:`
-      : `Holding $${t.meta.symbol} (${pnlParam}%) on @Floorpad! 📉\n\n🛡️ Backed by the redeemable rising floor vault\n🔒 Locked LP\n\nView my position:`;
+      ? `🚀 Up +${pnlParam}% on $${t.meta.symbol} on @usefloorpad_! 📈\n\n🛡️ Floor vault only rises\n🔒 100% LP locked in Ref Finance earning staking yield\n🏛️ Holder DAO\n\nView my position:`
+      : `Holding $${t.meta.symbol} (${pnlParam}%) on @usefloorpad_! 📉\n\n🛡️ Backed by the redeemable rising floor vault\n🔒 Locked LP\n\nView my position:`;
 
     const tweetUrl = `https://x.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(shareUrl)}`;
     window.open(tweetUrl, "_blank", "width=550,height=440");

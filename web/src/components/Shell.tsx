@@ -20,6 +20,16 @@ const NAV = [
 ] as const;
 
 
+const X_URL = "https://x.com/usefloorpad_";
+
+function XLogo({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+    </svg>
+  );
+}
+
 function Header() {
   const { accountId, nearBalance, signIn, signOut, ready } = useWallet();
   const path = usePathname();
@@ -40,6 +50,17 @@ function Header() {
           ))}
         </nav>
         <div className="spacer" />
+        <a
+          href={X_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="x-profile-link"
+          aria-label="Floorpad on X (@usefloorpad_)"
+          title="@usefloorpad_ on X"
+        >
+          <XLogo size={14} />
+          <span className="desktop-only">@usefloorpad_</span>
+        </a>
         <span className="badge desktop-only">{NETWORK}</span>
         {accountId ? (
           <div className="row" style={{ gap: 6 }}>
@@ -94,7 +115,13 @@ export function Shell({ children }: { children: ReactNode }) {
       <main className="container wide main">{children}</main>
       <footer className="footer desktop-only">
         <div className="container wide row between wrap">
-          <span>Floorpad · contract <span className="mono">{LAUNCHPAD}</span></span>
+          <div className="row" style={{ gap: 12 }}>
+            <span>Floorpad · contract <span className="mono">{LAUNCHPAD}</span></span>
+            <a href={X_URL} target="_blank" rel="noreferrer" className="x-profile-link" aria-label="Floorpad on X">
+              <XLogo size={13} />
+              <span>@usefloorpad_</span>
+            </a>
+          </div>
           <span>Not financial advice. Meme tokens are volatile; the floor limits, but does not remove, risk.</span>
         </div>
       </footer>

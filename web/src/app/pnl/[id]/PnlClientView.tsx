@@ -73,8 +73,8 @@ export function PnlClientView({
   const shareOnX = () => {
     const shareUrl = buildShareUrl();
     const text = isProfit
-      ? `🚀 Up +${pnl.toFixed(2)}% on ${name || symbol} ($${symbol}) on @Floorpad! 📈\n\n🛡️ Rising floor vault · Locked Ref LP\n\nView card:`
-      : `Holding ${name || symbol} ($${symbol}) on @Floorpad! 📉\n\n🛡️ Backed by the redeemable rising floor vault\n\nView card:`;
+      ? `🚀 Up +${pnl.toFixed(2)}% on ${name || symbol} ($${symbol}) on @usefloorpad_! 📈\n\n🛡️ Rising floor vault · Locked Ref LP\n\nView card:`
+      : `Holding ${name || symbol} ($${symbol}) on @usefloorpad_! 📉\n\n🛡️ Backed by the redeemable rising floor vault\n\nView card:`;
     window.open(
       `https://x.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(shareUrl)}`,
       "_blank",

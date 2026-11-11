@@ -113,6 +113,8 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 .progress > div { height: 100%; background: var(--accent); border-radius: 99px; }
 
 .badge { display: inline-flex; align-items: center; gap: 4px; font-size: .72rem; font-weight: 700; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.x-profile-link { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 99px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); font-size: .78rem; font-weight: 600; text-decoration: none; transition: border-color .15s, background .15s, color .15s; white-space: nowrap; }
+.x-profile-link:hover { border-color: var(--accent); color: var(--accent); }
 .badge.green { color: var(--accent); border-color: #1f4d2c; background: #0e2216; }
 .badge.violet { color: var(--violet); border-color: #3b2f63; background: #1a1530; }
 .badge.sky { color: var(--sky); border-color: #1d4256; background: #0d1d27; }
