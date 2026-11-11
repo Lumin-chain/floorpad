@@ -34,7 +34,7 @@ export default function DocsPage() {
   return (
     <div className="section stack" style={{ gap: 24 }}>
       {/* Docs Header */}
-      <div className="panel stack" style={{ background: "linear-gradient(180deg, #161b22 0%, #101317 100%)" }}>
+      <div className="panel stack">
         <div className="row between wrap">
           <div className="row" style={{ gap: 12 }}>
             <Moji face="hero" size={38} />
@@ -73,23 +73,23 @@ export default function DocsPage() {
         ))}
       </div>
 
-      <div className="grid two" style={{ gridTemplateColumns: "240px 1fr", alignItems: "start", gap: 20 }}>
+      <div className="docs-layout">
         {/* Sticky Sidebar Navigation */}
-        <div className="panel tight stack desktop-only" style={{ position: "sticky", top: 80, gap: 4 }}>
+        <div className="panel tight stack desktop-only" style={{ position: "sticky", top: 72, gap: 4 }}>
           <div className="k" style={{ marginBottom: 6 }}>Documentation</div>
           {SECTIONS.map((sec) => (
             <button
               key={sec.id}
-              className={`btn sm ghost row ${activeSection === sec.id ? "primary" : ""}`}
+              className="btn sm ghost row"
               style={{
                 justifyContent: "flex-start",
                 textAlign: "left",
                 width: "100%",
                 padding: "8px 10px",
                 border: "none",
-                background: activeSection === sec.id ? "var(--panel-2)" : "transparent",
-                color: activeSection === sec.id ? "var(--text)" : "var(--muted)",
-                fontWeight: activeSection === sec.id ? 700 : 500,
+                background: activeSection === sec.id ? "#EFF6FF" : "transparent",
+                color: activeSection === sec.id ? "var(--primary)" : "var(--muted)",
+                fontWeight: activeSection === sec.id ? 700 : 600,
               }}
               onClick={() => {
                 setActiveSection(sec.id);

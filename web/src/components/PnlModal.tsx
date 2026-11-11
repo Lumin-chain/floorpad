@@ -469,23 +469,22 @@ export function PnlModal({
         className="panel stack"
         onClick={(e) => e.stopPropagation()}
         style={{
-          maxWidth: 780,
+          maxWidth: 760,
           width: "100%",
           maxHeight: "94vh",
           overflowY: "auto",
-          background: isProfit ? "#08120d" : "#14090b",
-          border: `1px solid ${isProfit ? "rgba(0, 255, 163, 0.4)" : "rgba(255, 59, 92, 0.4)"}`,
-          boxShadow: `0 24px 60px rgba(0,0,0,0.85), 0 0 40px ${isProfit ? "rgba(0, 255, 163, 0.15)" : "rgba(255, 59, 92, 0.15)"}`,
-          padding: 24,
-          borderRadius: 20,
+          background: "var(--panel)",
+          border: "1px solid var(--line-strong)",
+          padding: 20,
+          borderRadius: 12,
         }}
       >
         {/* Modal Header */}
         <div className="row between">
           <div className="row" style={{ gap: 10 }}>
-            <Moji face={isProfit ? "hero" : "cool"} size={30} />
+            <Moji face={isProfit ? "hero" : "cool"} size={28} />
             <div>
-              <h2 style={{ margin: 0, fontSize: "1.3rem" }}>
+              <h2 style={{ margin: 0, fontSize: "1.2rem" }}>
                 Your {isProfit ? "Profit" : "Loss"} Card
               </h2>
               <span className="small muted">
@@ -500,12 +499,11 @@ export function PnlModal({
         <div
           style={{
             width: "100%",
-            borderRadius: 16,
+            borderRadius: 10,
             overflow: "hidden",
-            border: `1px solid ${isProfit ? "rgba(0, 255, 163, 0.3)" : "rgba(255, 59, 92, 0.3)"}`,
-            background: "#040607",
-            marginTop: 14,
-            boxShadow: `0 8px 30px ${isProfit ? "rgba(0, 255, 163, 0.1)" : "rgba(255, 59, 92, 0.1)"}`,
+            border: "1px solid var(--line-strong)",
+            background: "#060809",
+            marginTop: 12,
           }}
         >
           <canvas ref={canvasRef} style={{ width: "100%", height: "auto", display: "block" }} />
@@ -516,10 +514,10 @@ export function PnlModal({
           className="row between wrap"
           style={{
             gap: 10,
-            marginTop: 16,
-            background: "rgba(255,255,255,0.02)",
-            padding: 14,
-            borderRadius: 12,
+            marginTop: 14,
+            background: "var(--tertiary)",
+            padding: 12,
+            borderRadius: 10,
             border: "1px solid var(--line)",
           }}
         >
@@ -546,7 +544,7 @@ export function PnlModal({
         </div>
 
         {/* Actions Bar */}
-        <div className="row wrap between" style={{ marginTop: 14, gap: 10 }}>
+        <div className="row wrap between" style={{ marginTop: 12, gap: 10 }}>
           <div className="row" style={{ gap: 8 }}>
             <button className="btn sm" onClick={copyImage}>
               <SlabIcon name="share" size={14} /> {copied ? "Copied!" : "Copy Image"}
@@ -558,19 +556,13 @@ export function PnlModal({
           <button
             className="btn primary"
             onClick={shareToX}
-            style={{
-              background: "#000000",
-              color: "#ffffff",
-              border: "1px solid rgba(255,255,255,0.3)",
-              fontWeight: 700,
-            }}
           >
             <svg
               width="14"
               height="14"
               viewBox="0 0 24 24"
               fill="currentColor"
-              style={{ marginRight: 6, verticalAlign: -2 }}
+              style={{ marginRight: 4 }}
             >
               <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
             </svg>

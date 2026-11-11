@@ -180,14 +180,14 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
 
       {/* Graduation Status Banners */}
       {t.grad_stage !== "Curve" && !graduated && (
-        <div className="panel stack" style={{ background: "linear-gradient(180deg, #1f2a1f 0%, #131b13 100%)", border: "1px solid var(--accent)", gap: 10 }}>
+        <div className="panel stack" style={{ background: "#FFFBEB", border: "1.5px solid var(--warn)", gap: 10 }}>
           <div className="row between wrap">
             <div className="row" style={{ gap: 10 }}>
               <Moji face="hero" size={28} />
               <div>
                 <strong>Bonding Curve 100% Filled! Migration to Ref Finance in Progress</strong>
                 <div className="small muted">
-                  Step: <span className="green mono bold">{t.grad_stage}</span> · Sizing Ref pool at final curve price with 100% permanent LP lock
+                  Step: <span className="warn mono bold">{t.grad_stage}</span> · Sizing Ref pool at final curve price with 100% permanent LP lock
                 </div>
               </div>
             </div>
@@ -197,7 +197,7 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
       )}
 
       {graduated && (
-        <div className="panel row between wrap" style={{ background: "linear-gradient(180deg, #132219 0%, #0e1712 100%)", border: "1px solid var(--accent)", gap: 12 }}>
+        <div className="panel row between wrap" style={{ background: "#F0FDF4", border: "1.5px solid var(--accent)", gap: 12 }}>
           <div className="row" style={{ gap: 10 }}>
             <Moji face="flag" size={28} />
             <div>
@@ -280,7 +280,7 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
 
       {/* mobile: sticky trade bar + bottom sheet */}
       <div className="trade-bar mobile-only">
-        <button className="btn primary" onClick={() => setSheet("buy")}>Buy</button>
+        <button className="btn buy" onClick={() => setSheet("buy")}>Buy</button>
         <button className="btn danger-solid" onClick={() => setSheet("sell")}>Sell</button>
       </div>
       {sheet && (

@@ -310,7 +310,7 @@ function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: T
 
       {/* Instant Trading Account Banner */}
       {tradeMode === "instant" && (
-        <div className="panel tight stack" style={{ background: "var(--panel-2)", border: "1px solid var(--accent)", gap: 8 }}>
+        <div className="panel tight stack" style={{ background: "var(--tertiary)", border: "1.5px solid var(--primary)", gap: 8 }}>
           <div className="row between">
             <span className="small bold">
               <MojiLabel face="cool">Instant Trading Balance</MojiLabel>
@@ -463,7 +463,7 @@ function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: T
       )}
 
       <button
-        className={`btn block ${side === "buy" ? "primary" : "danger"}`}
+        className={`btn block ${side === "buy" ? "buy" : "danger-solid"}`}
         disabled={busy || !q || closed || BigInt(q?.amount_out ?? 0) === 0n}
         onClick={submit}
       >
@@ -691,7 +691,7 @@ function RefTrade({ t, balance, linearPrice, reload, initialSide, onDone }: Trad
           </div>
         </div>
       )}
-      <button className={`btn block ${side === "buy" ? "primary" : "danger"}`} disabled={busy || out === 0n} onClick={submit}>
+      <button className={`btn block ${side === "buy" ? "buy" : "danger-solid"}`} disabled={busy || out === 0n} onClick={submit}>
         {side === "buy" ? "Buy" : "Sell"} ${t.meta.symbol}
       </button>
     </div>

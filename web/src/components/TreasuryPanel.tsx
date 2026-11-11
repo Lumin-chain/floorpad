@@ -64,28 +64,30 @@ export function TreasuryPanel({ t, linearPrice }: TokenCtx) {
         {!epochs?.length ? (
           <div className="muted small">No epochs settled yet. The first one comes one epoch after graduation.</div>
         ) : (
-          <table className="t">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Date</th>
-                <th>Yield (LiNEAR)</th>
-                {BUCKET_LABELS.map((l, i) => (
-                  <th key={l}><span className="swatch" style={{ background: BUCKET_COLORS[i] }} /> {l}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {epochs.map((e) => (
-                <tr key={e.index}>
-                  <td>{e.index}</td>
-                  <td>{new Date(e.ts * 1000).toLocaleString()}</td>
-                  <td>{fmtNear(e.yield_shares, 5)}</td>
-                  {e.split.map((s, i) => <td key={i}>{fmtNear(s, 5)}</td>)}
+          <div className="table-scroll">
+            <table className="t">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Date</th>
+                  <th>Yield (LiNEAR)</th>
+                  {BUCKET_LABELS.map((l, i) => (
+                    <th key={l}><span className="swatch" style={{ background: BUCKET_COLORS[i] }} /> {l}</th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {epochs.map((e) => (
+                  <tr key={e.index}>
+                    <td>{e.index}</td>
+                    <td>{new Date(e.ts * 1000).toLocaleString()}</td>
+                    <td>{fmtNear(e.yield_shares, 5)}</td>
+                    {e.split.map((s, i) => <td key={i}>{fmtNear(s, 5)}</td>)}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>

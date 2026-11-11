@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import { BUCKET_LABELS, type TokenView } from "@/lib/near";
 
-export const BUCKET_COLORS = ["#7cf29a", "#ff8f6b", "#ffd166", "#5cc8ff", "#a78bfa"];
+export const BUCKET_COLORS = ["#16A34A", "#DC2626", "#D97706", "#2563EB", "#4F46E5"];
 
 export function Avatar({ t, lg, small }: { t: TokenView; lg?: boolean; small?: boolean }) {
   if (t.meta.icon) {

@@ -83,9 +83,9 @@ export function PnlClientView({
   };
 
   return (
-    <div className="section stack" style={{ maxWidth: 840, margin: "32px auto", padding: "0 16px", gap: 20 }}>
+    <div className="section stack" style={{ maxWidth: 840, margin: "24px auto", padding: "0 14px", gap: 16 }}>
       {/* Privacy Control Bar */}
-      <div className="panel row between wrap" style={{ gap: 12, background: "rgba(255,255,255,0.03)", border: "1px solid var(--line)" }}>
+      <div className="panel row between wrap" style={{ gap: 12 }}>
         <div>
           <strong style={{ fontSize: "0.95rem" }}>Display Preferences</strong>
           <div className="small muted">Choose whether to show your networth ($) or only your PNL percentage (%)</div>
@@ -114,9 +114,8 @@ export function PnlClientView({
             ? "linear-gradient(135deg, #071710 0%, #0b1c14 40%, #040c07 100%)"
             : "linear-gradient(135deg, #19080b 0%, #1d0c10 40%, #0d0406 100%)",
           border: `2px solid ${cardBorder}`,
-          borderRadius: 28,
-          padding: "36px 40px",
-          boxShadow: `0 24px 60px rgba(0,0,0,0.85), 0 0 50px ${cardGlow}`,
+          borderRadius: 16,
+          padding: "28px 32px",
           position: "relative",
           overflow: "hidden",
         }}
@@ -339,7 +338,6 @@ export function PnlClientView({
           <button
             className="btn sm"
             onClick={shareOnX}
-            style={{ background: "#000", color: "#fff", border: "1px solid rgba(255,255,255,0.25)" }}
           >
             Share on X
           </button>

@@ -79,8 +79,8 @@ export default function MechanicsPage() {
       const sellFee = sellVol * (0.025 + exitFeeBps / 10000);
       const totalFees = buyFee + sellFee;
 
-      // 70% of fees go to the floor vault
-      const floorCut = totalFees * 0.7;
+      // 40% of curve fees go to the floor vault (matches config.fee_vault_bps = 4000)
+      const floorCut = totalFees * 0.4;
       vaultNearAcc += floorCut;
 
       // Staking yield (compounding daily via LiNEAR)
@@ -144,20 +144,20 @@ export default function MechanicsPage() {
   return (
     <div className="stack section" style={{ gap: 28 }}>
       {/* Hero header */}
-      <div className="panel stack" style={{ background: "linear-gradient(180deg, #161b22 0%, #101317 100%)" }}>
+      <div className="panel stack">
         <div className="row between wrap">
           <div className="row" style={{ gap: 12 }}>
             <Moji face="hero" size={36} />
             <div>
               <h1 style={{ margin: 0, fontSize: "1.6rem" }}>Floorpad Mechanics & Audit</h1>
-              <span className="small muted">NEAR Hackathon · Tracks: Memecoins With Mechanics & Social Money</span>
+              <span className="small muted">NEAR Protocol · Fair-launch bonding curves with a rising floor vault</span>
             </div>
           </div>
           <div className="row wrap" style={{ gap: 6 }}>
             <span className="badge green">100% On-Chain</span>
             <span className="badge">No Admin Key</span>
-            <span className="badge">Ref MEME/LiNEAR LP Locked</span>
-            <span className="badge">Sputnik DAO ve-Locks</span>
+            <span className="badge sky">Ref MEME/LiNEAR LP Locked</span>
+            <span className="badge violet">Sputnik DAO ve-Locks</span>
           </div>
         </div>
 
@@ -175,8 +175,8 @@ export default function MechanicsPage() {
           </div>
           <div className="stat">
             <div className="k">Vault Floor Share</div>
-            <div className="v">70.0%</div>
-            <div className="s">From all trading fees</div>
+            <div className="v">{(Number(config?.fee_vault_bps ?? 4000) / 100).toFixed(0)}%</div>
+            <div className="s">From all curve fees + 100% exit fees</div>
           </div>
           <div className="stat">
             <div className="k">LP Locking</div>
@@ -215,8 +215,8 @@ export default function MechanicsPage() {
             </span>
           </div>
           <div className="row" style={{ gap: 12 }}>
-            <span className="small"><span style={{ color: "#7cf29a" }}>●</span> Floor Price ($)</span>
-            <span className="small"><span style={{ color: "#ffb547" }}>●</span> Cumulative Tokens Burned (%)</span>
+            <span className="small"><span style={{ color: "#16A34A" }}>●</span> Floor Price ($)</span>
+            <span className="small"><span style={{ color: "#D97706" }}>●</span> Cumulative Tokens Burned (%)</span>
           </div>
         </div>
 
@@ -284,8 +284,8 @@ export default function MechanicsPage() {
           >
             <defs>
               <linearGradient id="floorGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#7cf29a" stopOpacity="0.25" />
-                <stop offset="100%" stopColor="#7cf29a" stopOpacity="0.0" />
+                <stop offset="0%" stopColor="#16A34A" stopOpacity="0.16" />
+                <stop offset="100%" stopColor="#16A34A" stopOpacity="0.0" />
               </linearGradient>
             </defs>
 
@@ -304,8 +304,8 @@ export default function MechanicsPage() {
 
             {/* Floor fill & lines */}
             <path d={floorArea} fill="url(#floorGrad)" />
-            <path d={floorPath} fill="none" stroke="#7cf29a" strokeWidth="2.5" />
-            <path d={burnPath} fill="none" stroke="#ffb547" strokeWidth="2" strokeDasharray="5 3" />
+            <path d={floorPath} fill="none" stroke="#16A34A" strokeWidth="2.5" />
+            <path d={burnPath} fill="none" stroke="#D97706" strokeWidth="2" strokeDasharray="5 3" />
 
             {/* Hover point indicator */}
             {hoverDay !== null && activePoint && (
@@ -315,12 +315,12 @@ export default function MechanicsPage() {
                   x2={scaleX(activePoint.day)}
                   y1={P}
                   y2={H - P}
-                  stroke="#e8eaed"
+                  stroke="#6B7280"
                   strokeWidth="1"
                   strokeDasharray="2 2"
                 />
-                <circle cx={scaleX(activePoint.day)} cy={scaleYFloor(activePoint.floorPriceUsd)} r="4" fill="#7cf29a" />
-                <circle cx={scaleX(activePoint.day)} cy={scaleYBurn(activePoint.burnedPct)} r="4" fill="#ffb547" />
+                <circle cx={scaleX(activePoint.day)} cy={scaleYFloor(activePoint.floorPriceUsd)} r="4" fill="#16A34A" />
+                <circle cx={scaleX(activePoint.day)} cy={scaleYBurn(activePoint.burnedPct)} r="4" fill="#D97706" />
               </>
             )}
           </svg>
@@ -430,15 +430,15 @@ export default function MechanicsPage() {
             <div className="k">Fee Distribution</div>
             <div className="row between">
               <span className="small">Floor Vault:</span>
-              <strong className="green">{(Number(config?.fee_vault_bps ?? 7000) / 100).toFixed(0)}%</strong>
+              <strong className="green">{(Number(config?.fee_vault_bps ?? 4000) / 100).toFixed(0)}%</strong>
             </div>
             <div className="row between">
               <span className="small">Creator Cut:</span>
-              <strong>{(Number(config?.fee_creator_bps ?? 1000) / 100).toFixed(0)}%</strong>
+              <strong>{(Number(config?.fee_creator_bps ?? 2500) / 100).toFixed(0)}%</strong>
             </div>
             <div className="row between">
               <span className="small">Platform Cut:</span>
-              <strong>20.00%</strong>
+              <strong>{(100 - (Number(config?.fee_vault_bps ?? 4000) + Number(config?.fee_creator_bps ?? 2500)) / 100).toFixed(0)}%</strong>
             </div>
             <div className="row between">
               <span className="small">Referral Share:</span>

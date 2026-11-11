@@ -146,36 +146,36 @@ export default function Explore() {
 
           {/* Interactive Beginner Explainer */}
           {showGuide && (
-            <div className="panel stack" style={{ background: "linear-gradient(180deg, #162219 0%, #111a14 100%)", border: "1px solid var(--accent)", gap: 12 }}>
+            <div className="panel stack" style={{ border: "1.5px solid var(--primary)", gap: 12 }}>
               <div className="row between">
-                <strong className="green row" style={{ gap: 8 }}>
+                <strong className="blue row" style={{ gap: 8 }}>
                   <Moji face="hero" size={24} />
                   How Floorpad Works (The 30-Second Guide)
                 </strong>
                 <button className="btn sm ghost" onClick={() => setShowGuide(false)}>✕ Close</button>
               </div>
               <div className="grid three" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
-                <div className="panel tight stack" style={{ background: "var(--panel-2)", gap: 6 }}>
+                <div className="panel tight stack" style={{ background: "var(--tertiary)", gap: 6 }}>
                   <div className="row" style={{ gap: 6 }}>
-                    <span className="badge green">Step 1</span>
+                    <span className="badge primary">Step 1</span>
                     <strong>Fair Launch Curve</strong>
                   </div>
                   <span className="small muted">
                     100% fair bonding curve with no team allocation and no presale. Buy early with NEAR. Instant Trading allows 0-popup speed.
                   </span>
                 </div>
-                <div className="panel tight stack" style={{ background: "var(--panel-2)", gap: 6 }}>
+                <div className="panel tight stack" style={{ background: "var(--tertiary)", gap: 6 }}>
                   <div className="row" style={{ gap: 6 }}>
                     <span className="badge green">Step 2</span>
                     <strong>The Vault Floor</strong>
                   </div>
                   <span className="small muted">
-                    70% of all fees + exit fees go into the vault. The floor price can only rise. You can ALWAYS burn your tokens to cash out at the floor.
+                    40% of all curve fees + exit fees go into the vault. The floor price can only rise. You can ALWAYS burn your tokens to cash out at the floor.
                   </span>
                 </div>
-                <div className="panel tight stack" style={{ background: "var(--panel-2)", gap: 6 }}>
+                <div className="panel tight stack" style={{ background: "var(--tertiary)", gap: 6 }}>
                   <div className="row" style={{ gap: 6 }}>
-                    <span className="badge green">Step 3</span>
+                    <span className="badge violet">Step 3</span>
                     <strong>Ref Finance DEX</strong>
                   </div>
                   <span className="small muted">
