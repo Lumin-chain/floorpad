@@ -479,11 +479,11 @@ function TokenCard({ t, mcapUsd, floorUsd, chat }: { t: TokenView; mcapUsd: numb
           <span className="green nowrap">floor {floorUsd ? fmtUsd(floorUsd) : "–"}</span>
         </div>
         {graduated ? (
-          <div className="desktop-only-block" style={{ marginTop: 6 }}><StageBadges t={t} /></div>
+          <div className="desktop-only-block" style={{ marginTop: 8 }}><StageBadges t={t} /></div>
         ) : (
-          <div className="row" style={{ gap: 8 }}>
-            <div className="progress" style={{ flex: 1 }}><div style={{ width: `${pct}%` }} /></div>
-            <span className="small muted desktop-only">{pct.toFixed(0)}%</span>
+          <div className="row" style={{ gap: 8, marginTop: 8 }}>
+            <div className="progress" style={{ flex: 1, margin: 0 }}><div style={{ width: `${pct}%` }} /></div>
+            <span className="xs muted mono desktop-only">{pct.toFixed(0)}%</span>
           </div>
         )}
       </div>

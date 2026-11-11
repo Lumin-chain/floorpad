@@ -39,11 +39,11 @@ export default function CallsPage() {
 
       <div className="calls-layout">
       {(tab === "feed" || desktop) && (
-        <div className="grid cards calls-feed" style={{ marginTop: 12 }}>
+        <div className="grid cards calls-feed" style={{ marginTop: 10 }}>
           {calls?.map((c) => <CallRow key={c.id} c={c} showToken />)}
           {calls?.length === 0 && (
             <div className="empty mascot-empty">
-              <Mascot pose="cool" size={100} motion="wave" alt="" />
+              <Mascot pose="cool" size={100} motion="wave" alt="Callouts mascot" />
               <span>No callouts yet. Call a token from its page.</span>
             </div>
           )}
