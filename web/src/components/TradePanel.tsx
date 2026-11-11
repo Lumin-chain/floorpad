@@ -430,7 +430,7 @@ function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: T
 
 /** After graduation: swap through the locked Ref MEME/LiNEAR pool, all in-app. */
 function RefTrade({ t, balance, linearPrice, reload, initialSide, onDone }: TradeProps) {
-  const { send, busy, accountId } = useWallet();
+  const { send, busy, accountId, nearBalance } = useWallet();
   const [side, setSide] = useState<"buy" | "sell">(initialSide ?? "buy");
   const [amt, setAmt] = useState("");
   const { data: pool } = useView(() => view<RefPool>(REF, "get_pool", { pool_id: t.pool_id }), [t.pool_id], 8000);
@@ -454,6 +454,11 @@ function RefTrade({ t, balance, linearPrice, reload, initialSide, onDone }: Trad
   async function submit() {
     if (!accountId || out === 0n) return;
     const txs: Tx[] = [];
+    
+    // Ensure account has storage registered on Ref Finance exchange
+    const regRef = await storageCallIfNeeded(REF, accountId);
+    if (regRef) txs.push(regRef);
+
     if (side === "buy") {
       txs.push({ receiverId: LINEAR, calls: [{ method: "deposit_and_stake", args: {}, gas: 50, deposit: base }] });
       const reg = await storageCallIfNeeded(t.token_id, accountId);
@@ -485,24 +490,67 @@ function RefTrade({ t, balance, linearPrice, reload, initialSide, onDone }: Trad
           </button>
         </div>
         <span className="small muted">
-          {side === "buy" ? `LiNEAR ${fmtNear(linBal ?? "0", 3)}` : `Balance ${fmtTok(balance.toString())}`}
+          {side === "buy"
+            ? `Wallet: ${fmtNear(nearBalance, 2)} N`
+            : `Wallet: ${fmtTok(balance.toString())} $${t.meta.symbol}`}
         </span>
       </div>
+
       <div className="small muted">
-        Ref pool #{t.pool_id}: {fmtTok(rMeme.toString(), 0)} ${t.meta.symbol} / {fmtNear(rLin.toString(), 2)} LiNEAR. LP is locked
+        Ref pool #{t.pool_id}: {fmtTok(rMeme.toString(), 0)} ${t.meta.symbol} / {fmtNear(rLin.toString(), 2)} LiNEAR. LP is 100% locked
         forever and earns staking yield. Spot ≈ {spot.toExponential(3)} N.
       </div>
+
       <div className="input-suffix">
         <input className="input" inputMode="decimal" placeholder="0.0" value={amt} onChange={(e) => setAmt(e.target.value)} />
         <em>{side === "buy" ? "NEAR" : `$${t.meta.symbol}`}</em>
       </div>
+
+      {/* Quick Size Presets */}
+      {side === "buy" && (
+        <div className="row wrap">
+          {["0.5", "1", "5", "10", "25"].map((v) => (
+            <button key={v} className="btn sm ghost" onClick={() => setAmt(v)}>
+              {v} N
+            </button>
+          ))}
+        </div>
+      )}
+
+      {side === "sell" && (
+        <div className="row wrap">
+          {[25, 50, 75, 100].map((p) => (
+            <button
+              key={p}
+              className="btn sm ghost"
+              onClick={() => setAmt(fmtTok(((balance * BigInt(p)) / 100n).toString(), 18).replace(/,/g, ""))}
+            >
+              {p}%
+            </button>
+          ))}
+          <button
+            className="btn sm ghost"
+            onClick={() => setAmt(fmtTok(balance.toString(), 18).replace(/,/g, ""))}
+          >
+            Max
+          </button>
+        </div>
+      )}
+
       <Kv k="You receive (est.)" v={side === "buy" ? `${fmtTok(out.toString())} $${t.meta.symbol}` : `${fmtNear(out.toString())} LiNEAR`} />
       <Kv k="Route" v={side === "buy" ? "NEAR → LiNEAR (stake) → Ref swap" : "Ref swap → LiNEAR"} />
       <Kv k="Slippage limit" v="1%" />
       {side === "sell" && (
-        <div className="notice small">
-          Selling on Ref has no exit fee, but it moves price. Redeeming at the floor (Floor tab) is the
-          zero-slippage exit; its exit fee goes to remaining holders.
+        <div className="notice small stack" style={{ gap: 4 }}>
+          <div>
+            <strong>Two Ways to Sell Graduated Tokens:</strong>
+          </div>
+          <div>
+            1. <strong>Ref Finance Swap</strong> (above): Sells through Ref Pool #{t.pool_id} for LiNEAR.
+          </div>
+          <div>
+            2. <strong>Vault Floor Redemption</strong> (Floor tab): Burns tokens at the rising floor price with <strong>zero slippage</strong>.
+          </div>
         </div>
       )}
       <button className={`btn block ${side === "buy" ? "primary" : "danger"}`} disabled={busy || out === 0n} onClick={submit}>
