@@ -91,8 +91,20 @@ export function calcPrice(vNear: string, vTokens: string): number {
   return Number((vn * 10n ** 18n) / vt) / 1e18 / 1e6;
 }
 
-export const getTradesFrom = (tokenId: string, fromIndex: number, limit = 100) =>
-  view<[number, OnChainTrade][]>(LAUNCHPAD, "get_trades_from", { token_id: tokenId, from_index: fromIndex, limit });
+export async function getTradesFrom(tokenId: string, fromIndex: number, limit = 100, tradeCount?: number): Promise<[number, OnChainTrade][]> {
+  try {
+    return await view<[number, OnChainTrade][]>(LAUNCHPAD, "get_trades_from", { token_id: tokenId, from_index: fromIndex, limit });
+  } catch {
+    // Fallback for earlier deployed contracts that only expose newest-first `get_trades`
+    const recent = await view<OnChainTrade[]>(LAUNCHPAD, "get_trades", { token_id: tokenId, limit }).catch(() => []);
+    if (!recent.length) return [];
+    const total = tradeCount ?? recent.length;
+    const asc = recent
+      .map((t, i) => [Math.max(0, total - 1 - i), t] as [number, OnChainTrade])
+      .reverse();
+    return asc.filter(([idx]) => idx >= fromIndex);
+  }
+}
 
 export const nearUsd = () =>
   cached("near-usd", 60_000, async () => {

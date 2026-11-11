@@ -1,14 +1,27 @@
+import fs from "node:fs";
+import path from "node:path";
 import { ImageResponse } from "next/og";
 import type { NextRequest } from "next/server";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-async function fetchTokenMetaEdge(tokenId: string): Promise<{ name?: string; symbol?: string; icon?: string | null } | null> {
+function loadBrandPng(filename: string): string | null {
+  try {
+    const filePath = path.join(process.cwd(), "public", "brand", filename);
+    const buf = fs.readFileSync(filePath);
+    return `data:image/png;base64,${buf.toString("base64")}`;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchTokenMetaSafe(tokenId: string): Promise<{ name?: string; symbol?: string; icon?: string | null } | null> {
   if (!tokenId) return null;
   try {
     const rpc = process.env.NEXT_PUBLIC_RPC || "https://rpc.testnet.fastnear.com";
     const launchpad = process.env.NEXT_PUBLIC_LAUNCHPAD || "fplpmwbbcg00.testnet";
-    const argsBase64 = btoa(JSON.stringify({ token_id: tokenId }));
+    const argsBase64 = Buffer.from(JSON.stringify({ token_id: tokenId })).toString("base64");
     const res = await fetch(rpc, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -28,9 +41,7 @@ async function fetchTokenMetaEdge(tokenId: string): Promise<{ name?: string; sym
     });
     const j = await res.json();
     if (j.result?.result) {
-      const bytes = new Uint8Array(j.result.result);
-      const text = new TextDecoder().decode(bytes);
-      const parsed = JSON.parse(text);
+      const parsed = JSON.parse(Buffer.from(j.result.result).toString("utf8"));
       return parsed?.meta || null;
     }
   } catch {
@@ -39,15 +50,28 @@ async function fetchTokenMetaEdge(tokenId: string): Promise<{ name?: string; sym
   return null;
 }
 
+function isSatoriSupportedImage(src: string | null | undefined): src is string {
+  if (!src) return false;
+  if (src.startsWith("data:image/")) {
+    return (
+      src.startsWith("data:image/png") ||
+      src.startsWith("data:image/jpeg") ||
+      src.startsWith("data:image/jpg") ||
+      src.startsWith("data:image/gif") ||
+      src.startsWith("data:image/svg+xml")
+    );
+  }
+  return (src.startsWith("https://") || src.startsWith("http://")) && !src.toLowerCase().endsWith(".webp");
+}
+
 export async function GET(req: NextRequest) {
-  const url = new URL(req.url);
-  const { searchParams, origin } = url;
+  const { searchParams } = new URL(req.url);
   const tokenId = searchParams.get("token") || "";
-  const meta = tokenId ? await fetchTokenMetaEdge(tokenId) : null;
+  const meta = tokenId ? await fetchTokenMetaSafe(tokenId) : null;
 
   const symbol = searchParams.get("symbol") || meta?.symbol || "TOKEN";
   const name = searchParams.get("name") || meta?.name || symbol;
-  const tokenIcon = meta?.icon && (meta.icon.startsWith("http") || meta.icon.startsWith("data:image/")) ? meta.icon : null;
+  const tokenIcon = isSatoriSupportedImage(meta?.icon) ? meta.icon : null;
 
   const pnlStr = searchParams.get("pnl") || "100";
   const floor = searchParams.get("floor") || "10.0";
@@ -69,8 +93,8 @@ export async function GET(req: NextRequest) {
   const themeColor = isProfit ? "#00ffa3" : "#ff3b5c";
   const pnlFormatted = `${isProfit ? "+" : ""}${pnlNum.toFixed(2)}%`;
 
-  const mascotUrl = `${origin}/brand/${isProfit ? "pnl-mascot-profit.png" : "pnl-mascot-loss.png"}`;
-  const logoUrl = `${origin}/brand/symbol.png`;
+  const mascotData = loadBrandPng(isProfit ? "pnl-mascot-profit.png" : "pnl-mascot-loss.png");
+  const logoData = loadBrandPng("symbol.png");
 
   return new ImageResponse(
     (
@@ -83,8 +107,8 @@ export async function GET(req: NextRequest) {
           justifyContent: "space-between",
           backgroundColor: "#060809",
           backgroundImage: isProfit
-            ? "radial-gradient(circle at 80% 42%, rgba(0, 255, 163, 0.16) 0%, transparent 58%), linear-gradient(135deg, #071710 0%, #0b1c14 40%, #040c07 100%)"
-            : "radial-gradient(circle at 80% 42%, rgba(255, 59, 92, 0.16) 0%, transparent 58%), linear-gradient(135deg, #19080b 0%, #1d0c10 40%, #0d0406 100%)",
+            ? "linear-gradient(135deg, #071710 0%, #0b1c14 45%, #040c07 100%)"
+            : "linear-gradient(135deg, #19080b 0%, #1d0c10 45%, #0d0406 100%)",
           padding: "40px 54px",
           color: "#ffffff",
           fontFamily: "system-ui, -apple-system, sans-serif",
@@ -92,10 +116,9 @@ export async function GET(req: NextRequest) {
         }}
       >
         {/* Top Header */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={logoUrl} alt="" style={{ height: 28, width: 56 }} />
+            {logoData ? <img src={logoData} alt="" width={56} height={28} /> : null}
             <div style={{ display: "flex", flexDirection: "column" }}>
               <div
                 style={{
@@ -131,20 +154,18 @@ export async function GET(req: NextRequest) {
         </div>
 
         {/* Center Content */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
           {/* Left: Token & Hero PNL */}
           <div style={{ display: "flex", flexDirection: "column" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "14px", marginBottom: "10px" }}>
               {tokenIcon ? (
-                // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={tokenIcon}
                   alt=""
+                  width={54}
+                  height={54}
                   style={{
-                    width: 54,
-                    height: 54,
                     borderRadius: 27,
-                    objectFit: "cover",
                     border: "2px solid rgba(255, 255, 255, 0.25)",
                   }}
                 />
@@ -168,20 +189,21 @@ export async function GET(req: NextRequest) {
                 </div>
               )}
               <div style={{ display: "flex", flexDirection: "column" }}>
-                <div style={{ fontSize: 38, fontWeight: 900, color: "#ffffff", letterSpacing: "-0.02em", lineHeight: 1.05 }}>
-                  ${symbol}
+                <div style={{ display: "flex", fontSize: 38, fontWeight: 900, color: "#ffffff", letterSpacing: "-0.02em", lineHeight: 1.05 }}>
+                  {`$${symbol}`}
                 </div>
-                <div style={{ fontSize: 16, fontWeight: 600, color: "rgba(255, 255, 255, 0.55)" }}>
+                <div style={{ display: "flex", fontSize: 16, fontWeight: 600, color: "rgba(255, 255, 255, 0.55)" }}>
                   {name}
                 </div>
               </div>
             </div>
 
-            <div style={{ fontSize: 18, fontWeight: 700, color: "rgba(255, 255, 255, 0.5)", marginTop: "6px", marginBottom: "2px" }}>
+            <div style={{ display: "flex", fontSize: 18, fontWeight: 700, color: "rgba(255, 255, 255, 0.5)", marginTop: "6px", marginBottom: "2px" }}>
               PNL
             </div>
             <div
               style={{
+                display: "flex",
                 fontSize: 96,
                 fontWeight: 900,
                 color: themeColor,
@@ -198,6 +220,7 @@ export async function GET(req: NextRequest) {
                 style={{
                   display: "flex",
                   alignItems: "center",
+                  alignSelf: "flex-start",
                   gap: "10px",
                   backgroundColor: isProfit ? "rgba(0, 255, 163, 0.12)" : "rgba(255, 59, 92, 0.12)",
                   border: `1px solid ${isProfit ? "rgba(0, 255, 163, 0.35)" : "rgba(255, 59, 92, 0.35)"}`,
@@ -207,17 +230,16 @@ export async function GET(req: NextRequest) {
                   fontWeight: 800,
                   color: themeColor,
                   marginTop: "14px",
-                  width: "fit-content",
                 }}
               >
-                <span>👛</span>
-                <span>{pnlGainUsd >= 0 ? "+ $" : "- $"}{absUsdGain.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                {`${pnlGainUsd >= 0 ? "+ $" : "- $"}${absUsdGain.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
               </div>
             ) : (
               <div
                 style={{
                   display: "flex",
                   alignItems: "center",
+                  alignSelf: "flex-start",
                   gap: "8px",
                   backgroundColor: "rgba(255, 255, 255, 0.06)",
                   border: "1px solid rgba(255, 255, 255, 0.15)",
@@ -227,18 +249,16 @@ export async function GET(req: NextRequest) {
                   fontWeight: 700,
                   color: "rgba(255, 255, 255, 0.6)",
                   marginTop: "14px",
-                  width: "fit-content",
                 }}
               >
-                <span>🔒 PNL % ONLY</span>
+                PNL % ONLY
               </div>
             )}
           </div>
 
           {/* Right: Mascot Artwork */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={mascotUrl} alt="" style={{ width: 280, height: 320, objectFit: "contain" }} />
+            {mascotData ? <img src={mascotData} alt="" width={270} height={310} /> : null}
           </div>
         </div>
 
@@ -248,6 +268,7 @@ export async function GET(req: NextRequest) {
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
+            width: "100%",
             backgroundColor: "rgba(0, 0, 0, 0.5)",
             border: `1.5px solid ${isProfit ? "rgba(0, 255, 163, 0.25)" : "rgba(255, 59, 92, 0.25)"}`,
             borderRadius: "18px",
@@ -255,19 +276,19 @@ export async function GET(req: NextRequest) {
           }}
         >
           <div style={{ display: "flex", flexDirection: "column" }}>
-            <div style={{ fontSize: 13, color: "rgba(255, 255, 255, 0.45)", fontWeight: 700 }}>
-              🪙 Entry Price
+            <div style={{ display: "flex", fontSize: 13, color: "rgba(255, 255, 255, 0.45)", fontWeight: 700 }}>
+              Entry Price
             </div>
-            <div style={{ fontSize: 24, fontWeight: 800, color: "#ffffff", marginTop: 2 }}>
+            <div style={{ display: "flex", fontSize: 24, fontWeight: 800, color: "#ffffff", marginTop: 2 }}>
               {entry ? `$${entry}` : account}
             </div>
           </div>
 
           <div style={{ display: "flex", flexDirection: "column" }}>
-            <div style={{ fontSize: 13, color: "rgba(255, 255, 255, 0.45)", fontWeight: 700 }}>
-              {!hideNetworth ? "💼 Networth" : "🎯 Current Price"}
+            <div style={{ display: "flex", fontSize: 13, color: "rgba(255, 255, 255, 0.45)", fontWeight: 700 }}>
+              {!hideNetworth ? "Networth" : "Current Price"}
             </div>
-            <div style={{ fontSize: 24, fontWeight: 800, color: "#ffffff", marginTop: 2 }}>
+            <div style={{ display: "flex", fontSize: 24, fontWeight: 800, color: "#ffffff", marginTop: 2 }}>
               {!hideNetworth
                 ? `$${usdNum.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                 : price
@@ -277,10 +298,10 @@ export async function GET(req: NextRequest) {
           </div>
 
           <div style={{ display: "flex", flexDirection: "column" }}>
-            <div style={{ fontSize: 13, color: "rgba(255, 255, 255, 0.45)", fontWeight: 700 }}>
-              🛡️ Guaranteed Floor
+            <div style={{ display: "flex", fontSize: 13, color: "rgba(255, 255, 255, 0.45)", fontWeight: 700 }}>
+              Guaranteed Floor
             </div>
-            <div style={{ fontSize: 24, fontWeight: 800, color: themeColor, marginTop: 2 }}>
+            <div style={{ display: "flex", fontSize: 24, fontWeight: 800, color: themeColor, marginTop: 2 }}>
               {!hideNetworth ? `${floor} NEAR` : "Floor-Backed"}
             </div>
           </div>
@@ -290,6 +311,6 @@ export async function GET(req: NextRequest) {
     {
       width: 1200,
       height: 630,
-    }
+    },
   );
 }

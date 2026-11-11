@@ -343,14 +343,13 @@ async function indexTrades() {
   try {
     const tokens = await getTokens(50).catch(() => []);
     for (const tok of tokens) {
-      if (tok.grad_stage !== "Graduated" || tok.pool_id === null) {
-        // Curve indexing via launchpad get_trades_from
-        const last = store.lastCurveTradeIndex(tok.token_id);
-        const fromIdx = Math.max(0, last + 1);
-        const trades = await getTradesFrom(tok.token_id, fromIdx, 50).catch(() => []);
+      // Always catch up any unindexed on-curve trades (including pre-graduation history on fresh DBs)
+      const lastCurve = store.lastCurveTradeIndex(tok.token_id);
+      if ((tok as unknown as { trade_count?: number }).trade_count === undefined || lastCurve + 1 < ((tok as unknown as { trade_count?: number }).trade_count ?? Number.MAX_SAFE_INTEGER)) {
+        const fromIdx = Math.max(0, lastCurve + 1);
+        const trades = await getTradesFrom(tok.token_id, fromIdx, 50, (tok as unknown as { trade_count?: number }).trade_count).catch(() => []);
         for (const [idx, tr] of trades) {
           if (store.hasRecentSimilarTrade(tok.token_id, tr.is_buy ? 1 : 0, tr.tokens, 25)) {
-            // Avoid double-broadcasting if already optimistically logged via POST /trades; still record canonical id
             const stored: StoredTrade = {
               token_id: tok.token_id,
               id: idx,
@@ -387,7 +386,8 @@ async function indexTrades() {
           publish(`token:${tok.token_id}`, "trade", payload);
           publish("global", "trade", payload);
         }
-      } else {
+      }
+      if (tok.grad_stage === "Graduated" && tok.pool_id !== null) {
         // Ref Finance pool indexing for graduated tokens
         try {
           const pool = await view<{ token_account_ids: string[]; amounts: string[] }>(REF, "get_pool", {

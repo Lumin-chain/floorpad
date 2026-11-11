@@ -206,8 +206,20 @@ function calcPrice(vNear: string, vTokens: string): number {
   return Number((vn * 10n ** 18n) / vt) / 1e18 / 1e6;
 }
 
-const getTradesFrom = (tokenId: string, fromIndex: number, limit = 100) =>
-  view<[number, OnChainTrade][]>(LAUNCHPAD, "get_trades_from", { token_id: tokenId, from_index: fromIndex, limit });
+async function getTradesFrom(tokenId: string, fromIndex: number, limit = 100, tradeCount?: number): Promise<[number, OnChainTrade][]> {
+  try {
+    return await view<[number, OnChainTrade][]>(LAUNCHPAD, "get_trades_from", { token_id: tokenId, from_index: fromIndex, limit });
+  } catch {
+    // Fallback for earlier deployed contracts that only expose newest-first `get_trades`
+    const recent = await view<OnChainTrade[]>(LAUNCHPAD, "get_trades", { token_id: tokenId, limit }).catch(() => []);
+    if (!recent.length) return [];
+    const total = tradeCount ?? recent.length;
+    const asc = recent
+      .map((t, i) => [Math.max(0, total - 1 - i), t] as [number, OnChainTrade])
+      .reverse();
+    return asc.filter(([idx]) => idx >= fromIndex);
+  }
+}
 
 const nearUsd = () =>
   cached("near-usd", 60_000, async () => {
@@ -558,10 +570,11 @@ class SocialBackend {
     try {
       const tokens = await getTokens(50).catch(() => []);
       for (const tok of tokens) {
-        if (tok.grad_stage !== "Graduated" || tok.pool_id === null) {
-          const last = this.lastCurveTradeIndex(tok.token_id);
-          const fromIdx = Math.max(0, last + 1);
-          const trades = await getTradesFrom(tok.token_id, fromIdx, 50).catch(() => []);
+        // Always catch up any unindexed on-curve trades (including pre-graduation history on fresh stores)
+        const lastCurve = this.lastCurveTradeIndex(tok.token_id);
+        if (tok.trade_count === undefined || lastCurve + 1 < tok.trade_count) {
+          const fromIdx = Math.max(0, lastCurve + 1);
+          const trades = await getTradesFrom(tok.token_id, fromIdx, 50, tok.trade_count).catch(() => []);
           for (const [idx, tr] of trades) {
             const isBuyInt = tr.is_buy ? 1 : 0;
             const duplicate = this.hasRecentSimilarTrade(tok.token_id, isBuyInt, tr.tokens, 25);
@@ -584,7 +597,8 @@ class SocialBackend {
               this.publish("global", "trade", payload);
             }
           }
-        } else {
+        }
+        if (tok.grad_stage === "Graduated" && tok.pool_id !== null) {
           try {
             const pool = await view<{ token_account_ids: string[]; amounts: string[] }>(REF, "get_pool", {
               pool_id: tok.pool_id,
