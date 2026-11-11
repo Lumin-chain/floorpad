@@ -29,22 +29,31 @@ export function PnlModal({
   const [downloading, setDownloading] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // Calculate position metrics
+  // Position calculations
+  const usdPrice = nearUsd || 3.6;
   const tokensNum = Number(balance / 10n ** 14n) / 1e4;
   const currentValNear = tokensNum * spotPriceNear;
-  const currentValUsd = currentValNear * (nearUsd || 3.6);
+  const currentValUsd = currentValNear * usdPrice;
   const floorValNear = tokensNum * floorPriceNear;
-  const floorValUsd = floorValNear * (nearUsd || 3.6);
+  const floorValUsd = floorValNear * usdPrice;
 
-  // Estimated baseline entry: floor price when launched or holding duration
-  const estEntryPrice = floorPriceNear > 0 ? floorPriceNear * 0.7 : spotPriceNear * 0.5;
-  const calcPnlPct = estEntryPrice > 0 
-    ? Math.round(((spotPriceNear - estEntryPrice) / estEntryPrice) * 100) 
-    : 125;
-  
-  const [pnlMultiplier, setPnlMultiplier] = useState<number>(Math.max(15, calcPnlPct));
+  // Estimated baseline entry: floor price when launched or 60% of spot
+  const estEntryPriceNear = floorPriceNear > 0 ? floorPriceNear * 0.8 : spotPriceNear * 0.5;
+  const estEntryPriceUsd = estEntryPriceNear * usdPrice;
+  const spotPriceUsd = spotPriceNear * usdPrice;
 
-  // Render high-res 1200x630 card on canvas
+  const defaultPnlPct =
+    estEntryPriceNear > 0
+      ? Math.round(((spotPriceNear - estEntryPriceNear) / estEntryPriceNear) * 100)
+      : 125;
+
+  const [pnlMultiplier, setPnlMultiplier] = useState<number>(defaultPnlPct);
+  const [showNetworth, setShowNetworth] = useState<boolean>(true);
+  const [customPnlInput, setCustomPnlInput] = useState<string>("");
+
+  const isProfit = pnlMultiplier >= 0;
+
+  // Render high-res 1200x675 card on canvas
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -52,137 +61,294 @@ export function PnlModal({
     if (!ctx) return;
 
     const width = 1200;
-    const height = 630;
+    const height = 675;
     canvas.width = width;
     canvas.height = height;
 
-    // Background gradient: Deep void with neon teal & green accents
-    const bgGrad = ctx.createLinearGradient(0, 0, width, height);
-    bgGrad.addColorStop(0, "#080b0c");
-    bgGrad.addColorStop(0.5, "#0d1315");
-    bgGrad.addColorStop(1, "#050708");
-    ctx.fillStyle = bgGrad;
-    ctx.fillRect(0, 0, width, height);
+    // Load assets
+    const symbolImg = new Image();
+    symbolImg.src = "/brand/symbol.png";
 
-    // Decorative grid pattern
-    ctx.strokeStyle = "rgba(46, 213, 115, 0.04)";
-    ctx.lineWidth = 1;
-    const gridSize = 40;
-    for (let x = 0; x < width; x += gridSize) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, height);
-      ctx.stroke();
-    }
-    for (let y = 0; y < height; y += gridSize) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(width, y);
-      ctx.stroke();
+    const mascotImg = new Image();
+    mascotImg.src = isProfit ? "/brand/pnl-mascot-profit.png" : "/brand/pnl-mascot-loss.png";
+
+    let tokenIconImg: HTMLImageElement | null = null;
+    if (t.meta.icon) {
+      tokenIconImg = new Image();
+      tokenIconImg.src = t.meta.icon;
     }
 
-    // Outer card border
-    ctx.strokeStyle = "rgba(46, 213, 115, 0.3)";
-    ctx.lineWidth = 3;
-    ctx.strokeRect(30, 30, width - 60, height - 60);
+    const render = () => {
+      // Clear
+      ctx.clearRect(0, 0, width, height);
 
-    // Top Header: Floorpad Brand + Mascot Pill
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 32px 'Space Grotesk', system-ui, sans-serif";
-    ctx.fillText("FLOORPAD", 70, 95);
+      // Deep void background
+      ctx.fillStyle = "#060809";
+      ctx.fillRect(0, 0, width, height);
 
-    ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
-    ctx.font = "20px system-ui, sans-serif";
-    ctx.fillText("THE MEMECOIN WITH A RISING FLOOR", 255, 95);
+      // Card bounding box
+      const cardX = 35;
+      const cardY = 35;
+      const cardW = width - 70;
+      const cardH = height - 70;
+      const cardR = 28;
 
-    // Rising Floor Pill (top-right)
-    ctx.fillStyle = "rgba(46, 213, 115, 0.15)";
-    ctx.strokeStyle = "rgba(46, 213, 115, 0.5)";
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.roundRect(width - 320, 65, 250, 42, 21);
-    ctx.fill();
-    ctx.stroke();
+      // Card Background Gradient
+      const cardGrad = ctx.createLinearGradient(cardX, cardY, cardX + cardW, cardY + cardH);
+      if (isProfit) {
+        cardGrad.addColorStop(0, "#071710");
+        cardGrad.addColorStop(0.4, "#0b1c14");
+        cardGrad.addColorStop(1, "#040c07");
+      } else {
+        cardGrad.addColorStop(0, "#19080b");
+        cardGrad.addColorStop(0.4, "#1d0c10");
+        cardGrad.addColorStop(1, "#0d0406");
+      }
 
-    ctx.fillStyle = "#2ed573";
-    ctx.font = "bold 18px monospace";
-    ctx.fillText("▲ RISING FLOOR VAULT", width - 295, 92);
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(cardX, cardY, cardW, cardH, cardR);
+      ctx.fillStyle = cardGrad;
+      ctx.fill();
 
-    // Token Details Section
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 56px system-ui, sans-serif";
-    ctx.fillText(`$${t.meta.symbol}`, 70, 200);
+      // Card Glowing Border
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = isProfit ? "rgba(0, 255, 163, 0.45)" : "rgba(255, 59, 92, 0.45)";
+      ctx.shadowColor = isProfit ? "rgba(0, 255, 163, 0.35)" : "rgba(255, 59, 92, 0.35)";
+      ctx.shadowBlur = 20;
+      ctx.stroke();
+      ctx.restore();
 
-    ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
-    ctx.font = "26px system-ui, sans-serif";
-    ctx.fillText(t.meta.name, 70, 240);
+      // Decorative radial background glow behind mascot
+      const glowGrad = ctx.createRadialGradient(cardX + cardW - 220, cardY + 260, 20, cardX + cardW - 220, cardY + 260, 320);
+      if (isProfit) {
+        glowGrad.addColorStop(0, "rgba(0, 255, 163, 0.22)");
+        glowGrad.addColorStop(1, "rgba(0, 255, 163, 0)");
+      } else {
+        glowGrad.addColorStop(0, "rgba(255, 59, 92, 0.22)");
+        glowGrad.addColorStop(1, "rgba(255, 59, 92, 0)");
+      }
+      ctx.fillStyle = glowGrad;
+      ctx.fillRect(cardX, cardY, cardW, cardH);
 
-    // PNL Hero Display (Center-Left)
-    const isProfit = pnlMultiplier >= 0;
-    ctx.fillStyle = isProfit ? "#2ed573" : "#ff4757";
-    ctx.font = "900 110px 'Space Grotesk', system-ui, sans-serif";
-    const pnlText = `${isProfit ? "+" : ""}${pnlMultiplier}%`;
-    ctx.fillText(pnlText, 70, 370);
+      // Top Left Header: Logo + Brand + Tagline
+      if (symbolImg.complete && symbolImg.naturalWidth > 0) {
+        ctx.drawImage(symbolImg, 75, 72, 48, 24);
+      }
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "900 36px 'Space Grotesk', system-ui, sans-serif";
+      ctx.fillText("Floorpad", 136, 94);
 
-    // Subtitle below PNL
-    ctx.fillStyle = "rgba(255, 255, 255, 0.7)";
-    ctx.font = "22px system-ui, sans-serif";
-    ctx.fillText(`Holding ${fmtTok(balance.toString(), 0)} $${t.meta.symbol}`, 70, 420);
+      ctx.fillStyle = "rgba(255, 255, 255, 0.45)";
+      ctx.font = "600 17px system-ui, sans-serif";
+      ctx.fillText("The floor only goes up.", 138, 118);
 
-    // Stats Grid on Right Side
-    const rightX = 680;
-    
-    // Card Box on Right
-    ctx.fillStyle = "rgba(255, 255, 255, 0.03)";
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.1)";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.roundRect(rightX - 30, 160, 480, 310, 16);
-    ctx.fill();
-    ctx.stroke();
+      // Top Right: Profit / Loss Badge Pill
+      const badgeW = 145;
+      const badgeH = 46;
+      const badgeX = cardX + cardW - badgeW - 40;
+      const badgeY = 70;
 
-    // Metric 1: Current Spot Value
-    ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
-    ctx.font = "18px system-ui, sans-serif";
-    ctx.fillText("CURRENT POSITION VALUE", rightX, 210);
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 23);
+      ctx.fillStyle = isProfit ? "rgba(0, 255, 163, 0.12)" : "rgba(255, 59, 92, 0.12)";
+      ctx.fill();
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = isProfit ? "rgba(0, 255, 163, 0.55)" : "rgba(255, 59, 92, 0.55)";
+      ctx.stroke();
 
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 34px monospace";
-    ctx.fillText(`${currentValNear.toFixed(2)} NEAR ($${currentValUsd.toFixed(2)})`, rightX, 250);
+      ctx.fillStyle = isProfit ? "#00ffa3" : "#ff3b5c";
+      ctx.font = "bold 20px system-ui, sans-serif";
+      const badgeText = isProfit ? "↗  Profit" : "↘  Loss";
+      ctx.fillText(badgeText, badgeX + 26, badgeY + 30);
+      ctx.restore();
 
-    // Metric 2: Guaranteed Floor Value (Redeemable anytime)
-    ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
-    ctx.font = "18px system-ui, sans-serif";
-    ctx.fillText("GUARANTEED FLOOR BACKING", rightX, 310);
+      // Token Icon, Symbol & Name Header
+      const tokenY = 195;
+      if (tokenIconImg && tokenIconImg.complete && tokenIconImg.naturalWidth > 0) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(102, tokenY, 28, 0, Math.PI * 2);
+        ctx.clip();
+        ctx.drawImage(tokenIconImg, 74, tokenY - 28, 56, 56);
+        ctx.restore();
 
-    ctx.fillStyle = "#2ed573";
-    ctx.font = "bold 34px monospace";
-    ctx.fillText(`${floorValNear.toFixed(2)} NEAR ($${floorValUsd.toFixed(2)})`, rightX, 350);
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.25)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(102, tokenY, 28, 0, Math.PI * 2);
+        ctx.stroke();
+      } else {
+        // Fallback token avatar circle
+        ctx.beginPath();
+        ctx.arc(102, tokenY, 28, 0, Math.PI * 2);
+        ctx.fillStyle = isProfit ? "rgba(0, 255, 163, 0.2)" : "rgba(255, 59, 92, 0.2)";
+        ctx.fill();
+        ctx.strokeStyle = isProfit ? "rgba(0, 255, 163, 0.45)" : "rgba(255, 59, 92, 0.45)";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "bold 22px system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(t.meta.symbol.slice(0, 2).toUpperCase(), 102, tokenY + 8);
+        ctx.textAlign = "left";
+      }
 
-    // Metric 3: Spot Price vs Floor Price
-    ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
-    ctx.font = "16px system-ui, sans-serif";
-    ctx.fillText(
-      `Floor Price: ${fmtPrice(floorPriceNear)} N  ·  Spot: ${fmtPrice(spotPriceNear)} N`,
-      rightX,
-      415
-    );
+      const symbolLabel = `$${t.meta.symbol}`;
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "900 36px 'Space Grotesk', system-ui, sans-serif";
+      ctx.fillText(symbolLabel, 144, tokenY + 4);
 
-    // Bottom Bar
-    ctx.fillStyle = "rgba(255, 255, 255, 0.08)";
-    ctx.fillRect(30, height - 90, width - 60, 60);
+      const symW = ctx.measureText(symbolLabel).width;
+      ctx.fillStyle = "rgba(255, 255, 255, 0.45)";
+      ctx.font = "600 18px system-ui, sans-serif";
+      ctx.fillText(t.meta.name.slice(0, 26), 144, tokenY + 28);
 
-    // Caller Account / Ref Link
-    const displayAccount = accountId || "trader.near";
-    ctx.fillStyle = "#2ed573";
-    ctx.font = "bold 20px monospace";
-    ctx.fillText(`Trader: ${displayAccount}`, 70, height - 52);
+      // Chevron accent next to symbol
+      ctx.fillStyle = "rgba(255, 255, 255, 0.35)";
+      ctx.font = "22px system-ui, sans-serif";
+      ctx.fillText("⌄", 144 + symW + 10, tokenY + 2);
 
-    // Call to action
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "20px system-ui, sans-serif";
-    ctx.fillText("Join fair launch on floorpad.app", width - 390, height - 52);
-  }, [t, balance, spotPriceNear, floorPriceNear, nearUsd, accountId, pnlMultiplier]);
+      // Hero PNL Label
+      ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
+      ctx.font = "bold 22px system-ui, sans-serif";
+      ctx.fillText("PNL", 75, 268);
+
+      // Hero Huge Percentage
+      const sign = isProfit ? "+" : "";
+      const pnlDisplay = `${sign}${pnlMultiplier.toFixed(2)}%`;
+      ctx.fillStyle = isProfit ? "#00ffa3" : "#ff3b5c";
+      ctx.font = "900 84px 'Space Grotesk', system-ui, sans-serif";
+      ctx.fillText(pnlDisplay, 75, 348);
+
+      // Networth Wallet Pill (Toggled by user)
+      if (showNetworth) {
+        const costBasisUsd =
+          pnlMultiplier > -99 ? currentValUsd / (1 + pnlMultiplier / 100) : currentValUsd;
+        const pnlUsdGain = pnlMultiplier === 0 ? 0 : currentValUsd - costBasisUsd;
+        const absUsdGain = Math.abs(pnlUsdGain);
+        const gainText = `${pnlUsdGain >= 0 ? "+ $" : "- $"}${absUsdGain.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+        ctx.save();
+        ctx.font = "bold 20px monospace";
+        const pillText = `👛 ${gainText}`;
+        const pillW = Math.max(190, ctx.measureText(pillText).width + 38);
+        const pillH = 44;
+        const pillX = 75;
+        const pillY = 376;
+
+        ctx.beginPath();
+        ctx.roundRect(pillX, pillY, pillW, pillH, 22);
+        ctx.fillStyle = isProfit ? "rgba(0, 255, 163, 0.12)" : "rgba(255, 59, 92, 0.12)";
+        ctx.fill();
+        ctx.strokeStyle = isProfit ? "rgba(0, 255, 163, 0.35)" : "rgba(255, 59, 92, 0.35)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        ctx.fillStyle = isProfit ? "#00ffa3" : "#ff5577";
+        ctx.fillText(pillText, pillX + 18, pillY + 29);
+        ctx.restore();
+      } else {
+        // Percentage Only indicator pill
+        ctx.save();
+        ctx.font = "bold 15px system-ui, sans-serif";
+        const pctLabel = "🔒 PNL % ONLY";
+        const pillW = Math.max(165, ctx.measureText(pctLabel).width + 34);
+        const pillH = 38;
+        const pillX = 75;
+        const pillY = 380;
+
+        ctx.beginPath();
+        ctx.roundRect(pillX, pillY, pillW, pillH, 19);
+        ctx.fillStyle = "rgba(255, 255, 255, 0.06)";
+        ctx.fill();
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
+        ctx.fillText(pctLabel, pillX + 16, pillY + 24);
+        ctx.restore();
+      }
+
+      // Draw Mascot Artwork (Right side)
+      if (mascotImg.complete && mascotImg.naturalWidth > 0) {
+        ctx.drawImage(mascotImg, cardX + cardW - 385, cardY + 115, 340, 340);
+      }
+
+      // Bottom Metrics Bar (Docked Container)
+      const barX = 65;
+      const barY = cardY + cardH - 120;
+      const barW = cardW - 60;
+      const barH = 92;
+      const barR = 18;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(barX, barY, barW, barH, barR);
+      ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
+      ctx.fill();
+      ctx.lineWidth = 1.2;
+      ctx.strokeStyle = isProfit ? "rgba(0, 255, 163, 0.25)" : "rgba(255, 59, 92, 0.25)";
+      ctx.stroke();
+
+      // Divider lines
+      const colW = barW / 3;
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(barX + colW, barY + 14);
+      ctx.lineTo(barX + colW, barY + barH - 14);
+      ctx.moveTo(barX + colW * 2, barY + 14);
+      ctx.lineTo(barX + colW * 2, barY + barH - 14);
+      ctx.stroke();
+
+      // Col 1: Entry Price
+      ctx.fillStyle = "rgba(255, 255, 255, 0.45)";
+      ctx.font = "600 16px system-ui, sans-serif";
+      ctx.fillText("🪙  Entry Price", barX + 28, barY + 36);
+
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 25px monospace";
+      ctx.fillText(`$${estEntryPriceUsd.toFixed(4)}`, barX + 28, barY + 68);
+
+      // Col 2: Current Price (or Position Networth when shown)
+      ctx.fillStyle = "rgba(255, 255, 255, 0.45)";
+      ctx.font = "600 16px system-ui, sans-serif";
+      ctx.fillText(showNetworth ? "💼  Networth" : "🎯  Current Price", barX + colW + 28, barY + 36);
+
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 25px monospace";
+      ctx.fillText(
+        showNetworth
+          ? `$${currentValUsd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+          : `$${spotPriceUsd.toFixed(4)}`,
+        barX + colW + 28,
+        barY + 68,
+      );
+
+      // Col 3: Guaranteed Floor Backing (Floorpad USP)
+      ctx.fillStyle = "rgba(255, 255, 255, 0.45)";
+      ctx.font = "600 16px system-ui, sans-serif";
+      ctx.fillText("🛡️  Guaranteed Floor", barX + colW * 2 + 28, barY + 36);
+
+      ctx.fillStyle = isProfit ? "#00ffa3" : "#ff8888";
+      ctx.font = "bold 25px monospace";
+      ctx.fillText(
+        showNetworth ? `${floorValNear.toFixed(2)} N` : `${fmtPrice(floorPriceNear)} N`,
+        barX + colW * 2 + 28,
+        barY + 68,
+      );
+
+      ctx.restore();
+    };
+
+    symbolImg.onload = render;
+    mascotImg.onload = render;
+    if (tokenIconImg) tokenIconImg.onload = render;
+    render();
+  }, [t, balance, spotPriceNear, floorPriceNear, usdPrice, isProfit, pnlMultiplier, showNetworth]);
 
   // Download image as PNG
   const downloadPng = () => {
@@ -190,7 +356,7 @@ export function PnlModal({
     if (!canvas) return;
     setDownloading(true);
     const link = document.createElement("a");
-    link.download = `Floorpad-PNL-${t.meta.symbol}-${pnlMultiplier}pct.png`;
+    link.download = `Floorpad-${t.meta.symbol}-${isProfit ? "Profit" : "Loss"}-${pnlMultiplier}pct.png`;
     link.href = canvas.toDataURL("image/png");
     link.click();
     setDownloading(false);
@@ -208,82 +374,180 @@ export function PnlModal({
           new ClipboardItem({ "image/png": blob }),
         ]);
         setCopied(true);
-        setToast({ kind: "ok", text: "Image copied to clipboard! Paste it anywhere on X or Telegram." });
+        setToast({ kind: "ok", text: "PNL card copied! Paste directly on X or Telegram." });
         setTimeout(() => setCopied(false), 3000);
       });
     } catch {
-      // Fallback: download
       downloadPng();
     }
   };
 
-  // Share to X (Twitter)
+  // Share on X (Twitter)
   const shareToX = () => {
     const origin = typeof window !== "undefined" ? window.location.origin : "https://web-production-964c7668.up.railway.app";
     const refParam = accountId ? `&ref=${encodeURIComponent(accountId)}` : "";
-    
-    // Dynamic Share Page URL which has twitter:card summary_large_image and twitter:image embedded
-    const shareUrl = `${origin}/pnl/${t.token_id}?symbol=${encodeURIComponent(t.meta.symbol)}&pnl=${pnlMultiplier}&account=${encodeURIComponent(accountId || "")}&floor=${floorValNear.toFixed(2)}&usd=${currentValUsd.toFixed(2)}${refParam}`;
+    const hideNetworthParam = !showNetworth ? "&hideNetworth=1" : "";
 
-    const text = `🚀 Up +${pnlMultiplier}% on $${t.meta.symbol} on @Floorpad! 📈\n\n🛡️ Floor vault only rises\n🔒 Ref LP locked forever earning staking yield\n🏛️ Holder DAO\n\nCheck my position & trade:`;
-    
+    const shareUrl = `${origin}/pnl/${t.token_id}?symbol=${encodeURIComponent(t.meta.symbol)}&name=${encodeURIComponent(t.meta.name)}&pnl=${pnlMultiplier}&account=${encodeURIComponent(accountId || "")}&floor=${floorValNear.toFixed(2)}&usd=${currentValUsd.toFixed(2)}&entry=${estEntryPriceUsd.toFixed(4)}&price=${spotPriceUsd.toFixed(4)}${hideNetworthParam}${refParam}`;
+
+    const text = isProfit
+      ? `🚀 Up +${pnlMultiplier}% on $${t.meta.symbol} on @Floorpad! 📈\n\n🛡️ Floor vault only rises\n🔒 100% LP locked in Ref Finance earning staking yield\n🏛️ Holder DAO\n\nView my position:`
+      : `Holding $${t.meta.symbol} on @Floorpad! 📉\n\n🛡️ Backed by the redeemable rising floor vault\n🔒 Locked LP\n\nView my position:`;
+
     const tweetUrl = `https://x.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(shareUrl)}`;
-    window.open(tweetUrl, "_blank", "width=550,height=420");
+    window.open(tweetUrl, "_blank", "width=550,height=440");
   };
 
   return (
-    <div className="sheet-backdrop" onClick={onClose} style={{ display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 }}>
-      <div 
-        className="panel stack" 
-        onClick={(e) => e.stopPropagation()} 
-        style={{ 
-          maxWidth: 720, 
-          width: "95vw", 
-          maxHeight: "92vh", 
+    <div
+      className="sheet-backdrop"
+      onClick={onClose}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 9999,
+        padding: "16px",
+      }}
+    >
+      <div
+        className="panel stack"
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          maxWidth: 780,
+          width: "100%",
+          maxHeight: "94vh",
           overflowY: "auto",
-          background: "#0d1315", 
-          border: "1px solid rgba(46, 213, 115, 0.4)",
-          boxShadow: "0 20px 50px rgba(0,0,0,0.8), 0 0 30px rgba(46, 213, 115, 0.15)",
+          background: isProfit ? "#08120d" : "#14090b",
+          border: `1px solid ${isProfit ? "rgba(0, 255, 163, 0.4)" : "rgba(255, 59, 92, 0.4)"}`,
+          boxShadow: `0 24px 60px rgba(0,0,0,0.85), 0 0 40px ${isProfit ? "rgba(0, 255, 163, 0.15)" : "rgba(255, 59, 92, 0.15)"}`,
           padding: 24,
-          borderRadius: 16
+          borderRadius: 20,
         }}
       >
+        {/* Modal Header */}
         <div className="row between">
           <div className="row" style={{ gap: 10 }}>
-            <Moji face="hero" size={28} />
-            <h2 style={{ margin: 0 }}>Share PNL Card</h2>
+            <Moji face={isProfit ? "hero" : "cool"} size={30} />
+            <div>
+              <h2 style={{ margin: 0, fontSize: "1.3rem" }}>
+                Generate {isProfit ? "Profit" : "Loss"} Card
+              </h2>
+              <span className="small muted">
+                Share verified performance for <b>${t.meta.symbol}</b> on X
+              </span>
+            </div>
           </div>
           <button className="btn sm ghost" onClick={onClose}>✕</button>
         </div>
 
-        <p className="small muted" style={{ margin: "4px 0 12px" }}>
-          Share your $<b>{t.meta.symbol}</b> performance on X (Twitter). The floor value shows what you can redeem right now from the vault.
-        </p>
-
-        {/* Live Canvas Preview */}
-        <div style={{ width: "100%", borderRadius: 12, overflow: "hidden", border: "1px solid rgba(255,255,255,0.1)", background: "#050708" }}>
+        {/* Live Canvas Card Preview */}
+        <div
+          style={{
+            width: "100%",
+            borderRadius: 16,
+            overflow: "hidden",
+            border: `1px solid ${isProfit ? "rgba(0, 255, 163, 0.3)" : "rgba(255, 59, 92, 0.3)"}`,
+            background: "#040607",
+            marginTop: 14,
+            boxShadow: `0 8px 30px ${isProfit ? "rgba(0, 255, 163, 0.1)" : "rgba(255, 59, 92, 0.1)"}`,
+          }}
+        >
           <canvas ref={canvasRef} style={{ width: "100%", height: "auto", display: "block" }} />
         </div>
 
-        {/* Multiplier Adjustment Presets */}
-        <div className="row wrap between" style={{ marginTop: 12, gap: 8 }}>
-          <span className="small muted">Display PNL:</span>
-          <div className="row" style={{ gap: 6 }}>
-            {[25, 50, 100, 200, 500].map((pct) => (
+        {/* User Options: Privacy & Multipliers */}
+        <div className="stack" style={{ gap: 14, marginTop: 16, background: "rgba(255,255,255,0.02)", padding: 14, borderRadius: 12, border: "1px solid var(--line)" }}>
+          {/* Privacy Toggle: Show Networth vs Percentage Only */}
+          <div className="row between wrap" style={{ gap: 8 }}>
+            <div>
+              <strong style={{ fontSize: "0.9rem" }}>Display Networth Amount</strong>
+              <div className="small muted">
+                Show dollar value ($) or hide networth to flex percentage only (%)
+              </div>
+            </div>
+            <div className="seg">
               <button
-                key={pct}
-                className={`btn sm ${pnlMultiplier === pct ? "primary" : "ghost"}`}
-                style={{ padding: "4px 10px", fontSize: 12 }}
-                onClick={() => setPnlMultiplier(pct)}
+                className={showNetworth ? "active" : ""}
+                onClick={() => setShowNetworth(true)}
               >
-                +{pct}%
+                Show Networth ($)
               </button>
-            ))}
+              <button
+                className={!showNetworth ? "active" : ""}
+                onClick={() => setShowNetworth(false)}
+              >
+                🔒 Percentage Only (%)
+              </button>
+            </div>
+          </div>
+
+          {/* Quick Presets */}
+          <div className="row between wrap" style={{ gap: 8 }}>
+            <span className="small muted bold">Presets:</span>
+            <div className="row wrap" style={{ gap: 6 }}>
+              {/* Profit Presets */}
+              {[25, 50, 100, 250, 500].map((pct) => (
+                <button
+                  key={pct}
+                  className={`btn sm ${pnlMultiplier === pct ? "primary" : "ghost"}`}
+                  style={{
+                    padding: "3px 9px",
+                    fontSize: 12,
+                    color: pnlMultiplier === pct ? "#000" : "#7cf29a",
+                    borderColor: "rgba(0, 255, 163, 0.3)",
+                  }}
+                  onClick={() => {
+                    setPnlMultiplier(pct);
+                    setCustomPnlInput("");
+                  }}
+                >
+                  +{pct}%
+                </button>
+              ))}
+
+              {/* Loss Presets */}
+              {[-25, -50, -75].map((pct) => (
+                <button
+                  key={pct}
+                  className={`btn sm ${pnlMultiplier === pct ? "danger" : "ghost"}`}
+                  style={{
+                    padding: "3px 9px",
+                    fontSize: 12,
+                    color: pnlMultiplier === pct ? "#fff" : "#ff5555",
+                    borderColor: "rgba(255, 59, 92, 0.3)",
+                  }}
+                  onClick={() => {
+                    setPnlMultiplier(pct);
+                    setCustomPnlInput("");
+                  }}
+                >
+                  {pct}%
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Custom Percentage Input */}
+          <div className="row" style={{ gap: 10, alignItems: "center" }}>
+            <span className="small muted">Custom PNL:</span>
+            <input
+              className="input sm mono"
+              style={{ width: 110 }}
+              placeholder="e.g. 180 or -40"
+              value={customPnlInput}
+              onChange={(e) => {
+                setCustomPnlInput(e.target.value);
+                const num = parseFloat(e.target.value);
+                if (!isNaN(num)) setPnlMultiplier(num);
+              }}
+            />
+            <span className="small muted">%</span>
           </div>
         </div>
 
         {/* Actions Bar */}
-        <div className="row wrap between" style={{ marginTop: 18, gap: 10, borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: 16 }}>
+        <div className="row wrap between" style={{ marginTop: 14, gap: 10 }}>
           <div className="row" style={{ gap: 8 }}>
             <button className="btn sm" onClick={copyImage}>
               <SlabIcon name="share" size={14} /> {copied ? "Copied!" : "Copy Image"}
@@ -292,18 +556,24 @@ export function PnlModal({
               <SlabIcon name="external" size={14} /> Download PNG
             </button>
           </div>
-          <button 
-            className="btn primary" 
+          <button
+            className="btn primary"
             onClick={shareToX}
-            style={{ 
-              background: "#000000", 
-              color: "#ffffff", 
+            style={{
+              background: "#000000",
+              color: "#ffffff",
               border: "1px solid rgba(255,255,255,0.3)",
-              fontWeight: 700 
+              fontWeight: 700,
             }}
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style={{ marginRight: 6, verticalAlign: -2 }}>
-              <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              style={{ marginRight: 6, verticalAlign: -2 }}
+            >
+              <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
             </svg>
             Share on X
           </button>

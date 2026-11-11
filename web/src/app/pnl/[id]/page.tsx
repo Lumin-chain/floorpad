@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import { SlabIcon } from "@/components/Brand";
+import { PnlClientView } from "./PnlClientView";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -11,21 +10,58 @@ interface PageProps {
     usd?: string;
     account?: string;
     ref?: string;
+    hideNetworth?: string;
   }>;
+}
+
+async function fetchTokenMeta(tokenId: string) {
+  try {
+    const rpc = process.env.NEXT_PUBLIC_RPC || "https://rpc.testnet.fastnear.com";
+    const launchpad = process.env.NEXT_PUBLIC_LAUNCHPAD || "fplpmwbbcg00.testnet";
+    const res = await fetch(rpc, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "query",
+        params: {
+          request_type: "call_function",
+          finality: "optimistic",
+          account_id: launchpad,
+          method_name: "get_token",
+          args_base64: Buffer.from(JSON.stringify({ token_id: tokenId })).toString("base64"),
+        },
+      }),
+      next: { revalidate: 60 },
+    });
+    const j = await res.json();
+    if (j.result?.result) {
+      return JSON.parse(Buffer.from(j.result.result).toString()) as {
+        meta?: { name?: string; symbol?: string; icon?: string | null };
+      };
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 export async function generateMetadata({ params, searchParams }: PageProps): Promise<Metadata> {
   const { id } = await params;
   const sp = await searchParams;
-  const symbol = sp.symbol || "TOKEN";
+  const tok = await fetchTokenMeta(id);
+  const symbol = sp.symbol || tok?.meta?.symbol || id.split(".")[0]?.toUpperCase() || "TOKEN";
   const pnl = sp.pnl || "100";
   const floor = sp.floor || "10.0";
   const usd = sp.usd || "36.0";
   const account = sp.account || "trader.near";
+  const hideNetworth = sp.hideNetworth === "1" || sp.hideNetworth === "true";
 
-  const ogUrl = `/api/og/pnl?symbol=${encodeURIComponent(symbol)}&pnl=${encodeURIComponent(pnl)}&floor=${encodeURIComponent(floor)}&usd=${encodeURIComponent(usd)}&account=${encodeURIComponent(account)}`;
+  const ogUrl = `/api/og/pnl?token=${encodeURIComponent(id)}&symbol=${encodeURIComponent(symbol)}&pnl=${encodeURIComponent(pnl)}&floor=${encodeURIComponent(floor)}&usd=${encodeURIComponent(usd)}&account=${encodeURIComponent(account)}${hideNetworth ? "&hideNetworth=1" : ""}`;
 
-  const title = `Up +${pnl}% on $${symbol} | Floorpad`;
+  const isProfit = !pnl.startsWith("-");
+  const title = isProfit ? `Up +${pnl}% on $${symbol} | Floorpad` : `Holding $${symbol} (${pnl}%) | Floorpad`;
   const description = `The memecoin with a strictly rising floor vault and locked Ref LP. Guaranteed floor backing: ${floor} NEAR.`;
 
   return {
@@ -48,90 +84,34 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
 export default async function PnlSharePage({ params, searchParams }: PageProps) {
   const { id } = await params;
   const sp = await searchParams;
-  const symbol = sp.symbol || id.split(".")[0]?.toUpperCase() || "TOKEN";
-  const pnl = sp.pnl || "100";
-  const floor = sp.floor || "10.0";
-  const usd = sp.usd || "36.0";
-  const account = sp.account || "trader.near";
-  const ref = sp.ref ? `?ref=${sp.ref}` : "";
+  const tok = await fetchTokenMeta(id);
 
-  const isProfit = !pnl.startsWith("-");
+  const symbol = sp.symbol || tok?.meta?.symbol || id.split(".")[0]?.toUpperCase() || "TOKEN";
+  const name = sp.name || tok?.meta?.name || symbol;
+  const icon = tok?.meta?.icon || null;
+  const pnlNum = parseFloat(sp.pnl || "100") || 100;
+  const floorNum = parseFloat(sp.floor || "10.0") || 10;
+  const usdNum = parseFloat(sp.usd || "36.0") || 36;
+  const entryPriceNum = sp.entry ? parseFloat(sp.entry) : undefined;
+  const currentPriceNum = sp.price ? parseFloat(sp.price) : undefined;
+  const account = sp.account || "trader.near";
+  const refParam = sp.ref ? `?ref=${sp.ref}` : "";
+  const initialHideNetworth = sp.hideNetworth === "1" || sp.hideNetworth === "true";
 
   return (
-    <div className="section stack" style={{ maxWidth: 800, margin: "40px auto", padding: "0 16px" }}>
-      <div 
-        className="panel stack" 
-        style={{ 
-          background: "linear-gradient(180deg, #0d1315 0%, #050708 100%)", 
-          border: "1px solid rgba(46, 213, 115, 0.4)",
-          borderRadius: 20,
-          padding: 32,
-          boxShadow: "0 20px 50px rgba(0,0,0,0.8), 0 0 40px rgba(46, 213, 115, 0.15)"
-        }}
-      >
-        <div className="row between wrap">
-          <div>
-            <span className="small muted" style={{ textTransform: "uppercase", letterSpacing: "0.08em" }}>
-              Floorpad Verified Return
-            </span>
-            <h1 style={{ margin: "4px 0 0", fontSize: 42 }}>
-              ${symbol}
-            </h1>
-          </div>
-          <div 
-            style={{ 
-              background: "rgba(46, 213, 115, 0.15)", 
-              border: "1px solid rgba(46, 213, 115, 0.5)", 
-              color: "#2ed573", 
-              padding: "6px 16px", 
-              borderRadius: 20, 
-              fontWeight: 700 
-            }}
-          >
-            ▲ RISING FLOOR VAULT
-          </div>
-        </div>
-
-        <div style={{ margin: "24px 0" }}>
-          <div 
-            style={{ 
-              fontSize: 72, 
-              fontWeight: 900, 
-              color: isProfit ? "#2ed573" : "#ff4757", 
-              lineHeight: 1 
-            }}
-          >
-            {isProfit ? `+${pnl}%` : `${pnl}%`}
-          </div>
-          <p className="muted" style={{ marginTop: 8 }}>
-            Trader <span className="mono green">{account}</span> on NEAR Protocol
-          </p>
-        </div>
-
-        <div className="grid two" style={{ gap: 16 }}>
-          <div className="panel tight" style={{ background: "rgba(255,255,255,0.02)" }}>
-            <span className="small muted">Current Position Value</span>
-            <div style={{ fontSize: 24, fontWeight: 700, marginTop: 4 }}>
-              ${usd} USD
-            </div>
-          </div>
-          <div className="panel tight" style={{ background: "rgba(255,255,255,0.02)" }}>
-            <span className="small muted">Guaranteed Floor Backing</span>
-            <div style={{ fontSize: 24, fontWeight: 700, color: "#2ed573", marginTop: 4 }}>
-              {floor} NEAR
-            </div>
-          </div>
-        </div>
-
-        <div style={{ marginTop: 24 }} className="row between wrap">
-          <Link href={`/token/${id}${ref}`} className="btn primary block" style={{ fontSize: 18, padding: "14px 28px" }}>
-            Trade ${symbol} on Floorpad <SlabIcon name="chevron" size={14} />
-          </Link>
-          <Link href="/" className="btn ghost" style={{ marginTop: 8 }}>
-            Explore all fair launches
-          </Link>
-        </div>
-      </div>
-    </div>
+    <PnlClientView
+      id={id}
+      symbol={symbol}
+      name={name}
+      icon={icon}
+      pnl={pnlNum}
+      floorNear={floorNum}
+      usdVal={usdNum}
+      entryPrice={entryPriceNum}
+      currentPrice={currentPriceNum}
+      account={account}
+      refParam={refParam}
+      initialHideNetworth={initialHideNetworth}
+    />
   );
 }

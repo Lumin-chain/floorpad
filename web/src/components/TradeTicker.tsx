@@ -103,3 +103,4 @@ export function TradeTicker() {
     </aside>
   );
 }
+
