@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "deploy:railway": "node ../deploy/deploy-railway.mjs --service web",
+    "deploy:all": "node ../deploy/deploy-railway.mjs --all",
+    "deploy:webhook": "node ../deploy/deploy-railway.mjs"
   },
   "dependencies": {
     "@hot-labs/near-connect": "^0.12.0",
