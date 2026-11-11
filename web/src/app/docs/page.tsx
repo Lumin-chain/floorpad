@@ -87,8 +87,8 @@ export default function DocsPage() {
                 width: "100%",
                 padding: "8px 10px",
                 border: "none",
-                background: activeSection === sec.id ? "#EFF6FF" : "transparent",
-                color: activeSection === sec.id ? "var(--primary)" : "var(--muted)",
+                background: activeSection === sec.id ? "#132247" : "transparent",
+                color: activeSection === sec.id ? "#FFFFFF" : "var(--muted)",
                 fontWeight: activeSection === sec.id ? 700 : 600,
               }}
               onClick={() => {

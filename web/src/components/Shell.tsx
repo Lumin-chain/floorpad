@@ -39,7 +39,8 @@ function Header() {
         <Link href="/" className="brand">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/symbol.png" alt="" className="brand-symbol" />
-          <span className="brand-word">Floor<span>pad</span></span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brand/wordmark.png" alt="Floorpad" className="brand-wordmark" />
         </Link>
         <nav className="nav desktop-only">
           {NAV.map((n) => (

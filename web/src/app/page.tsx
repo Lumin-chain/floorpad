@@ -146,9 +146,9 @@ export default function Explore() {
 
           {/* Interactive Beginner Explainer */}
           {showGuide && (
-            <div className="panel stack" style={{ border: "1.5px solid var(--primary)", gap: 12 }}>
+            <div className="panel stack" style={{ border: "1.5px solid var(--accent)", gap: 12 }}>
               <div className="row between">
-                <strong className="blue row" style={{ gap: 8 }}>
+                <strong className="green row" style={{ gap: 8 }}>
                   <Moji face="hero" size={24} />
                   How Floorpad Works (The 30-Second Guide)
                 </strong>
