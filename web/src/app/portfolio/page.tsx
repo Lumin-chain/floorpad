@@ -1,11 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
-import { floorPrice, fmtNear, fmtPrice, fmtTok, LAUNCHPAD, LINEAR, lp, until, view, type Position, type TokenView } from "@/lib/near";
+import { floorPrice, fmtNear, fmtPrice, fmtTok, LAUNCHPAD, LINEAR, lp, pricePerToken, until, view, type Position, type TokenView } from "@/lib/near";
 import { storageCallIfNeeded, useView, useWallet } from "@/lib/wallet";
 import { Avatar } from "@/components/ui";
 import { Mascot } from "@/components/Mascot";
 import { SlabIcon } from "@/components/Brand";
+import { PnlModal } from "@/components/PnlModal";
 
 interface Row {
   t: TokenView;
@@ -15,6 +17,7 @@ interface Row {
 
 export default function Portfolio() {
   const { accountId, signIn, send, busy } = useWallet();
+  const [pnlTarget, setPnlTarget] = useState<Row | null>(null);
   const { data: rows } = useView<Row[]>(
     accountId
       ? async () => {
@@ -108,7 +111,7 @@ export default function Portfolio() {
           <div className="table-scroll">
             <table className="t">
               <thead>
-                <tr><th>Token</th><th>Wallet</th><th>Locked</th><th>Unlocks</th><th>Floor value</th><th>Rewards</th></tr>
+                <tr><th>Token</th><th>Wallet</th><th>Locked</th><th>Unlocks</th><th>Floor value</th><th>Rewards</th><th>Share</th></tr>
               </thead>
               <tbody>
                 {rows.map(({ t, balance, pos }) => {
@@ -126,6 +129,16 @@ export default function Portfolio() {
                       <td>{locked > 0n ? until(pos!.unlock_at) : "–"}</td>
                       <td className="green">{fmtPrice(floorVal)} N</td>
                       <td>{pos ? `${fmtNear(pos.pending_reward, 5)} LiNEAR` : "–"}</td>
+                      <td>
+                        <button
+                          className="btn sm"
+                          style={{ padding: "4px 10px", fontSize: 12, gap: 4 }}
+                          onClick={() => setPnlTarget({ t, balance, pos })}
+                          title="Share PNL Card on X"
+                        >
+                          <SlabIcon name="share" size={12} /> PNL
+                        </button>
+                      </td>
                     </tr>
                   );
                 })}
@@ -134,6 +147,18 @@ export default function Portfolio() {
           </div>
         )}
       </div>
+
+      {pnlTarget && (
+        <PnlModal
+          t={pnlTarget.t}
+          balance={pnlTarget.balance + (pnlTarget.pos ? BigInt(pnlTarget.pos.amount) : 0n)}
+          holdingSince={pnlTarget.pos ? pnlTarget.pos.unlock_at - 7 * 86400 : null}
+          spotPriceNear={pricePerToken(BigInt(pnlTarget.t.v_near), BigInt(pnlTarget.t.v_tokens))}
+          floorPriceNear={floorPrice(pnlTarget.t)}
+          nearUsd={3.6}
+          onClose={() => setPnlTarget(null)}
+        />
+      )}
     </div>
   );
 }

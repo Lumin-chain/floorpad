@@ -10,6 +10,7 @@ import {
   LINEAR,
   lp,
   nearUsd,
+  pricePerToken,
   progressPct,
   vaultNear,
   view,
@@ -31,6 +32,7 @@ import { Chat } from "@/components/Chat";
 import { TokenCallouts } from "@/components/Callouts";
 import { useIsDesktop } from "@/lib/media";
 import { Moji, MojiLabel, SlabIcon } from "@/components/Brand";
+import { PnlModal } from "@/components/PnlModal";
 
 const TABS = ["Chat", "Calls", "Trades", "Floor", "Lock & vote", "DAO", "Treasury", "Agent"] as const;
 type Tab = (typeof TABS)[number];
@@ -82,6 +84,8 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
     [id, accountId],
     15000,
   );
+
+  const [showPnl, setShowPnl] = useState(false);
 
   useEffect(() => {
     document.body.style.overflow = sheet ? "hidden" : "";
@@ -136,9 +140,19 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
         </div>
         <div className="row desktop-only" style={{ gap: 8 }}>
           <ShareButton tokenId={t.token_id} />
+          <button 
+            className="btn sm" 
+            onClick={() => setShowPnl(true)}
+            title="Share PNL Card on X"
+          >
+            <SlabIcon name="share" size={14} /> PNL Card
+          </button>
           <OpsBar t={t} reload={ctx.reload} />
         </div>
-        <div className="mobile-only"><ShareButton tokenId={t.token_id} /></div>
+        <div className="mobile-only row" style={{ gap: 6 }}>
+          <ShareButton tokenId={t.token_id} />
+          <button className="btn sm" onClick={() => setShowPnl(true)}>PNL</button>
+        </div>
       </div>
 
       <div className="chips">
@@ -262,6 +276,18 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
             <TradePanel {...ctx} initialSide={sheet} onDone={() => setSheet(null)} />
           </div>
         </div>
+      )}
+
+      {showPnl && (
+        <PnlModal
+          t={t}
+          balance={ctx.balance}
+          holdingSince={ctx.holdingSince}
+          spotPriceNear={pricePerToken(BigInt(t.v_near), BigInt(t.v_tokens))}
+          floorPriceNear={floorPrice(t, linearPrice)}
+          nearUsd={nearUsdPrice}
+          onClose={() => setShowPnl(false)}
+        />
       )}
     </div>
   );
