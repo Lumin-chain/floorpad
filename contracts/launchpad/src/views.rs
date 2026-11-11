@@ -56,6 +56,8 @@ pub struct TokenView {
     pub agent_budget_shares: U128,
     pub post_count: u32,
     pub snipe_window_ends: u64,
+    pub custody_total: U128,
+    pub mech_count: u32,
 }
 
 #[near(serializers = [json])]
@@ -113,6 +115,17 @@ impl Contract {
         U128(self.referral_balance.get(&account_id).copied().unwrap_or(0))
     }
 
+    /// Plain-language statement of who can move funds, for auditors and the UI.
+    pub fn get_admin_powers(&self) -> Vec<String> {
+        vec![
+            "owner: none (no admin methods; config is immutable after init)".into(),
+            format!("platform fees: accrue in-contract; anyone can sweep them, only to treasury {}", self.config.treasury_id),
+            format!("platform yield cut: claimable LiNEAR credited to treasury {}", self.config.treasury_id),
+            format!("price: {}", if self.config.price_pool.is_some() { "read on-chain from Ref; nobody can set it" } else { "feeder mode (testnet), capped at 2x per update" }),
+            "upgrades: only possible if the launchpad account still has a full-access key (deploy script deletes it)".into(),
+        ]
+    }
+
     pub fn get_platform_fees(&self) -> U128 {
         U128(self.platform_fees)
     }
@@ -123,6 +136,25 @@ impl Contract {
         let n = self.tok(idx).trade_count;
         ring(n, MAX_TRADES, limit.unwrap_or(MAX_TRADES))
             .filter_map(|s| self.trades.get(&(idx, s)).cloned())
+            .collect()
+    }
+
+    /// Trades with their global index, oldest first, starting at `from_index`
+    /// (only the last MAX_TRADES are retained on-chain). For indexers.
+    pub fn get_trades_from(&self, token_id: AccountId, from_index: u32, limit: Option<u32>) -> Vec<(u32, Trade)> {
+        let idx = self.idx_of(&token_id);
+        let n = self.tok(idx).trade_count;
+        let start = from_index.max(n.saturating_sub(MAX_TRADES));
+        let end = n.min(start + limit.unwrap_or(MAX_TRADES).min(MAX_TRADES));
+        (start..end).filter_map(|i| self.trades.get(&(idx, i % MAX_TRADES)).cloned().map(|t| (i, t))).collect()
+    }
+
+    /// Public mechanics log (burns, epochs, yield funding, escrow moves), newest first.
+    pub fn get_mech_log(&self, token_id: AccountId, limit: Option<u32>) -> Vec<MechEvent> {
+        let idx = self.idx_of(&token_id);
+        let n = self.tok(idx).mech_count;
+        ring(n, MAX_MECH, limit.unwrap_or(MAX_MECH))
+            .filter_map(|s| self.mech_log.get(&(idx, s)).cloned())
             .collect()
     }
 
@@ -256,6 +288,8 @@ impl Contract {
             agent_budget_shares: U128(t.agent_budget_shares),
             post_count: t.post_count,
             snipe_window_ends: t.created_at + c.snipe_window_secs,
+            custody_total: U128(t.custody_total),
+            mech_count: t.mech_count,
         }
     }
 }

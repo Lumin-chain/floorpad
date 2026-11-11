@@ -88,7 +88,9 @@ impl Contract {
         require!(amount.0 <= tok.creator_escrow, "ERR_AMOUNT");
         tok.creator_escrow -= amount.0;
         tok.creator_released += amount.0;
-        Promise::new(tok.creator.clone()).transfer(NearToken::from_yoctonear(amount.0))
+        let creator = tok.creator.clone();
+        self.log_mech(idx, "creator_release", amount.0, Some(creator.clone()));
+        Promise::new(creator).transfer(NearToken::from_yoctonear(amount.0))
     }
 
     /// Move the remaining creator escrow into the DAO treasury.
@@ -97,7 +99,9 @@ impl Contract {
         let tok = self.tok_mut(idx);
         let amount = tok.creator_escrow;
         tok.creator_escrow = 0;
-        Promise::new(tok.dao_id.clone()).transfer(NearToken::from_yoctonear(amount))
+        let dao = tok.dao_id.clone();
+        self.log_mech(idx, "creator_clawback", amount, Some(dao.clone()));
+        Promise::new(dao).transfer(NearToken::from_yoctonear(amount))
     }
 
     /// Change the AI agent operator and/or persona.

@@ -357,3 +357,38 @@ tr.click-row:hover td { background: var(--panel-2); }
 @media (max-width: 767px) {
   .token-layout { grid-template-columns: 1fr !important; }
 }
+
+/* ===================== brand: extracted logo + animated mascot ===================== */
+.brand { gap: 8px; }
+.brand-symbol { height: 22px; width: auto; display: block; }
+.brand-wordmark { height: 21px; width: auto; display: block; }
+@media (max-width: 767px) { .brand-symbol { height: 20px; } .brand-wordmark { height: 18px; } }
+
+.mascot { position: relative; display: inline-block; flex: none; line-height: 0; }
+.mascot img { width: 100%; height: auto; display: block; position: relative; z-index: 1; user-select: none; }
+.mascot-shadow { position: absolute; left: 18%; right: 18%; bottom: -2px; height: 9%; border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(124, 242, 154, .28), transparent); z-index: 0; }
+.mascot-idle img { animation: fp-float 3.2s ease-in-out infinite; transform-origin: 50% 90%; }
+.mascot-idle .mascot-shadow { animation: fp-shadow 3.2s ease-in-out infinite; }
+.mascot-wave img { animation: fp-wave 2.4s ease-in-out infinite; transform-origin: 50% 95%; }
+.mascot-peek img { animation: fp-peek .7s cubic-bezier(.2, 1.4, .4, 1) both, fp-float 3.2s ease-in-out .7s infinite; transform-origin: 50% 95%; }
+.mascot-celebrate img { animation: fp-celebrate .9s cubic-bezier(.2, 1.5, .4, 1) both; transform-origin: 50% 90%; }
+.mascot:hover img { animation: fp-hop .55s cubic-bezier(.3, 1.6, .5, 1); }
+
+@keyframes fp-float { 0%, 100% { transform: translateY(0) rotate(-1.5deg); } 50% { transform: translateY(-8%) rotate(1.5deg); } }
+@keyframes fp-shadow { 0%, 100% { transform: scaleX(1); opacity: 1; } 50% { transform: scaleX(.75); opacity: .55; } }
+@keyframes fp-wave { 0%, 100% { transform: rotate(-4deg); } 50% { transform: rotate(4deg) translateY(-3%); } }
+@keyframes fp-peek { from { transform: translateY(40%) scale(.6); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes fp-celebrate { 0% { transform: scale(.4) rotate(-20deg); opacity: 0; } 55% { transform: scale(1.15) rotate(8deg) translateY(-12%); opacity: 1; } 100% { transform: none; } }
+@keyframes fp-hop { 0% { transform: none; } 40% { transform: translateY(-14%) scaleY(1.05); } 70% { transform: translateY(0) scaleY(.94); } 100% { transform: none; } }
+@media (prefers-reduced-motion: reduce) { .mascot img, .mascot-shadow { animation: none !important; } }
+
+.tagline-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.hero-row { display: flex; align-items: center; gap: 10px; }
+.hero-row h1 { flex: 1; }
+.mascot-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.create-mascot { display: flex; align-items: center; gap: 14px; }
+.toast { display: flex; align-items: center; gap: 10px; }
+@media (max-width: 767px) {
+  .tc-desc.desktop-only-block { display: none !important; }
+}

@@ -44,7 +44,7 @@ impl Contract {
                     return amount;
                 }
                 tok.backing_near -= net;
-                Promise::new(holder).transfer(NearToken::from_yoctonear(net)).detach();
+                Promise::new(holder.clone()).transfer(NearToken::from_yoctonear(net)).detach();
             }
             GradStage::Graduated => {
                 let redeemable = total_supply - tok.burned;
@@ -59,6 +59,7 @@ impl Contract {
             }
             _ => return amount, // graduation in progress
         }
+        self.log_mech(idx, "redeem_burn", amount.0, Some(holder.clone()));
         let tok = self.tok_mut(idx);
         tok.burned += amount.0;
         tok.tokens_in_flight += amount.0;

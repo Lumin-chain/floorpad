@@ -78,8 +78,9 @@ impl Contract {
         let epoch = tok.epoch_index;
         tok.epoch_index += 1;
 
-        let owner = cfg.owner_id.clone();
-        self.credit_linear(&owner, platform_cut);
+        let treasury = cfg.treasury_id.clone();
+        self.credit_linear(&treasury, platform_cut);
+        self.log_mech(idx, "epoch", yield_shares, None);
         self.epochs.insert(
             (idx, epoch % MAX_EPOCHS),
             EpochReport {
@@ -152,7 +153,7 @@ impl Contract {
     pub fn on_buyback_balance(&mut self, idx: u32, #[callback_result] r: Result<U128, PromiseError>) -> PromiseOrValue<()> {
         let Ok(bal) = r else { return PromiseOrValue::Value(()) };
         let tok = self.tok_mut(idx);
-        let reserved = tok.total_locked + tok.owed_tokens + tok.tokens_in_flight;
+        let reserved = tok.total_locked + tok.owed_tokens + tok.tokens_in_flight + tok.custody_total;
         let excess = bal.0.saturating_sub(reserved);
         if excess == 0 {
             return PromiseOrValue::Value(());
@@ -176,6 +177,7 @@ impl Contract {
         tok.tokens_in_flight = tok.tokens_in_flight.saturating_sub(amount.0);
         if r.is_ok() {
             tok.burned += amount.0;
+            self.log_mech(idx, "buyback_burn", amount.0, None);
         }
     }
 }

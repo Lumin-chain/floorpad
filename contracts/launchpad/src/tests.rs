@@ -21,7 +21,7 @@ fn token() -> AccountId {
 
 fn cfg() -> Config {
     Config {
-        owner_id: acc("owner.testnet"),
+        treasury_id: acc("treasury.testnet"),
         token_code_hash: "4reLvkAWfqk5fsqio1KLudk46cqRz9erQdaHkWZKMJDZ".parse().unwrap(),
         dao_code_hash: "DtHZA1mUmGYeScEaUoUZYQGGFHSMpnjMCvkr5U9hJXuF".parse().unwrap(),
         ref_exchange: acc("ref-finance-101.testnet"),
@@ -40,7 +40,7 @@ fn cfg() -> Config {
         price_pool: None,
         max_price_move_bps_per_hour: 2000,
         max_price_age_secs: 6 * 3600,
-        price_feeder: acc("keeper.testnet"),
+        price_feeder: acc("owner.testnet"),
         referral_bps: 2000,
         buy_fee_bps: 125,
         sell_fee_bps: 250,
@@ -362,7 +362,7 @@ fn epoch_splits_only_yield_by_vote() {
     assert!(t.linear_shares >= principal_shares);
     let after_platform = yield_shares - yield_shares * 1000 / 10_000;
     assert!(t.agent_budget_shares.abs_diff(after_platform / 2) <= 1);
-    assert_eq!(c.get_claimable_linear(acc("owner.testnet")).0, yield_shares * 1000 / 10_000);
+    assert_eq!(c.get_claimable_linear(acc("treasury.testnet")).0, yield_shares * 1000 / 10_000);
 
     ctx(&acc("bob.testnet"), 0, T0 + 4001);
     let r = c.claim_rewards(token());
@@ -381,7 +381,7 @@ fn epoch_without_votes_compounds_into_floor() {
     c.on_epoch_price(0, Ok(U128(NEAR * 15 / 10)));
     let t = c.tok(0);
     // only the 10% platform cut of the yield leaves; the rest compounds
-    let platform = c.get_claimable_linear(acc("owner.testnet")).0;
+    let platform = c.get_claimable_linear(acc("treasury.testnet")).0;
     assert!(platform > 0);
     assert_eq!(t.linear_shares, shares0 - platform);
     assert!(math::shares_to_near(t.linear_shares, NEAR * 15 / 10) >= t.principal_near);
@@ -474,7 +474,7 @@ fn holders_policy_is_token_weighted() {
 #[test]
 fn testnet_deploy_config_parses() {
     let raw = include_str!("../../../deploy/config.testnet.json")
-        .replace("OWNER_ID", "owner.testnet")
+        .replace("TREASURY_ID", "treasury.testnet").replace("FEEDER_ID", "owner.testnet")
         .replace("LAUNCHPAD_ID", "floorpad.testnet")
         .replace("TOKEN_CODE_HASH", "4reLvkAWfqk5fsqio1KLudk46cqRz9erQdaHkWZKMJDZ");
     let c: Config = near_sdk::serde_json::from_str(&raw).expect("config.testnet.json must match Config");
@@ -535,7 +535,7 @@ fn feeder_cannot_move_price_more_than_2x() {
     ctx(&acc("owner.testnet"), 0, T0);
     let mut c = Contract::new(cfg());
     c.set_near_usd_price(U128(3_590_000));
-    ctx(&acc("keeper.testnet"), 0, T0 + 60);
+    ctx(&acc("owner.testnet"), 0, T0 + 60);
     c.set_near_usd_price(U128(3_600_000));
     c.set_near_usd_price(U128(9_000_000));
 }
@@ -596,7 +596,7 @@ fn ref_quote_launch_path() {
     });
     ctx(&acc("owner.testnet"), 0, T0);
     let mut c = Contract::new(cfg);
-    c.set_near_usd_price(U128(3_590_000));
+    c.accept_price(3_590_000); // first on-chain observation
     // Ref quote for 1 NEAR = 3.579230 USDC after the 0.3% fee
     ctx(&lp(), 0, T0 + 3600);
     let id = c.on_launch_price(acc("alice.testnet"), U128(3 * NEAR / 2), meta(), "p".into(), Ok(U128(3_579_230)));
@@ -645,4 +645,97 @@ fn export_dao_policies() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../e2e/fixtures/holders_policy.json");
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(path, near_sdk::serde_json::to_string_pretty(&out).unwrap()).unwrap();
+}
+
+#[test]
+#[should_panic(expected = "ERR_PRICE_IS_ONCHAIN")]
+fn nobody_sets_price_when_it_is_onchain() {
+    let mut cfg = cfg();
+    cfg.price_pool = Some(PricePool { pool_id: 1, near_token: acc("wrap.near"), usd_token: acc("usdc.near"), usd_decimals: 6, pool_fee_bps: 30 });
+    ctx(&acc("owner.testnet"), 0, T0);
+    let mut c = Contract::new(cfg);
+    c.set_near_usd_price(U128(1)); // even the owner
+}
+
+#[test]
+fn instant_trading_buy_sell_withdraw() {
+    let mut c = launched();
+    ctx(&acc("bob.testnet"), 10 * NEAR, T0 + 200);
+    c.deposit_trading();
+    // function-call keys attach no deposit
+    ctx(&acc("bob.testnet"), 0, T0 + 201);
+    let out = c.quick_buy(token(), U128(4 * NEAR), U128(0), None).0;
+    assert!(out > 0);
+    assert_eq!(c.get_trading_account(acc("bob.testnet")).near.0, 6 * NEAR);
+    let cu = c.get_custody(token(), acc("bob.testnet"));
+    assert_eq!(cu.amount.0, out);
+    assert_eq!(c.tok(0).custody_total, out);
+    // same curve, same trade log
+    assert_eq!(c.tok(0).sold, out);
+    assert_eq!(c.get_trades_from(token(), 0, None).len(), 1);
+    // sell half: fresh holder pays the max exit fee; NEAR returns to the trading balance
+    ctx(&acc("bob.testnet"), 0, T0 + 202);
+    let q = c.quote_sell(token(), U128(out / 2), 1);
+    let net = c.quick_sell(token(), U128(out / 2), U128(0), None).0;
+    assert!(net > 0 && net.abs_diff(q.amount_out.0) <= q.amount_out.0 / 100);
+    assert_eq!(c.get_trading_account(acc("bob.testnet")).near.0, 6 * NEAR + net);
+    assert_eq!(c.tok(0).custody_total, out - out / 2);
+    // withdrawing needs the wallet (1 yocto) and moves custody to the wallet
+    ctx(&acc("bob.testnet"), 1, T0 + 203);
+    c.withdraw_custody(token(), None);
+    assert_eq!(c.get_custody(token(), acc("bob.testnet")).amount.0, 0);
+    assert_eq!(c.tok(0).custody_total, 0);
+    c.withdraw_trading(None);
+    assert_eq!(c.get_trading_account(acc("bob.testnet")).near.0, 0);
+}
+
+#[test]
+#[should_panic(expected = "Requires attached deposit of exactly 1 yoctoNEAR")]
+fn session_key_cannot_withdraw() {
+    let mut c = launched();
+    ctx(&acc("bob.testnet"), 5 * NEAR, T0 + 200);
+    c.deposit_trading();
+    ctx(&acc("bob.testnet"), 0, T0 + 201); // function-call key: no deposit possible
+    c.withdraw_trading(None);
+}
+
+#[test]
+#[should_panic(expected = "ERR_TRADING_BALANCE")]
+fn quick_buy_needs_balance() {
+    let mut c = launched();
+    ctx(&acc("bob.testnet"), 0, T0 + 200);
+    c.quick_buy(token(), U128(NEAR), U128(0), None);
+}
+
+#[test]
+fn trade_index_and_mechanics_log() {
+    let (c, _) = graduated();
+    let all = c.get_trades_from(token(), 0, None);
+    assert!(all.len() >= 2);
+    assert!(all.windows(2).all(|w| w[1].0 == w[0].0 + 1), "indexes are consecutive");
+    let tail = c.get_trades_from(token(), all.last().unwrap().0, None);
+    assert_eq!(tail.len(), 1);
+    let log = c.get_mech_log(token(), None);
+    assert!(log.iter().any(|e| e.kind == "graduation_burn" && e.amount.0 > 0));
+}
+
+#[test]
+fn fees_only_flow_to_treasury_and_anyone_can_sweep() {
+    let mut c = launched();
+    buy(&mut c, "bob.testnet", 10 * NEAR, T0 + 200);
+    let fees = c.platform_fees;
+    assert!(fees > 0);
+    ctx(&acc("random.testnet"), 0, T0 + 300); // anyone
+    c.sweep_platform_fees();
+    assert_eq!(c.platform_fees, 0);
+    assert!(c.get_admin_powers()[0].starts_with("owner: none"));
+}
+
+#[test]
+#[should_panic(expected = "ERR_NOT_FEEDER")]
+fn deployer_cannot_set_price() {
+    ctx(&acc("owner.testnet"), 0, T0);
+    let mut c = Contract::new(cfg());
+    ctx(&acc("deployer.testnet"), 0, T0 + 1);
+    c.set_near_usd_price(U128(1));
 }

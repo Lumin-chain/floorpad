@@ -50,7 +50,7 @@ async function walletConnectClient() {
       name: "Floorpad",
       description: "Meme launches with a floor that only goes up",
       url: typeof window !== "undefined" ? window.location.origin : "https://floorpad.app",
-      icons: ["/icon.svg"],
+      icons: ["/brand/icon-192.png"],
     },
   });
 }
@@ -73,7 +73,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         providers: { [NETWORK]: [RPC] },
         walletConnect: WC_PROJECT_ID ? (wc as never) : undefined,
         footerBranding: {
-          icon: "/icon.svg",
+          icon: "/brand/icon-192.png",
           link: "https://wallet.near.org",
           linkText: "Need a NEAR wallet?",
           heading: "Floorpad",

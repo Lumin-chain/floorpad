@@ -4,6 +4,7 @@ import Link from "next/link";
 import { floorPrice, fmtNear, fmtPrice, fmtTok, LAUNCHPAD, LINEAR, lp, until, view, type Position, type TokenView } from "@/lib/near";
 import { storageCallIfNeeded, useView, useWallet } from "@/lib/wallet";
 import { Avatar } from "@/components/ui";
+import { Mascot } from "@/components/Mascot";
 
 interface Row {
   t: TokenView;
@@ -40,7 +41,8 @@ export default function Portfolio() {
 
   if (!accountId) {
     return (
-      <div className="empty section">
+      <div className="empty section mascot-empty">
+        <Mascot pose="cool" size={120} motion="idle" alt="" />
         <p>Connect a wallet to see your tokens, locks and rewards.</p>
         <button className="btn primary" onClick={signIn}>Connect wallet</button>
       </div>
@@ -95,7 +97,12 @@ export default function Portfolio() {
       </div>
       <div className="panel">
         {!rows && <div className="empty">Loading…</div>}
-        {rows?.length === 0 && <div className="empty">No Floorpad tokens yet. <Link href="/" className="green">Explore launches →</Link></div>}
+        {rows?.length === 0 && (
+          <div className="empty mascot-empty">
+            <Mascot pose="wink" size={96} motion="peek" alt="" />
+            <span>No Floorpad tokens yet. <Link href="/" className="green">Explore launches →</Link></span>
+          </div>
+        )}
         {rows && rows.length > 0 && (
           <table className="t">
             <thead>

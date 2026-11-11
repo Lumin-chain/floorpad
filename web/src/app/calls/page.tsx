@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api, fmtX, useStream, type Caller, type Callout } from "@/lib/social";
 import { CallRow } from "@/components/Callouts";
 import { useIsDesktop } from "@/lib/media";
+import { Mascot } from "@/components/Mascot";
 
 export default function CallsPage() {
   const desktop = useIsDesktop();
@@ -40,7 +41,12 @@ export default function CallsPage() {
       {(tab === "feed" || desktop) && (
         <div className="grid cards calls-feed" style={{ marginTop: 12 }}>
           {calls?.map((c) => <CallRow key={c.id} c={c} showToken />)}
-          {calls?.length === 0 && <div className="empty">No callouts yet.</div>}
+          {calls?.length === 0 && (
+            <div className="empty mascot-empty">
+              <Mascot pose="cool" size={100} motion="wave" alt="" />
+              <span>No callouts yet. Call a token from its page.</span>
+            </div>
+          )}
         </div>
       )}
 

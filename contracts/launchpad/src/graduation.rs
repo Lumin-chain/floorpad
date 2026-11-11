@@ -224,6 +224,7 @@ impl Contract {
             tok.burned += burn;
             tok.tokens_in_flight += burn;
             let token_id = tok.token_id.clone();
+            self.log_mech(idx, "graduation_burn", burn, None);
             ext_ft::ext(token_id)
                 .with_static_gas(tgas(10))
                 .burn(U128(burn))

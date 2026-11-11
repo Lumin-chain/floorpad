@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { fmtNear, LAUNCHPAD, lp, type LaunchConfig } from "@/lib/near";
 import { useView, useWallet } from "@/lib/wallet";
+import { Mascot } from "@/components/Mascot";
 
 const MAX_ICON = 12_000;
 
@@ -70,7 +71,7 @@ export default function Create() {
         <h1>Launch a token</h1>
         <p className="muted">
           A single transaction deploys the token, opens the bonding curve and creates the holders&apos; DAO.
-          Total supply is 1B: 800M sell on the curve, which is sized from the live NEAR price so every token graduates to Ref at about ${cfg ? cfg.grad_mcap_usd.toLocaleString() : "15,000"} market cap.
+          Total supply is 1B: 760M sell on the curve, which is sized from the live NEAR price so every token graduates to Ref at about ${cfg ? cfg.grad_mcap_usd.toLocaleString() : "15,000"} market cap.
           There is no premint and no dev allocation.
         </p>
         <div className="grid half">
@@ -114,6 +115,13 @@ export default function Create() {
       </div>
 
       <div className="stack">
+        <div className="panel create-mascot">
+          <Mascot pose="flag" size={110} motion="wave" alt="" />
+          <div>
+            <b>Plant your flag.</b>
+            <div className="small muted">One transaction: token, curve and holder DAO.</div>
+          </div>
+        </div>
         <div className="panel">
           <h2>What holders get</h2>
           <ul className="muted small" style={{ paddingLeft: 18, margin: 0 }}>

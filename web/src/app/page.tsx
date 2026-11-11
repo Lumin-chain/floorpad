@@ -6,6 +6,7 @@ import { ago, lp, nearUsd, progressPct, vaultNear, yoctoToUsd, type TokenView } 
 import { api, fmtUsd, fmtX, useStream, type Callout } from "@/lib/social";
 import { useView } from "@/lib/wallet";
 import { Avatar, StageBadges } from "@/components/ui";
+import { Mascot } from "@/components/Mascot";
 
 type Filter = "trending" | "new" | "bonding" | "graduated";
 type SortKey = "mcap" | "floor" | "progress" | "holders" | "volume" | "age";
@@ -93,7 +94,10 @@ export default function Explore() {
     <>
       {/* ---------- mobile hero ---------- */}
       <section className="hero mobile-only-block">
-        <h1>Meme launches with a floor that only goes up.</h1>
+        <div className="hero-row">
+          <h1>Meme launches with a floor that only goes up.</h1>
+          <Mascot pose="hero" size={92} blink alt="" />
+        </div>
         <div className="pillars scroll-x">
           <Pillars />
         </div>
@@ -119,9 +123,12 @@ export default function Explore() {
       {/* ---------- desktop top: featured + stats + callouts rail ---------- */}
       <section className="explore-top desktop-only-grid">
         <div className="stack">
-          <div className="tagline">
-            <h1>Meme launches with a floor that only goes up.</h1>
-            <p className="muted">Fair launch, graduate to Ref at ~$15k. Every token gets a redeemable floor, yield-earning LP, a holder DAO, chat, callouts and an AI agent.</p>
+          <div className="tagline tagline-row">
+            <div>
+              <h1>Meme launches with a floor that only goes up.</h1>
+              <p className="muted">Fair launch, graduate to Ref at ~$15k. Every token gets a redeemable floor, yield-earning LP, a holder DAO, chat, callouts and an AI agent.</p>
+            </div>
+            <Mascot pose="hero" size={150} blink alt="" />
           </div>
           {featured && <Featured t={featured} mcapUsd={mcap(featured)} floorUsd={floorUsd(featured)} />}
           <div className="grid stats-4">
@@ -175,10 +182,16 @@ export default function Explore() {
         </div>
 
         {error && <div className="notice warn">Could not load tokens: {error}</div>}
-        {!tokens && !error && <div className="empty">Loading launches…</div>}
+        {!tokens && !error && (
+          <div className="empty mascot-empty">
+            <Mascot pose="cool" size={96} motion="wave" alt="" />
+            <span>Loading launches…</span>
+          </div>
+        )}
         {tokens && list.length === 0 && (
-          <div className="empty">
-            No tokens yet. <Link href="/create" className="green">Launch the first one →</Link>
+          <div className="empty mascot-empty">
+            <Mascot pose="flag" size={120} motion="peek" alt="" />
+            <span>No tokens here yet. <Link href="/create" className="green">Plant the first flag →</Link></span>
           </div>
         )}
 

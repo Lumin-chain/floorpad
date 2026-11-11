@@ -19,6 +19,7 @@ mod epoch;
 mod ext;
 pub mod math;
 mod graduation;
+mod trading;
 mod ve;
 mod vault;
 mod views;
@@ -32,6 +33,7 @@ use near_sdk::{
     PromiseOrValue,
 };
 
+pub use trading::Custody;
 pub use views::*;
 
 pub const BUCKETS: usize = 5;
@@ -45,6 +47,7 @@ pub const BUCKET_TREASURY: usize = 4;
 pub const MAX_TRADES: u32 = 200;
 pub const MAX_POSTS: u32 = 100;
 pub const MAX_EPOCHS: u32 = 52;
+pub const MAX_MECH: u32 = 100;
 
 #[derive(BorshStorageKey)]
 #[near]
@@ -60,12 +63,17 @@ enum StorageKey {
     Epochs,
     PendingTokens,
     Referrals,
+    TradingNear,
+    Custody,
+    Mech,
 }
 
 #[near(serializers = [borsh, json])]
 #[derive(Clone)]
 pub struct Config {
-    pub owner_id: AccountId,
+    /// Where platform fees go (e.g. a Sputnik DAO / Trezu treasury). Not an admin:
+    /// this account has no powers over the contract; it can only receive fees.
+    pub treasury_id: AccountId,
     /// Global contract code hashes (immutable: nobody can swap code under live tokens/DAOs).
     /// `dao_code_hash` is the official Sputnik DAO v2 global code.
     pub token_code_hash: Base58CryptoHash,
@@ -240,6 +248,10 @@ pub struct TokenState {
     pub tokens_in_flight: u128,
     /// Meme tokens held here that are owed to users (failed deliveries).
     pub owed_tokens: u128,
+    /// Meme tokens held here for instant-trading accounts.
+    pub custody_total: u128,
+    /// Mechanics log ring buffer length (burns, epochs, yield funding, escrow moves).
+    pub mech_count: u32,
 
     // Agent
     pub agent_account: AccountId,
@@ -281,6 +293,17 @@ pub struct Post {
     pub ts: u64,
     pub text: String,
     pub paid: U128,
+}
+
+/// One entry of a token's public mechanics log.
+#[near(serializers = [borsh, json])]
+#[derive(Clone)]
+pub struct MechEvent {
+    pub ts: u64,
+    /// graduation_burn | redeem_burn | buyback_burn | epoch | yield_funded | creator_release | creator_clawback
+    pub kind: String,
+    pub amount: U128,
+    pub account: Option<AccountId>,
 }
 
 #[near(serializers = [borsh, json])]
@@ -331,6 +354,10 @@ pub struct Contract {
     pub price_updated_at: u64,
     /// NEAR fees owed to referrers.
     pub referral_balance: LookupMap<AccountId, u128>,
+    /// Instant-trading accounts: NEAR balance and per-token custody.
+    pub trading_near: LookupMap<AccountId, u128>,
+    pub custody: LookupMap<(u32, AccountId), Custody>,
+    pub mech_log: LookupMap<(u32, u32), MechEvent>,
 }
 
 pub(crate) fn now_secs() -> u64 {
@@ -374,33 +401,36 @@ impl Contract {
             near_usd_micro: 0,
             price_updated_at: 0,
             referral_balance: LookupMap::new(StorageKey::Referrals),
+            trading_near: LookupMap::new(StorageKey::TradingNear),
+            custody: LookupMap::new(StorageKey::Custody),
+            mech_log: LookupMap::new(StorageKey::Mech),
         }
     }
 
-    // ---------- admin ----------
+    // ---------- no admin ----------
+    // There is no owner. The contract has no method that moves user funds, vault
+    // principal, LP, custody, escrow or DAO money to anyone but their rightful owner.
+    // The only outflow to the platform is accrued platform fees, and they can only
+    // ever go to `treasury_id`. Combined with deleting the launchpad account's
+    // full-access keys after deploy, nobody (including the deployer) can withdraw.
 
-    pub fn set_config(&mut self, config: Config) {
-        self.assert_owner();
-        self.config = config;
+    /// Permissionless: send all accrued platform fees (NEAR) to the treasury.
+    pub fn sweep_platform_fees(&mut self) -> near_sdk::Promise {
+        let amount = self.platform_fees;
+        require!(amount > 0, "ERR_NOTHING_TO_SWEEP");
+        self.platform_fees = 0;
+        near_sdk::Promise::new(self.config.treasury_id.clone())
+            .transfer(NearToken::from_yoctonear(amount))
     }
 
-    pub fn withdraw_platform_fees(&mut self, amount: U128) -> near_sdk::Promise {
-        self.assert_owner();
-        require!(amount.0 <= self.platform_fees, "ERR_AMOUNT");
-        self.platform_fees -= amount.0;
-        near_sdk::Promise::new(self.config.owner_id.clone())
-            .transfer(NearToken::from_yoctonear(amount.0))
-    }
-
-    /// Push the NEAR/USD price (micro-USD). The feeder may move it at most 2x per
-    /// update; the owner is unrestricted (e.g. first price or recovery).
+    /// Push the NEAR/USD price (micro-USD), feeder mode only (testnet). With a Ref price
+    /// pool configured (mainnet) nobody can set the price. Moves are capped at 2x.
     pub fn set_near_usd_price(&mut self, price_micro_usd: U128) {
-        let caller = env::predecessor_account_id();
-        let is_owner = caller == self.config.owner_id;
-        require!(is_owner || caller == self.config.price_feeder, "ERR_NOT_FEEDER");
+        require!(self.config.price_pool.is_none(), "ERR_PRICE_IS_ONCHAIN");
+        require!(env::predecessor_account_id() == self.config.price_feeder, "ERR_NOT_FEEDER");
         let p = price_micro_usd.0;
         require!(p > 0, "ERR_PRICE");
-        if !is_owner && self.near_usd_micro > 0 {
+        if self.near_usd_micro > 0 {
             let old = self.near_usd_micro;
             require!(p * 2 >= old && p <= old * 2, "ERR_PRICE_JUMP");
         }
@@ -476,10 +506,6 @@ impl Contract {
         p
     }
 
-    pub(crate) fn assert_owner(&self) {
-        require!(env::predecessor_account_id() == self.config.owner_id, "ERR_NOT_OWNER");
-    }
-
     pub(crate) fn idx_of(&self, token_id: &AccountId) -> u32 {
         *self.token_index.get(token_id).expect("ERR_UNKNOWN_TOKEN")
     }
@@ -502,9 +528,34 @@ impl Contract {
 
     pub(crate) fn record_trade(&mut self, idx: u32, t: Trade) {
         let tok = self.tok_mut(idx);
-        let slot = tok.trade_count % MAX_TRADES;
+        let index = tok.trade_count;
+        let slot = index % MAX_TRADES;
         tok.trade_count += 1;
+        let token_id = tok.token_id.clone();
+        // NEP-297 event so any indexer can follow trades without polling views.
+        env::log_str(&format!(
+            "EVENT_JSON:{}",
+            serde_json::json!({
+                "standard": "floorpad", "version": "1.0.0", "event": "trade",
+                "data": [{ "token_id": token_id, "index": index, "account": t.account, "is_buy": t.is_buy,
+                           "near": t.near, "tokens": t.tokens, "v_near": t.v_near, "v_tokens": t.v_tokens, "ts": t.ts }]
+            })
+        ));
         self.trades.insert((idx, slot), t);
+    }
+
+    /// Append to the token's public mechanics log.
+    pub(crate) fn log_mech(&mut self, idx: u32, kind: &str, amount: u128, account: Option<AccountId>) {
+        let tok = self.tok_mut(idx);
+        let slot = tok.mech_count % MAX_MECH;
+        tok.mech_count += 1;
+        let token_id = tok.token_id.clone();
+        env::log_str(&format!(
+            "EVENT_JSON:{}",
+            serde_json::json!({ "standard": "floorpad", "version": "1.0.0", "event": kind,
+                                "data": [{ "token_id": token_id, "amount": U128(amount), "account": account }] })
+        ));
+        self.mech_log.insert((idx, slot), MechEvent { ts: now_secs(), kind: kind.into(), amount: U128(amount), account });
     }
 }
 
@@ -528,7 +579,7 @@ impl FungibleTokenReceiver for Contract {
             let tok = self.tok_mut(idx);
             require!(tok.grad_stage == GradStage::Graduated, "ERR_NOT_GRADUATED");
             tok.linear_shares += amount.0;
-            env::log_str(&format!("{} funded {} LiNEAR of yield for {}", sender_id, amount.0, f.fund_yield));
+            self.log_mech(idx, "yield_funded", amount.0, Some(sender_id));
             return PromiseOrValue::Value(U128(0));
         }
         let idx = self.idx_of(&token_id);

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { WalletProvider, useWallet } from "@/lib/wallet";
+import { Mascot, MascotPreload } from "./Mascot";
 import { useEffect } from "react";
 import { captureReferrer, LAUNCHPAD, NETWORK } from "@/lib/near";
 
@@ -29,7 +30,10 @@ function Header() {
     <header className="header">
       <div className="container wide">
         <Link href="/" className="brand">
-          <span className="brand-mark" /> Floorpad
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brand/symbol.png" alt="" className="brand-symbol" />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brand/wordmark.png" alt="Floorpad" className="brand-wordmark" />
         </Link>
         <nav className="nav desktop-only">
           {NAV.map((n) => (
@@ -71,7 +75,12 @@ function BottomNav() {
 function Toast() {
   const { toast } = useWallet();
   if (!toast) return null;
-  return <div className={`toast ${toast.kind}`}>{toast.text}</div>;
+  return (
+    <div className={`toast ${toast.kind}`}>
+      {toast.kind === "ok" && <Mascot pose="wink" size={44} motion="celebrate" alt="" />}
+      <span>{toast.text}</span>
+    </div>
+  );
 }
 
 export function Shell({ children }: { children: ReactNode }) {
@@ -88,6 +97,7 @@ export function Shell({ children }: { children: ReactNode }) {
       </footer>
       <BottomNav />
       <Toast />
+      <MascotPreload />
     </WalletProvider>
   );
 }

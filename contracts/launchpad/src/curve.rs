@@ -1,6 +1,6 @@
 //! Token creation and bonding-curve trading.
 use crate::ext::{ext_ft, ext_ref, tgas};
-use crate::math::{self, bps};
+use crate::math;
 use crate::*;
 use near_sdk::json_types::{U128, U64};
 use near_sdk::serde_json::json;
@@ -164,6 +164,8 @@ impl Contract {
             last_linear_price: 0,
             tokens_in_flight: 0,
             owed_tokens: 0,
+            custody_total: 0,
+            mech_count: 0,
             agent_account: cfg.default_agent.clone(),
             agent_persona: persona,
             agent_budget_shares: 0,
@@ -222,80 +224,13 @@ impl Contract {
     #[payable]
     pub fn buy(&mut self, token_id: AccountId, min_tokens_out: U128, referrer: Option<AccountId>) -> U128 {
         let idx = self.idx_of(&token_id);
-        let cfg = self.config.clone();
         let buyer = env::predecessor_account_id();
         let deposit = env::attached_deposit().as_yoctonear();
-        let now = now_secs();
-        {
-            let tok = self.tok(idx);
-            require!(tok.deployed, "ERR_NOT_DEPLOYED");
-            require!(tok.grad_stage == GradStage::Curve, "ERR_CURVE_CLOSED");
-        }
-        let key = (idx, buyer.clone());
-        let new_holder = !self.known_holders.contains_key(&key);
+        let new_holder = !self.known_holders.contains_key(&(idx, buyer.clone()));
         let storage_fee = if new_holder { STORAGE_FEE } else { 0 };
-        require!(
-            deposit >= storage_fee + cfg.min_trade.as_yoctonear(),
-            "ERR_BELOW_MIN_TRADE"
-        );
-        let gross = deposit - storage_fee;
-        let mut fee = bps(gross, cfg.buy_fee_bps as u128);
-        let mut used = gross - fee;
-        let mut refund = 0u128;
-
-        let (v_near, v_tokens, sold, created_at) = {
-            let t = self.tok(idx);
-            (t.v_near, t.v_tokens, t.sold, t.created_at)
-        };
-        let remaining = cfg.curve_supply.0 - sold;
-        let mut out = math::curve_tokens_out(v_near, v_tokens, used);
-        if out >= remaining {
-            out = remaining;
-            used = math::curve_near_for_tokens(v_near, v_tokens, out);
-            fee = bps(used, cfg.buy_fee_bps as u128);
-            refund = gross - used - fee;
-        }
-        require!(out > 0 && out >= min_tokens_out.0, "ERR_SLIPPAGE");
-
-        if now < created_at + cfg.snipe_window_secs {
-            let b = self.snipe_bought.get(&key).copied().unwrap_or(0) + out;
-            require!(b <= cfg.snipe_max_tokens.0, "ERR_LAUNCH_WALLET_CAP");
-            self.snipe_bought.insert(key.clone(), b);
-        }
-        if new_holder {
-            self.known_holders.insert(key, true);
-        }
-
-        {
-            let tok = self.tok_mut(idx);
-            tok.v_near += used;
-            tok.v_tokens -= out;
-            tok.sold += out;
-            tok.real_near += used;
-            tok.volume_near += used;
-            tok.tokens_in_flight += out;
-            if new_holder {
-                tok.holders += 1;
-            }
-        }
-        let referrer = referrer.filter(|r| r != &buyer);
-        self.distribute_fee(idx, fee, referrer.as_ref());
-        let (vn, vt) = (self.tok(idx).v_near, self.tok(idx).v_tokens);
-        self.record_trade(
-            idx,
-            Trade {
-                ts: now,
-                account: buyer.clone(),
-                is_buy: true,
-                near: U128(used),
-                tokens: U128(out),
-                v_near: U128(vn),
-                v_tokens: U128(vt),
-            },
-        );
-        if self.tok(idx).sold == cfg.curve_supply.0 {
-            self.enter_graduation(idx);
-        }
+        require!(deposit > storage_fee, "ERR_BELOW_MIN_TRADE");
+        let (out, refund) = self.curve_buy_core(idx, &buyer, deposit - storage_fee, min_tokens_out.0, referrer);
+        self.tok_mut(idx).tokens_in_flight += out;
 
         let me = env::current_account_id();
         let deliver = ext_ft::ext(token_id.clone())
@@ -391,47 +326,10 @@ impl Contract {
         referrer: Option<AccountId>,
         #[callback_result] since: Result<Option<U64>, PromiseError>,
     ) -> U128 {
-        let cfg = self.config.clone();
-        let now = now_secs();
-        if self.tok(idx).grad_stage != GradStage::Curve {
-            return amount; // refund: curve closed meanwhile
-        }
-        let age = since.ok().flatten().map(|s| now.saturating_sub(s.0)).unwrap_or(0);
-        let (v_near, v_tokens) = (self.tok(idx).v_near, self.tok(idx).v_tokens);
-        let gross = math::curve_near_out(v_near, v_tokens, amount.0);
-        let fee = bps(gross, cfg.sell_fee_bps as u128);
-        let exit = bps(
-            gross,
-            math::exit_fee_bps(cfg.max_exit_fee_bps as u128, cfg.exit_decay_secs, age),
-        );
-        let net = gross - fee - exit;
-        if net < min_near_out.0 || net == 0 || gross > self.tok(idx).real_near {
-            return amount;
-        }
-        {
-            let tok = self.tok_mut(idx);
-            tok.v_near -= gross;
-            tok.v_tokens += amount.0;
-            tok.sold -= amount.0;
-            tok.real_near -= gross;
-            tok.volume_near += gross;
-            tok.backing_near += exit;
-        }
-        let referrer = referrer.filter(|r| r != &seller);
-        self.distribute_fee(idx, fee, referrer.as_ref());
-        let (vn, vt) = (self.tok(idx).v_near, self.tok(idx).v_tokens);
-        self.record_trade(
-            idx,
-            Trade {
-                ts: now,
-                account: seller.clone(),
-                is_buy: false,
-                near: U128(gross),
-                tokens: amount,
-                v_near: U128(vn),
-                v_tokens: U128(vt),
-            },
-        );
+        let age = since.ok().flatten().map(|s| now_secs().saturating_sub(s.0)).unwrap_or(0);
+        let Some(net) = self.curve_sell_core(idx, &seller, amount.0, min_near_out.0, referrer, age) else {
+            return amount; // refund: curve closed meanwhile or slippage
+        };
         Promise::new(seller).transfer(NearToken::from_yoctonear(net)).detach();
         U128(0)
     }

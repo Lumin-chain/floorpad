@@ -160,7 +160,7 @@ await step("deploy launchpad", async () => {
   if (lpFund > 0) await bank.transfer({ receiverId: LP(), amount: N(lpFund) });
   const code = fs.readFileSync(path.join(WASM, "floorpad_launchpad.wasm"));
   await acct("lp").deployContract(code);
-  const cfg = JSON.parse(fs.readFileSync(path.join(HERE, "../deploy/config.testnet.json"), "utf8").replace(/OWNER_ID/g, state.accounts.bank.id).replace(/LAUNCHPAD_ID/g, LP()));
+  const cfg = JSON.parse(fs.readFileSync(path.join(HERE, "../deploy/config.testnet.json"), "utf8").replace(/TREASURY_ID/g, state.accounts.bank.id).replace(/FEEDER_ID/g, state.accounts.bank.id).replace(/LAUNCHPAD_ID/g, LP()));
   Object.assign(cfg, {
     token_code_hash: state.token_hash,
     dao_code_hash: state.dao_hash ?? OFFICIAL_SPUTNIK_HASH,
@@ -318,6 +318,16 @@ await step("redeem + withdraw + agent", async () => {
   check(w.failures.length === 0 && after > before, "withdraw LiNEAR (redemption + airdrop)", `+${fmt(after - before)} LiNEAR`);
   const a = await call("bank", LP(), "agent_post", { token_id: TOKEN(), text: "gm from the e2e agent" }, { deposit: N(0.01), gas: 30n });
   check(a.failures.length === 0, "agent post paid from budget", a.failures.join(" | "));
+});
+
+if (process.env.LOCK === "1") await step("lock launchpad (delete full-access keys)", async () => {
+  const lp = acct("lp");
+  const keys = await lp.getAccessKeyList();
+  for (const k of keys.keys.filter((k) => k.access_key.permission === "FullAccess")) await lp.deleteKey(k.public_key);
+  const after = await provider.viewAccessKeyList({ accountId: LP() }).catch(() => ({ keys: [] }));
+  check(after.keys.length === 0, "launchpad has no access keys: nobody can upgrade or withdraw", `${after.keys.length} keys left`);
+  const sweep = await call("bob", LP(), "sweep_platform_fees", {}, { gas: 20n });
+  check(sweep.failures.length === 0, "anyone can sweep fees, which go only to the treasury", sweep.failures.join(" | "));
 });
 
 // Re-derive every outcome from chain state (independent of earlier step logs).
