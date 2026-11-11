@@ -160,11 +160,19 @@ export interface IndexedTrade {
   v_tokens: string;
 }
 
+export interface GlobalTrade extends IndexedTrade {
+  symbol?: string;
+  icon?: string | null;
+}
+
 export const getCandles = (tokenId: string, tf = "5m", limit = 100) =>
   api<Candle[]>(`/tokens/${tokenId}/candles?tf=${tf}&limit=${limit}`).catch(() => []);
 
 export const getIndexedTrades = (tokenId: string, limit = 50) =>
   api<IndexedTrade[]>(`/tokens/${tokenId}/trades?limit=${limit}`).catch(() => []);
+
+export const getGlobalTrades = (limit = 20) =>
+  api<GlobalTrade[]>(`/trades?limit=${limit}`).catch(() => []);
 
 export const postTrade = (
   tokenId: string,

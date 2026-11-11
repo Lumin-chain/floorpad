@@ -180,6 +180,11 @@ export function openStore(path: string) {
         .prepare("SELECT * FROM trades WHERE token_id = ? ORDER BY id DESC LIMIT ?")
         .all(tokenId, limit) as unknown as StoredTrade[];
     },
+    recentGlobalTrades(limit: number): StoredTrade[] {
+      return db
+        .prepare("SELECT * FROM trades ORDER BY ts DESC, id DESC LIMIT ?")
+        .all(limit) as unknown as StoredTrade[];
+    },
     candles(tokenId: string, timeframeSecs: number, limit: number): Candle[] {
       const tf = Math.max(10, timeframeSecs);
       const rows = db

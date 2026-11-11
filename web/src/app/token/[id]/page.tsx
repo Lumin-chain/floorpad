@@ -87,6 +87,15 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
     [id, accountId],
     15000,
   );
+  const isGrad = tok.data ? isGraduated(tok.data) && tok.data.pool_id !== null : false;
+  const poolId = tok.data?.pool_id ?? null;
+  const refPool = useView(
+    isGrad && poolId !== null
+      ? () => view<{ token_account_ids: string[]; amounts: string[]; total_fee: number }>(REF, "get_pool", { pool_id: poolId })
+      : null,
+    [id, poolId, isGrad],
+    6000,
+  );
 
   const [showPnl, setShowPnl] = useState(false);
 
@@ -115,15 +124,8 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
     },
   };
   const graduated = isGraduated(t);
-  const { data: refPool } = useView(
-    graduated && t.pool_id !== null
-      ? () => view<{ token_account_ids: string[]; amounts: string[]; total_fee: number }>(REF, "get_pool", { pool_id: t.pool_id })
-      : null,
-    [t.token_id, t.pool_id],
-    6000,
-  );
-  const spotPriceNear = tokenSpotPrice(t, refPool, linearPrice);
-  const realFdvNear = tokenFdvNear(t, refPool, linearPrice);
+  const spotPriceNear = tokenSpotPrice(t, refPool.data, linearPrice);
+  const realFdvNear = tokenFdvNear(t, refPool.data, linearPrice);
   const mcapUsd = yoctoToUsd(realFdvNear.toString(), nearUsdPrice);
   const gradUsd = yoctoToUsd(t.grad_fdv_near, nearUsdPrice);
   const pct = progressPct(t);

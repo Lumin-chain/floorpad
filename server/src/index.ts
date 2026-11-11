@@ -229,6 +229,21 @@ const TF_MAP: Record<string, number> = {
   "1d": 86400,
 };
 
+route("GET", "/trades", async (_req, _res, _p, q) => {
+  const limit = Math.min(50, Number(q.get("limit") ?? 20));
+  const rawTrades = store.recentGlobalTrades(limit);
+  return Promise.all(
+    rawTrades.map(async (tr) => {
+      const tok = await getToken(tr.token_id).catch(() => null);
+      return {
+        ...tr,
+        symbol: tok?.meta.symbol ?? tr.token_id.split(".")[0].toUpperCase(),
+        icon: tok?.meta.icon ?? null,
+      };
+    }),
+  );
+});
+
 route("GET", "/tokens/:id/trades", async (_req, _res, p, q) => {
   const limit = Math.min(100, Number(q.get("limit") ?? 50));
   return store.trades(p.id, limit);
@@ -246,6 +261,7 @@ route("POST", "/tokens/:id/trades", async (req, _res, p) => {
   }>(req);
   if (!b.account || !b.near || !b.tokens) throw new HttpError(400, "invalid trade body");
 
+  const tok = await getToken(p.id).catch(() => null);
   const nextId = (store.lastTradeIndex(p.id) || 0) + 1;
   const stored: StoredTrade = {
     token_id: p.id,
@@ -260,8 +276,13 @@ route("POST", "/tokens/:id/trades", async (req, _res, p) => {
     v_tokens: b.v_tokens || b.tokens,
   };
   store.addTrade(stored);
-  publish(`token:${p.id}`, "trade", stored);
-  publish("global", "trade", stored);
+  const payload = {
+    ...stored,
+    symbol: tok?.meta.symbol ?? p.id.split(".")[0].toUpperCase(),
+    icon: tok?.meta.icon ?? null,
+  };
+  publish(`token:${p.id}`, "trade", payload);
+  publish("global", "trade", payload);
   return stored;
 });
 
@@ -339,9 +360,14 @@ async function indexTrades() {
             v_near: tr.v_near,
             v_tokens: tr.v_tokens,
           };
+          const payload = {
+            ...stored,
+            symbol: tok.meta.symbol,
+            icon: tok.meta.icon,
+          };
           store.addTrade(stored);
-          publish(`token:${tok.token_id}`, "trade", stored);
-          publish("global", "trade", stored);
+          publish(`token:${tok.token_id}`, "trade", payload);
+          publish("global", "trade", payload);
         }
       } else {
         // Ref Finance pool indexing for graduated tokens
@@ -386,9 +412,14 @@ async function indexTrades() {
                   v_near: currLin.toString(),
                   v_tokens: currMeme.toString(),
                 };
+                const payload = {
+                  ...stored,
+                  symbol: tok.meta.symbol,
+                  icon: tok.meta.icon,
+                };
                 store.addTrade(stored);
-                publish(`token:${tok.token_id}`, "trade", stored);
-                publish("global", "trade", stored);
+                publish(`token:${tok.token_id}`, "trade", payload);
+                publish("global", "trade", payload);
               }
             }
             prevPoolReserves.set(tok.pool_id, { rMeme: currMeme, rLin: currLin });

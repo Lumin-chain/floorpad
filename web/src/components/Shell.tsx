@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import { WalletProvider, useWallet } from "@/lib/wallet";
 import { Mascot, MascotPreload } from "./Mascot";
 import { SlabIcon } from "./Brand";
+import { TradeTicker } from "./TradeTicker";
 import { useEffect } from "react";
 import { captureReferrer, fmtNear, LAUNCHPAD, NETWORK } from "@/lib/near";
 
@@ -89,6 +90,7 @@ export function Shell({ children }: { children: ReactNode }) {
   return (
     <WalletProvider>
       <Header />
+      <TradeTicker />
       <main className="container wide main">{children}</main>
       <footer className="footer desktop-only">
         <div className="container wide row between wrap">
