@@ -59,12 +59,28 @@ export interface TokenInfo {
   burned: string;
 }
 
-const cache = new Map<string, { at: number; v: unknown }>();
+const NEAR_ACCOUNT_RE = /^(([a-z0-9]+[-_])*[a-z0-9]+\.)*([a-z0-9]+[-_])*[a-z0-9]+$/;
+export const isValidNearAccount = (s: unknown): s is string =>
+  typeof s === "string" && s.length >= 2 && s.length <= 64 && NEAR_ACCOUNT_RE.test(s);
+
+const MAX_CACHE = 2000;
+const cache = new Map<string, { at: number; exp: number; v: unknown }>();
 export async function cached<T>(key: string, ttlMs: number, f: () => Promise<T>): Promise<T> {
+  const nowMs = Date.now();
   const c = cache.get(key);
-  if (c && Date.now() - c.at < ttlMs) return c.v as T;
+  if (c && nowMs < c.exp) return c.v as T;
   const v = await f();
-  cache.set(key, { at: Date.now(), v });
+  if (cache.size >= MAX_CACHE) {
+    for (const [k, entry] of cache) {
+      if (nowMs >= entry.exp) cache.delete(k);
+    }
+    while (cache.size >= MAX_CACHE) {
+      const oldest = cache.keys().next().value;
+      if (oldest === undefined) break;
+      cache.delete(oldest);
+    }
+  }
+  cache.set(key, { at: nowMs, exp: nowMs + ttlMs, v });
   return v;
 }
 

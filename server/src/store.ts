@@ -87,13 +87,18 @@ export function openStore(path: string) {
 
   return {
     // ---- auth ----
-    addChallenge: (nonce: string) => db.prepare("INSERT INTO challenges (nonce, created) VALUES (?, ?)").run(nonce, now()),
+    addChallenge(nonce: string) {
+      db.prepare("DELETE FROM challenges WHERE created < ?").run(now() - 600);
+      db.prepare("INSERT OR REPLACE INTO challenges (nonce, created) VALUES (?, ?)").run(nonce, now());
+    },
     takeChallenge(nonce: string): boolean {
       db.prepare("DELETE FROM challenges WHERE created < ?").run(now() - 600);
       return db.prepare("DELETE FROM challenges WHERE nonce = ?").run(nonce).changes === 1;
     },
-    addSession: (token: string, account: string, days = 14) =>
-      db.prepare("INSERT INTO sessions (token, account, expires) VALUES (?, ?, ?)").run(token, account, now() + days * 86400),
+    addSession(token: string, account: string, days = 14) {
+      db.prepare("DELETE FROM sessions WHERE expires <= ?").run(now());
+      db.prepare("INSERT INTO sessions (token, account, expires) VALUES (?, ?, ?)").run(token, account, now() + days * 86400);
+    },
     sessionAccount(token: string): string | null {
       const r = db.prepare("SELECT account FROM sessions WHERE token = ? AND expires > ?").get(token, now()) as { account: string } | undefined;
       return r?.account ?? null;

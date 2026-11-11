@@ -16,8 +16,11 @@ function loadBrandPng(filename: string): string | null {
   }
 }
 
+const NEAR_ACCOUNT_RE = /^(([a-z0-9]+[-_])*[a-z0-9]+\.)*([a-z0-9]+[-_])*[a-z0-9]+$/;
+const isValidNear = (s: string) => s.length >= 2 && s.length <= 64 && NEAR_ACCOUNT_RE.test(s);
+
 async function fetchTokenMetaSafe(tokenId: string): Promise<{ name?: string; symbol?: string; icon?: string | null } | null> {
-  if (!tokenId) return null;
+  if (!tokenId || !isValidNear(tokenId)) return null;
   try {
     const rpc = process.env.NEXT_PUBLIC_RPC || "https://rpc.testnet.fastnear.com";
     const launchpad = process.env.NEXT_PUBLIC_LAUNCHPAD || "fplpmwbbcg00.testnet";
@@ -50,39 +53,70 @@ async function fetchTokenMetaSafe(tokenId: string): Promise<{ name?: string; sym
   return null;
 }
 
-function isSatoriSupportedImage(src: string | null | undefined): src is string {
-  if (!src) return false;
-  if (src.startsWith("data:image/")) {
-    return (
-      src.startsWith("data:image/png") ||
-      src.startsWith("data:image/jpeg") ||
-      src.startsWith("data:image/jpg") ||
-      src.startsWith("data:image/gif") ||
-      src.startsWith("data:image/svg+xml")
-    );
+function isPrivateHost(hostname: string): boolean {
+  const h = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (
+    h === "localhost" ||
+    h.endsWith(".localhost") ||
+    h.endsWith(".local") ||
+    h.endsWith(".internal") ||
+    h === "::1" ||
+    h.startsWith("fe80:") ||
+    h.startsWith("fc") ||
+    h.startsWith("fd")
+  ) {
+    return true;
   }
-  return (src.startsWith("https://") || src.startsWith("http://")) && !src.toLowerCase().endsWith(".webp");
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+  if (!m) return false;
+  const [a, b] = [Number(m[1]), Number(m[2])];
+  return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
 }
+
+/** Strict image check: raster base64 data URI (<=20KB) or public non-private HTTPS URL only (blocks SSRF & SVG parser DoS). */
+function isSatoriSupportedImage(src: string | null | undefined): src is string {
+  if (!src || src.length > 20_000) return false;
+  if (/^data:image\/(png|jpeg|jpg|gif);base64,[A-Za-z0-9+/=]+$/.test(src)) {
+    return true;
+  }
+  if (src.startsWith("https://")) {
+    try {
+      const u = new URL(src);
+      return u.protocol === "https:" && !isPrivateHost(u.hostname) && !u.pathname.toLowerCase().endsWith(".webp");
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+const finiteNum = (raw: string | null, fb: number, min = -1_000_000_000, max = 1_000_000_000) => {
+  if (!raw) return fb;
+  const n = Number(raw);
+  return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : fb;
+};
+const cleanText = (raw: string | null, fb: string, max: number) =>
+  (raw ?? fb).replace(/[\u0000-\u001F\u007F]/g, "").trim().slice(0, max) || fb;
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const tokenId = searchParams.get("token") || "";
   const meta = tokenId ? await fetchTokenMetaSafe(tokenId) : null;
 
-  const symbol = searchParams.get("symbol") || meta?.symbol || "TOKEN";
-  const name = searchParams.get("name") || meta?.name || symbol;
+  const symbol = cleanText(searchParams.get("symbol") || meta?.symbol || null, "TOKEN", 12);
+  const name = cleanText(searchParams.get("name") || meta?.name || null, symbol, 40);
   const tokenIcon = isSatoriSupportedImage(meta?.icon) ? meta.icon : null;
 
   const pnlStr = searchParams.get("pnl") || "100";
-  const floor = searchParams.get("floor") || "10.0";
-  const usdStr = searchParams.get("usd") || "36.0";
-  const entry = searchParams.get("entry") || "";
-  const price = searchParams.get("price") || "";
-  const account = searchParams.get("account") || "trader.near";
+  const pnlNum = finiteNum(pnlStr, 0, -100, 1_000_000);
+  const floorNum = finiteNum(searchParams.get("floor"), 10, 0, 1_000_000_000);
+  const floor = floorNum.toFixed(2);
+  const usdNum = finiteNum(searchParams.get("usd"), 36, 0, 1_000_000_000);
+  const entry = cleanText(searchParams.get("entry"), "", 16);
+  const price = cleanText(searchParams.get("price"), "", 16);
+  const account = cleanText(searchParams.get("account"), "trader.near", 64);
   const hideNetworth = searchParams.get("hideNetworth") === "1" || searchParams.get("hideNetworth") === "true";
 
-  const pnlNum = parseFloat(pnlStr) || 0;
-  const usdNum = parseFloat(usdStr) || 0;
   const isProfit = !pnlStr.startsWith("-") && pnlNum >= 0;
 
   const costBasisUsd = pnlNum > -99 ? usdNum / (1 + pnlNum / 100) : usdNum;

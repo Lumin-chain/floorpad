@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { safeImageSrc } from "@/lib/near";
 import { SlabIcon } from "@/components/Brand";
 
 interface PnlClientViewProps {
@@ -78,7 +79,7 @@ export function PnlClientView({
     window.open(
       `https://x.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(shareUrl)}`,
       "_blank",
-      "width=550,height=440",
+      "noopener,noreferrer,width=550,height=440",
     );
   };
 
@@ -159,10 +160,10 @@ export function PnlClientView({
           <div className="stack" style={{ gap: 8, zIndex: 2 }}>
             {/* Token Badge */}
             <div className="row" style={{ gap: 12, alignItems: "center" }}>
-              {icon ? (
+              {safeImageSrc(icon) ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={icon}
+                  src={safeImageSrc(icon)!}
                   alt={name || symbol}
                   style={{
                     width: 48,

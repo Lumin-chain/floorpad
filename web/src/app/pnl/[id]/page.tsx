@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
+import { isValidNearAccount } from "@/lib/near";
 import { PnlClientView } from "./PnlClientView";
 
 interface PageProps {
@@ -19,6 +20,7 @@ interface PageProps {
 }
 
 async function fetchTokenMeta(tokenId: string) {
+  if (!isValidNearAccount(tokenId)) return null;
   try {
     const rpc = process.env.NEXT_PUBLIC_RPC || "https://rpc.testnet.fastnear.com";
     const launchpad = process.env.NEXT_PUBLIC_LAUNCHPAD || "fplpmwbbcg00.testnet";
@@ -66,17 +68,23 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
   const hideNetworth = sp.hideNetworth === "1" || sp.hideNetworth === "true";
 
   const hdrs = await headers();
-  const host = hdrs.get("x-forwarded-host") || hdrs.get("host") || "";
-  const proto = hdrs.get("x-forwarded-proto") || "https";
+  const rawHost = hdrs.get("host") || hdrs.get("x-forwarded-host") || "";
+  const safeHost = /^[a-zA-Z0-9.-]+(:\d{1,5})?$/.test(rawHost) ? rawHost : "";
+  const rawProto = hdrs.get("x-forwarded-proto");
+  const proto = rawProto === "http" ? "http" : "https";
   const origin =
     process.env.NEXT_PUBLIC_SITE_URL ||
-    (host ? `${proto}://${host}` : process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : "");
+    (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : safeHost ? `${proto}://${safeHost}` : "");
 
-  const ogPath = `/api/og/pnl?token=${encodeURIComponent(id)}&symbol=${encodeURIComponent(symbol)}&name=${encodeURIComponent(name)}&pnl=${encodeURIComponent(pnl)}&floor=${encodeURIComponent(floor)}&usd=${encodeURIComponent(usd)}&entry=${encodeURIComponent(entry)}&price=${encodeURIComponent(price)}&account=${encodeURIComponent(account)}${hideNetworth ? "&hideNetworth=1" : ""}`;
+  const safeSymbol = symbol.slice(0, 12);
+  const safeName = name.slice(0, 40);
+  const safeAccount = account.slice(0, 64);
+
+  const ogPath = `/api/og/pnl?token=${encodeURIComponent(id)}&symbol=${encodeURIComponent(safeSymbol)}&name=${encodeURIComponent(safeName)}&pnl=${encodeURIComponent(pnl)}&floor=${encodeURIComponent(floor)}&usd=${encodeURIComponent(usd)}&entry=${encodeURIComponent(entry)}&price=${encodeURIComponent(price)}&account=${encodeURIComponent(safeAccount)}${hideNetworth ? "&hideNetworth=1" : ""}`;
   const ogUrl = origin ? `${origin}${ogPath}` : ogPath;
 
   const isProfit = !pnl.startsWith("-");
-  const title = isProfit ? `Up +${pnl}% on $${symbol} | Floorpad` : `Holding $${symbol} (${pnl}%) | Floorpad`;
+  const title = isProfit ? `Up +${pnl}% on $${safeSymbol} | Floorpad` : `Holding $${safeSymbol} (${pnl}%) | Floorpad`;
   const description = `The memecoin with a strictly rising floor vault and locked Ref LP. Guaranteed floor backing: ${floor} NEAR.`;
 
   return {
@@ -101,16 +109,20 @@ export default async function PnlSharePage({ params, searchParams }: PageProps) 
   const sp = await searchParams;
   const tok = await fetchTokenMeta(id);
 
-  const symbol = sp.symbol || tok?.meta?.symbol || id.split(".")[0]?.toUpperCase() || "TOKEN";
-  const name = sp.name || tok?.meta?.name || symbol;
+  const safeFinite = (v: string | undefined, fb: number) => {
+    const n = v !== undefined ? Number(v) : fb;
+    return Number.isFinite(n) ? n : fb;
+  };
+  const symbol = (sp.symbol || tok?.meta?.symbol || id.split(".")[0]?.toUpperCase() || "TOKEN").slice(0, 12);
+  const name = (sp.name || tok?.meta?.name || symbol).slice(0, 40);
   const icon = tok?.meta?.icon || null;
-  const pnlNum = parseFloat(sp.pnl || "100") || 100;
-  const floorNum = parseFloat(sp.floor || "10.0") || 10;
-  const usdNum = parseFloat(sp.usd || "36.0") || 36;
-  const entryPriceNum = sp.entry ? parseFloat(sp.entry) : undefined;
-  const currentPriceNum = sp.price ? parseFloat(sp.price) : undefined;
-  const account = sp.account || "trader.near";
-  const refParam = sp.ref ? `?ref=${sp.ref}` : "";
+  const pnlNum = safeFinite(sp.pnl, 100);
+  const floorNum = Math.max(0, safeFinite(sp.floor, 10));
+  const usdNum = Math.max(0, safeFinite(sp.usd, 36));
+  const entryPriceNum = sp.entry !== undefined && Number.isFinite(Number(sp.entry)) ? Number(sp.entry) : undefined;
+  const currentPriceNum = sp.price !== undefined && Number.isFinite(Number(sp.price)) ? Number(sp.price) : undefined;
+  const account = (sp.account || "trader.near").slice(0, 64);
+  const refParam = isValidNearAccount(sp.ref) ? `?ref=${encodeURIComponent(sp.ref)}` : "";
   const initialHideNetworth = sp.hideNetworth === "1" || sp.hideNetworth === "true";
 
   return (

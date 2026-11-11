@@ -112,7 +112,12 @@ export async function signInChat(
 export async function completeRedirectSignIn(): Promise<Session | null> {
   if (typeof window === "undefined" || !window.location.hash.includes("signature=")) return null;
   const h = new URLSearchParams(window.location.hash.slice(1));
-  const pending = JSON.parse(localStorage.getItem(PENDING_KEY) ?? "null") as { nonce: string; callbackUrl: string } | null;
+  let pending: { nonce: string; callbackUrl: string } | null = null;
+  try {
+    pending = JSON.parse(localStorage.getItem(PENDING_KEY) ?? "null") as { nonce: string; callbackUrl: string } | null;
+  } catch {
+    pending = null;
+  }
   history.replaceState(null, "", window.location.pathname + window.location.search);
   const accountId = h.get("accountId");
   const publicKey = h.get("publicKey");
@@ -131,7 +136,13 @@ export function useStream(topic: string | null, handlers: Record<string, (data: 
     const es = new EventSource(`${SOCIAL_API}/stream?topic=${encodeURIComponent(topic)}`);
     const names = Object.keys(ref.current);
     const listeners = names.map((n) => {
-      const l = (e: MessageEvent) => ref.current[n]?.(JSON.parse(e.data));
+      const l = (e: MessageEvent) => {
+        try {
+          ref.current[n]?.(JSON.parse(e.data));
+        } catch {
+          // ignore malformed SSE payload
+        }
+      };
       es.addEventListener(n, l);
       return [n, l] as const;
     });

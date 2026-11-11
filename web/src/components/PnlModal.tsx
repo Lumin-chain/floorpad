@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { fmtPrice, lp, pricePerToken, type TokenView, type Trade } from "@/lib/near";
+import { fmtPrice, lp, pricePerToken, safeImageSrc, type TokenView, type Trade } from "@/lib/near";
 import { getIndexedTrades } from "@/lib/social";
 import { useWallet } from "@/lib/wallet";
 import { SlabIcon, Moji } from "./Brand";
@@ -128,9 +128,11 @@ export function PnlModal({
     mascotImg.src = isProfit ? "/brand/pnl-mascot-profit.png" : "/brand/pnl-mascot-loss.png";
 
     let tokenIconImg: HTMLImageElement | null = null;
-    if (t.meta.icon) {
+    const safeIcon = safeImageSrc(t.meta.icon);
+    if (safeIcon) {
       tokenIconImg = new Image();
-      tokenIconImg.src = t.meta.icon;
+      if (safeIcon.startsWith("https://")) tokenIconImg.crossOrigin = "anonymous";
+      tokenIconImg.src = safeIcon;
     }
 
     const render = () => {
@@ -450,7 +452,7 @@ export function PnlModal({
       : `Holding $${t.meta.symbol} (${pnlParam}%) on @usefloorpad_! 📉\n\n🛡️ Backed by the redeemable rising floor vault\n🔒 Locked LP\n\nView my position:`;
 
     const tweetUrl = `https://x.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(shareUrl)}`;
-    window.open(tweetUrl, "_blank", "width=550,height=440");
+    window.open(tweetUrl, "_blank", "noopener,noreferrer,width=550,height=440");
   };
 
   return (

@@ -174,12 +174,28 @@ export interface TokenInfo {
   trade_count?: number;
 }
 
-const cache = new Map<string, { at: number; v: unknown }>();
+const NEAR_ACCOUNT_RE = /^(([a-z0-9]+[-_])*[a-z0-9]+\.)*([a-z0-9]+[-_])*[a-z0-9]+$/;
+export const isValidNearAccount = (s: unknown): s is string =>
+  typeof s === "string" && s.length >= 2 && s.length <= 64 && NEAR_ACCOUNT_RE.test(s);
+
+const MAX_CACHE = 2000;
+const cache = new Map<string, { at: number; exp: number; v: unknown }>();
 async function cached<T>(key: string, ttlMs: number, f: () => Promise<T>): Promise<T> {
+  const nowMs = Date.now();
   const c = cache.get(key);
-  if (c && Date.now() - c.at < ttlMs) return c.v as T;
+  if (c && nowMs < c.exp) return c.v as T;
   const v = await f();
-  cache.set(key, { at: Date.now(), v });
+  if (cache.size >= MAX_CACHE) {
+    for (const [k, entry] of cache) {
+      if (nowMs >= entry.exp) cache.delete(k);
+    }
+    while (cache.size >= MAX_CACHE) {
+      const oldest = cache.keys().next().value;
+      if (oldest === undefined) break;
+      cache.delete(oldest);
+    }
+  }
+  cache.set(key, { at: nowMs, exp: nowMs + ttlMs, v });
   return v;
 }
 
@@ -365,6 +381,10 @@ class SocialBackend {
     for (const [k, ts] of Object.entries(this.state.challenges)) {
       if (ts < cutoff) delete this.state.challenges[k];
     }
+    const keys = Object.keys(this.state.challenges);
+    if (keys.length > 1000) {
+      for (const k of keys.slice(0, keys.length - 1000)) delete this.state.challenges[k];
+    }
     this.state.challenges[nonce] = now();
     this.persist();
   }
@@ -378,7 +398,11 @@ class SocialBackend {
   }
 
   addSession(token: string, account: string, days = 14) {
-    this.state.sessions[token] = { account, expires: now() + days * 86400 };
+    const cur = now();
+    for (const [k, s] of Object.entries(this.state.sessions)) {
+      if (s.expires <= cur) delete this.state.sessions[k];
+    }
+    this.state.sessions[token] = { account, expires: cur + days * 86400 };
     this.persist();
   }
 
@@ -563,6 +587,92 @@ class SocialBackend {
     }
   }
 
+  private lastNudgeByToken = new Map<string, number>();
+
+  async indexTokenTrades(tok: TokenInfo, bypassDebounce = false) {
+    const last = this.lastNudgeByToken.get(tok.token_id) ?? 0;
+    if (!bypassDebounce && Date.now() - last < 1500) return;
+    this.lastNudgeByToken.set(tok.token_id, Date.now());
+    const lastCurve = this.lastCurveTradeIndex(tok.token_id);
+    if (tok.trade_count === undefined || lastCurve + 1 < tok.trade_count) {
+      const fromIdx = Math.max(0, lastCurve + 1);
+      const trades = await getTradesFrom(tok.token_id, fromIdx, 50, tok.trade_count).catch(() => []);
+      for (const [idx, tr] of trades) {
+        const isBuyInt = tr.is_buy ? 1 : 0;
+        const duplicate = this.hasRecentSimilarTrade(tok.token_id, isBuyInt, tr.tokens, 25);
+        const stored: SocialTrade = {
+          token_id: tok.token_id,
+          id: idx,
+          ts: tr.ts,
+          account: tr.account,
+          is_buy: isBuyInt,
+          near: tr.near,
+          tokens: tr.tokens,
+          price: calcPrice(tr.v_near, tr.v_tokens),
+          v_near: tr.v_near,
+          v_tokens: tr.v_tokens,
+        };
+        const added = this.addTrade(stored);
+        if (added && !duplicate) {
+          const payload = { ...stored, symbol: tok.meta.symbol, icon: tok.meta.icon };
+          this.publish(`token:${tok.token_id}`, "trade", payload);
+          this.publish("global", "trade", payload);
+        }
+      }
+    }
+    if (tok.grad_stage === "Graduated" && tok.pool_id !== null) {
+      try {
+        const pool = await view<{ token_account_ids: string[]; amounts: string[] }>(REF, "get_pool", {
+          pool_id: tok.pool_id,
+        });
+        if (pool && pool.amounts && pool.amounts.length >= 2) {
+          const iMeme = Math.max(0, pool.token_account_ids.indexOf(tok.token_id));
+          const currMeme = BigInt(pool.amounts[iMeme]);
+          const currLin = BigInt(pool.amounts[1 - iMeme]);
+          const prev = this.prevPoolReserves.get(tok.pool_id);
+          if (prev) {
+            const deltaMeme = currMeme - prev.rMeme;
+            const deltaLin = currLin - prev.rLin;
+            if (deltaMeme !== 0n) {
+              const isBuy = deltaMeme < 0n;
+              const absMeme = deltaMeme < 0n ? -deltaMeme : deltaMeme;
+              const absLin = deltaLin < 0n ? -deltaLin : deltaLin;
+              const isBuyInt = isBuy ? 1 : 0;
+              if (!this.hasRecentSimilarTrade(tok.token_id, isBuyInt, absMeme.toString(), 25)) {
+                const linPrice = BigInt(
+                  await cached("linear-price", 60_000, () => view<string>(LINEAR, "ft_price").catch(() => YOCTO.toString())),
+                );
+                const nearYocto = (absLin * linPrice) / YOCTO;
+                const price = absMeme > 0n ? Number((nearYocto * 10n ** 18n) / absMeme) / 1e18 / 1e6 : 0;
+                const nextId = Math.max(1_000_000_000, this.lastTradeIndex(tok.token_id) + 1);
+                const stored: SocialTrade = {
+                  token_id: tok.token_id,
+                  id: nextId,
+                  ts: now(),
+                  account: "ref-finance.near",
+                  is_buy: isBuyInt,
+                  near: nearYocto.toString(),
+                  tokens: absMeme.toString(),
+                  price,
+                  v_near: currLin.toString(),
+                  v_tokens: currMeme.toString(),
+                };
+                if (this.addTrade(stored)) {
+                  const payload = { ...stored, symbol: tok.meta.symbol, icon: tok.meta.icon };
+                  this.publish(`token:${tok.token_id}`, "trade", payload);
+                  this.publish("global", "trade", payload);
+                }
+              }
+            }
+          }
+          this.prevPoolReserves.set(tok.pool_id, { rMeme: currMeme, rLin: currLin });
+        }
+      } catch {
+        // ignore transient RPC errors
+      }
+    }
+  }
+
   async indexTrades() {
     if (this.indexingBusy) return;
     this.indexingBusy = true;
@@ -570,85 +680,7 @@ class SocialBackend {
     try {
       const tokens = await getTokens(50).catch(() => []);
       for (const tok of tokens) {
-        // Always catch up any unindexed on-curve trades (including pre-graduation history on fresh stores)
-        const lastCurve = this.lastCurveTradeIndex(tok.token_id);
-        if (tok.trade_count === undefined || lastCurve + 1 < tok.trade_count) {
-          const fromIdx = Math.max(0, lastCurve + 1);
-          const trades = await getTradesFrom(tok.token_id, fromIdx, 50, tok.trade_count).catch(() => []);
-          for (const [idx, tr] of trades) {
-            const isBuyInt = tr.is_buy ? 1 : 0;
-            const duplicate = this.hasRecentSimilarTrade(tok.token_id, isBuyInt, tr.tokens, 25);
-            const stored: SocialTrade = {
-              token_id: tok.token_id,
-              id: idx,
-              ts: tr.ts,
-              account: tr.account,
-              is_buy: isBuyInt,
-              near: tr.near,
-              tokens: tr.tokens,
-              price: calcPrice(tr.v_near, tr.v_tokens),
-              v_near: tr.v_near,
-              v_tokens: tr.v_tokens,
-            };
-            const added = this.addTrade(stored);
-            if (added && !duplicate) {
-              const payload = { ...stored, symbol: tok.meta.symbol, icon: tok.meta.icon };
-              this.publish(`token:${tok.token_id}`, "trade", payload);
-              this.publish("global", "trade", payload);
-            }
-          }
-        }
-        if (tok.grad_stage === "Graduated" && tok.pool_id !== null) {
-          try {
-            const pool = await view<{ token_account_ids: string[]; amounts: string[] }>(REF, "get_pool", {
-              pool_id: tok.pool_id,
-            });
-            if (pool && pool.amounts && pool.amounts.length >= 2) {
-              const iMeme = Math.max(0, pool.token_account_ids.indexOf(tok.token_id));
-              const currMeme = BigInt(pool.amounts[iMeme]);
-              const currLin = BigInt(pool.amounts[1 - iMeme]);
-              const prev = this.prevPoolReserves.get(tok.pool_id);
-              if (prev) {
-                const deltaMeme = currMeme - prev.rMeme;
-                const deltaLin = currLin - prev.rLin;
-                if (deltaMeme !== 0n) {
-                  const isBuy = deltaMeme < 0n;
-                  const absMeme = deltaMeme < 0n ? -deltaMeme : deltaMeme;
-                  const absLin = deltaLin < 0n ? -deltaLin : deltaLin;
-                  const isBuyInt = isBuy ? 1 : 0;
-                  if (!this.hasRecentSimilarTrade(tok.token_id, isBuyInt, absMeme.toString(), 25)) {
-                    const linPrice = BigInt(
-                      await cached("linear-price", 60_000, () => view<string>(LINEAR, "ft_price").catch(() => YOCTO.toString())),
-                    );
-                    const nearYocto = (absLin * linPrice) / YOCTO;
-                    const price = absMeme > 0n ? Number((nearYocto * 10n ** 18n) / absMeme) / 1e18 / 1e6 : 0;
-                    const nextId = Math.max(1_000_000_000, this.lastTradeIndex(tok.token_id) + 1);
-                    const stored: SocialTrade = {
-                      token_id: tok.token_id,
-                      id: nextId,
-                      ts: now(),
-                      account: "ref-finance.near",
-                      is_buy: isBuyInt,
-                      near: nearYocto.toString(),
-                      tokens: absMeme.toString(),
-                      price,
-                      v_near: currLin.toString(),
-                      v_tokens: currMeme.toString(),
-                    };
-                    if (this.addTrade(stored)) {
-                      const payload = { ...stored, symbol: tok.meta.symbol, icon: tok.meta.icon };
-                      this.publish(`token:${tok.token_id}`, "trade", payload);
-                      this.publish("global", "trade", payload);
-                    }
-                  }
-                }
-              }
-              this.prevPoolReserves.set(tok.pool_id, { rMeme: currMeme, rLin: currLin });
-            }
-          } catch {
-            // ignore transient RPC errors
-          }
-        }
+        await this.indexTokenTrades(tok, true);
       }
     } finally {
       this.indexingBusy = false;

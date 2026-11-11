@@ -1,14 +1,15 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { BUCKET_LABELS, type TokenView } from "@/lib/near";
+import { BUCKET_LABELS, safeImageSrc, type TokenView } from "@/lib/near";
 
 export const BUCKET_COLORS = ["#16A34A", "#DC2626", "#D97706", "#2563EB", "#4F46E5"];
 
 export function Avatar({ t, lg, small }: { t: TokenView; lg?: boolean; small?: boolean }) {
-  if (t.meta.icon) {
+  const safeIcon = safeImageSrc(t.meta.icon);
+  if (safeIcon) {
     // eslint-disable-next-line @next/next/no-img-element
-    return <img className={`avatar${lg ? " lg" : small ? " sm" : ""}`} src={t.meta.icon} alt={t.meta.symbol} />;
+    return <img className={`avatar${lg ? " lg" : small ? " sm" : ""}`} src={safeIcon} alt={t.meta.symbol} />;
   }
   return <div className={`avatar${lg ? " lg" : small ? " sm" : ""}`}>{t.meta.symbol.slice(0, 2)}</div>;
 }

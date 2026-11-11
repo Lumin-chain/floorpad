@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ago, type TokenView } from "@/lib/near";
+import { ago, safeImageSrc, type TokenView } from "@/lib/near";
 import { api, fmtUsd, fmtX, useStream, type Callout } from "@/lib/social";
 import { useWallet } from "@/lib/wallet";
 import { Moji } from "./Brand";
 
 export function CallRow({ c, showToken }: { c: Callout; showToken?: boolean }) {
   const up = c.x_now >= 1;
+  const safeIcon = safeImageSrc(c.icon);
   return (
     <div className="call">
       <div className="row between">
@@ -16,7 +17,7 @@ export function CallRow({ c, showToken }: { c: Callout; showToken?: boolean }) {
           {showToken && (
             <Link href={`/token/${c.token_id}`} className="row" style={{ gap: 6 }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              {c.icon ? <img src={c.icon} alt="" className="avatar xs" /> : <span className="avatar xs">{(c.symbol ?? "?").slice(0, 2)}</span>}
+              {safeIcon ? <img src={safeIcon} alt="" className="avatar xs" /> : <span className="avatar xs">{(c.symbol ?? "?").slice(0, 2)}</span>}
               <b>${c.symbol}</b>
             </Link>
           )}

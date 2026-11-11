@@ -83,9 +83,12 @@ impl Contract {
         #[callback_result] r: Result<(), PromiseError>,
     ) {
         let tok = self.tok_mut(idx);
-        tok.tokens_in_flight = tok.tokens_in_flight.saturating_sub(amount.0);
-        if r.is_err() {
-            env::log_str("redeem burn failed; tokens remain held by launchpad");
+        if r.is_ok() {
+            tok.tokens_in_flight = tok.tokens_in_flight.saturating_sub(amount.0);
+        } else {
+            // Keep failed-burn tokens counted in `tokens_in_flight` so `on_buyback_balance`
+            // does not treat them as excess and double-count `tok.burned`.
+            env::log_str("redeem burn failed; tokens remain reserved");
         }
     }
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { fmtNear, LAUNCHPAD, lp, type LaunchConfig } from "@/lib/near";
+import { fmtNear, LAUNCHPAD, lp, safeExternalUrl, safeTelegramUrl, safeTwitterUrl, type LaunchConfig } from "@/lib/near";
 import { useView, useWallet } from "@/lib/wallet";
 import { Mascot } from "@/components/Mascot";
 
@@ -35,10 +35,20 @@ export default function Create() {
   async function submit() {
     setErr(null);
     if (!accountId) return signIn();
+    if (f.website.trim() && !safeExternalUrl(f.website)) {
+      return setErr("Website must be a valid http(s) URL");
+    }
+    if (f.twitter.trim() && !safeTwitterUrl(f.twitter)) {
+      return setErr("X / Twitter must be a handle or https://x.com/ link");
+    }
+    if (f.telegram.trim() && !safeTelegramUrl(f.telegram)) {
+      return setErr("Telegram must be a handle or https://t.me/ link");
+    }
     const sub = f.symbol.toLowerCase();
     const taken = await lp("get_token", { token_id: `${sub}.${LAUNCHPAD}` }).catch(() => null);
     if (taken) return setErr(`$${f.symbol} is already taken`);
     const opt = (s: string) => (s.trim() ? s.trim() : null);
+    const website = f.website.trim() ? safeExternalUrl(f.website) : null;
     await send([
       {
         receiverId: LAUNCHPAD,
@@ -51,7 +61,7 @@ export default function Create() {
                 symbol: f.symbol,
                 icon,
                 description: f.description.trim(),
-                website: opt(f.website),
+                website,
                 twitter: opt(f.twitter),
                 telegram: opt(f.telegram),
               },
@@ -100,10 +110,10 @@ export default function Create() {
           </div>
         </label>
         <div className="grid half">
-          <label className="field"><span>Website</span><input className="input" value={f.website} onChange={set("website")} placeholder="https://" /></label>
-          <label className="field"><span>X / Twitter</span><input className="input" value={f.twitter} onChange={set("twitter")} placeholder="@handle" /></label>
+          <label className="field"><span>Website</span><input className="input" maxLength={200} value={f.website} onChange={set("website")} placeholder="https://" /></label>
+          <label className="field"><span>X / Twitter</span><input className="input" maxLength={64} value={f.twitter} onChange={set("twitter")} placeholder="@handle" /></label>
         </div>
-        <label className="field"><span>Telegram</span><input className="input" value={f.telegram} onChange={set("telegram")} placeholder="t.me/…" /></label>
+        <label className="field"><span>Telegram</span><input className="input" maxLength={64} value={f.telegram} onChange={set("telegram")} placeholder="t.me/…" /></label>
         <label className="field">
           <span>AI agent persona (holders can change it later by DAO vote)</span>
           <textarea className="textarea" value={f.persona} onChange={set("persona")} maxLength={1500} placeholder={`You are the voice of $${f.symbol || "TICKER"}. Funny, upbeat, never gives financial advice.`} />

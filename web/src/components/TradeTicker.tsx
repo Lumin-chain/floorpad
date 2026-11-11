@@ -9,6 +9,7 @@ import {
   LINEAR,
   lp,
   REF,
+  safeImageSrc,
   type TokenView,
   type Trade,
   view,
@@ -173,6 +174,7 @@ export function TradeTicker() {
                 const isNew = highlightKey === key;
                 const sym = tr.symbol || tr.token_id.split(".")[0].toUpperCase();
                 const isBuy = Boolean(tr.is_buy);
+                const safeIcon = safeImageSrc(tr.icon);
 
                 return (
                   <Link
@@ -185,9 +187,9 @@ export function TradeTicker() {
                       {isBuy ? "BUY" : "SELL"}
                     </span>
 
-                    {tr.icon ? (
+                    {safeIcon ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={tr.icon} alt="" className="ticker-avatar" />
+                      <img src={safeIcon} alt="" className="ticker-avatar" />
                     ) : (
                       <span className="ticker-avatar-placeholder">{sym.slice(0, 2)}</span>
                     )}

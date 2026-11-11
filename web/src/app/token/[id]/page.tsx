@@ -13,6 +13,9 @@ import {
   pricePerToken,
   progressPct,
   REF,
+  safeExternalUrl,
+  safeTelegramUrl,
+  safeTwitterUrl,
   tokenFdvNear,
   tokenSpotPrice,
   vaultNear,
@@ -129,10 +132,13 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
   const mcapUsd = yoctoToUsd(realFdvNear.toString(), nearUsdPrice);
   const gradUsd = yoctoToUsd(t.grad_fdv_near, nearUsdPrice);
   const pct = progressPct(t);
+  const webHref = safeExternalUrl(t.meta.website);
+  const xHref = safeTwitterUrl(t.meta.twitter);
+  const tgHref = safeTelegramUrl(t.meta.telegram);
   const links = [
-    t.meta.website && { href: t.meta.website, label: "Web" },
-    t.meta.twitter && { href: `https://x.com/${t.meta.twitter.replace(/^@/, "")}`, label: "X" },
-    t.meta.telegram && { href: t.meta.telegram.startsWith("http") ? t.meta.telegram : `https://${t.meta.telegram}`, label: "TG" },
+    webHref && { href: webHref, label: "Web" },
+    xHref && { href: xHref, label: "X" },
+    tgHref && { href: tgHref, label: "TG" },
   ].filter(Boolean) as { href: string; label: string }[];
 
   return (
@@ -146,7 +152,7 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
           <div className="row wrap" style={{ gap: 6 }}>
             <StageBadges t={t} />
             {links.map((l) => (
-              <a key={l.label} href={l.href} target="_blank" rel="noreferrer" className="badge">
+              <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer" className="badge">
                 {l.label} <SlabIcon name="external" size={10} />
               </a>
             ))}

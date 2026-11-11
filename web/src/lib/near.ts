@@ -321,20 +321,94 @@ export function vaultNear(t: TokenView, linearPrice?: bigint): bigint {
 export const progressPct = (t: TokenView) =>
   isGraduated(t) || t.grad_stage !== "Curve" ? 100 : Number((BigInt(t.sold) * 10000n) / BigInt(t.curve_supply)) / 100;
 
+const NEAR_ACCOUNT_RE = /^(([a-z0-9]+[-_])*[a-z0-9]+\.)*([a-z0-9]+[-_])*[a-z0-9]+$/;
+export function isValidNearAccount(s: unknown): s is string {
+  return typeof s === "string" && s.length >= 2 && s.length <= 64 && NEAR_ACCOUNT_RE.test(s);
+}
+
+/** Allow only http/https external URLs (blocks javascript:, data:, vbscript:, file: XSS). */
+export function safeExternalUrl(raw?: string | null): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed.length > 300) return null;
+  const candidate = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed) ? trimmed : `https://${trimmed}`;
+  try {
+    const u = new URL(candidate);
+    if (u.protocol !== "https:" && u.protocol !== "http:") return null;
+    return u.toString();
+  } catch {
+    return null;
+  }
+}
+
+export function safeTwitterUrl(raw?: string | null): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed.length > 100) return null;
+  if (!trimmed.includes("://")) {
+    const handle = trimmed.replace(/^@/, "");
+    return /^[A-Za-z0-9_]{1,15}$/.test(handle) ? `https://x.com/${handle}` : null;
+  }
+  const url = safeExternalUrl(trimmed);
+  if (!url) return null;
+  const host = new URL(url).hostname.toLowerCase();
+  return host === "x.com" || host === "www.x.com" || host === "twitter.com" || host === "www.twitter.com" ? url : null;
+}
+
+export function safeTelegramUrl(raw?: string | null): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed.length > 100) return null;
+  if (!trimmed.includes("://")) {
+    const handle = trimmed.replace(/^@/, "");
+    if (/^t\.me\/[A-Za-z0-9_+]{3,64}$/.test(handle)) return `https://${handle}`;
+    return /^[A-Za-z0-9_]{3,32}$/.test(handle) ? `https://t.me/${handle}` : null;
+  }
+  const url = safeExternalUrl(trimmed);
+  if (!url) return null;
+  const host = new URL(url).hostname.toLowerCase();
+  return host === "t.me" || host === "telegram.me" ? url : null;
+}
+
+/** Allow only HTTPS images or strict base64 raster data URIs (blocks SVG/HTML payloads). */
+export function safeImageSrc(raw?: string | null): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed.length > 16_000) return null;
+  if (/^data:image\/(png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(trimmed)) return trimmed;
+  if (trimmed.startsWith("https://")) {
+    try {
+      const u = new URL(trimmed);
+      return u.protocol === "https:" ? u.toString() : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 const REF_KEY = "floorpad.ref";
 /** Remember `?ref=<account>` from a shared link (first touch wins for 30 days). */
 export function captureReferrer() {
   if (typeof window === "undefined") return;
   const ref = new URLSearchParams(window.location.search).get("ref");
-  if (!ref || !/^[a-z0-9._-]{2,64}$/.test(ref)) return;
-  const cur = JSON.parse(localStorage.getItem(REF_KEY) ?? "null") as { id: string; at: number } | null;
-  if (cur && Date.now() - cur.at < 30 * 86400_000) return;
-  localStorage.setItem(REF_KEY, JSON.stringify({ id: ref, at: Date.now() }));
+  if (!isValidNearAccount(ref)) return;
+  try {
+    const cur = JSON.parse(localStorage.getItem(REF_KEY) ?? "null") as { id: string; at: number } | null;
+    if (cur && Date.now() - cur.at < 30 * 86400_000) return;
+    localStorage.setItem(REF_KEY, JSON.stringify({ id: ref, at: Date.now() }));
+  } catch {
+    // ignore storage quota/corrupt state
+  }
 }
 export function getReferrer(self: string | null): string | null {
   if (typeof window === "undefined") return null;
-  const cur = JSON.parse(localStorage.getItem(REF_KEY) ?? "null") as { id: string } | null;
-  return cur && cur.id !== self ? cur.id : null;
+  try {
+    const cur = JSON.parse(localStorage.getItem(REF_KEY) ?? "null") as { id: string } | null;
+    return cur && isValidNearAccount(cur.id) && cur.id !== self ? cur.id : null;
+  } catch {
+    return null;
+  }
 }
 
 /** NEAR/USD as stored on-chain by the price feeder (used to size every launch). */

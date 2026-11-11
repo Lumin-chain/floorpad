@@ -399,6 +399,13 @@ impl Contract {
             config.grad_vault_bps as u128 + config.grad_platform_bps as u128 <= 5_000,
             "ERR_GRAD_SPLIT"
         );
+        require!(
+            (config.buy_fee_bps as u128) < math::BPS
+                && (config.sell_fee_bps as u128) < math::BPS
+                && (config.redeem_fee_bps as u128 + config.max_exit_fee_bps as u128) < math::BPS
+                && (config.referral_bps as u128) <= math::BPS,
+            "ERR_FEE_BOUNDS"
+        );
         Self {
             config,
             tokens: Vector::new(StorageKey::Tokens),

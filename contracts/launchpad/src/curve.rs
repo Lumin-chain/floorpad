@@ -96,7 +96,36 @@ impl Contract {
         );
         require!(!meta.name.is_empty() && meta.name.len() <= 40, "ERR_NAME");
         require!(meta.description.len() <= 600, "ERR_DESCRIPTION");
-        require!(meta.icon.as_ref().map_or(true, |i| i.len() <= MAX_ICON_LEN), "ERR_ICON_TOO_BIG");
+        require!(
+            meta.icon.as_ref().map_or(true, |i| {
+                i.len() <= MAX_ICON_LEN
+                    && (i.starts_with("https://")
+                        || i.starts_with("data:image/png;base64,")
+                        || i.starts_with("data:image/jpeg;base64,")
+                        || i.starts_with("data:image/webp;base64,")
+                        || i.starts_with("data:image/gif;base64,"))
+            }),
+            "ERR_ICON"
+        );
+        require!(
+            meta.website.as_ref().map_or(true, |w| {
+                w.len() <= 200 && (w.starts_with("https://") || w.starts_with("http://"))
+            }),
+            "ERR_WEBSITE"
+        );
+        require!(
+            meta.twitter.as_ref().map_or(true, |t| {
+                t.len() <= 64
+                    && (!t.contains(':') || t.starts_with("https://x.com/") || t.starts_with("https://twitter.com/"))
+            }),
+            "ERR_TWITTER"
+        );
+        require!(
+            meta.telegram.as_ref().map_or(true, |t| {
+                t.len() <= 64 && (!t.contains(':') || t.starts_with("https://t.me/"))
+            }),
+            "ERR_TELEGRAM"
+        );
         let persona = agent_persona.clone().unwrap_or_else(|| {
             format!("You are the voice of ${}. Be funny, upbeat and never give financial advice.", sym)
         });
