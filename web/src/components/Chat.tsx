@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ago, type TokenView } from "@/lib/near";
 import { api, useStream, type ChatMessage } from "@/lib/social";
 import { useWallet } from "@/lib/wallet";
+import { SlabIcon } from "./Brand";
 
 function short(a: string) {
   return a.length > 18 ? `${a.slice(0, 8)}…${a.slice(-6)}` : a;
@@ -95,7 +96,7 @@ export function Chat({ t, compact }: { t: TokenView; compact?: boolean }) {
                   {(canModerate || m.account === accountId) && <button className="link" onClick={() => hide(m.id)}>hide</button>}
                 </span>
               </div>
-              {parent && <div className="msg-quote">↪ {short(parent.account)}: {parent.text.slice(0, 80)}</div>}
+              {parent && <div className="msg-quote"><SlabIcon name="reply" size={11} /> {short(parent.account)}: {parent.text.slice(0, 80)}</div>}
               <div className="msg-text">{m.text}</div>
             </div>
           );

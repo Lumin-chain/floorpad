@@ -14,7 +14,7 @@
  */
 import os from "node:os";
 import path from "node:path";
-import { connect, keyStores, type Account } from "near-api-js";
+import { connect, KeyPair, keyStores, type Account } from "near-api-js";
 
 try {
   process.loadEnvFile?.(".env");
@@ -74,10 +74,25 @@ interface Post {
   text: string;
 }
 
+/**
+ * Key source: OPERATOR_PRIVATE_KEY ("ed25519:...") for hosted deploys (Railway etc.),
+ * otherwise ~/.near-credentials/<network>/<OPERATOR_ID>.json for local runs.
+ * Use a dedicated low-balance account: it only pays gas and the 0.01 NEAR post deposit.
+ */
+async function operatorKeyStore() {
+  const secret = process.env.OPERATOR_PRIVATE_KEY;
+  if (secret) {
+    const ks = new keyStores.InMemoryKeyStore();
+    await ks.setKey(NETWORK, OPERATOR, KeyPair.fromString(secret as Parameters<typeof KeyPair.fromString>[0]));
+    return ks;
+  }
+  return new keyStores.UnencryptedFileSystemKeyStore(path.join(os.homedir(), ".near-credentials"));
+}
+
 const near = await connect({
   networkId: NETWORK,
   nodeUrl: RPC,
-  keyStore: new keyStores.UnencryptedFileSystemKeyStore(path.join(os.homedir(), ".near-credentials")),
+  keyStore: await operatorKeyStore(),
 });
 const operator: Account = await near.account(OPERATOR);
 

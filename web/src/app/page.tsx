@@ -7,11 +7,13 @@ import { api, fmtUsd, fmtX, useStream, type Callout } from "@/lib/social";
 import { useView } from "@/lib/wallet";
 import { Avatar, StageBadges } from "@/components/ui";
 import { Mascot } from "@/components/Mascot";
+import { Moji, MojiLabel, SlabIcon } from "@/components/Brand";
 
 type Filter = "trending" | "new" | "bonding" | "graduated";
 type SortKey = "mcap" | "floor" | "progress" | "holders" | "volume" | "age";
 
-const FILTER_LABEL: Record<Filter, string> = { trending: "🔥 Trending", new: "🆕 New", bonding: "⏳ Bonding", graduated: "🎓 Graduated" };
+const FILTER_LABEL: Record<Filter, string> = { trending: "Trending", new: "New", bonding: "Bonding", graduated: "Graduated" };
+const FILTER_FACE = { trending: "cool", new: "wink", bonding: "hero", graduated: "flag" } as const;
 
 export default function Explore() {
   const { data: tokens, error } = useView(() => lp<TokenView[]>("get_tokens", { from_index: 0, limit: 100 }), [], 10000);
@@ -86,7 +88,7 @@ export default function Explore() {
 
   const th = (key: SortKey, label: string) => (
     <th className="sortable" onClick={() => setSort((s) => ({ key, dir: s.key === key ? (s.dir === 1 ? -1 : 1) : -1 }))}>
-      {label} {sort.key === key ? (sort.dir === -1 ? "↓" : "↑") : ""}
+      {label} {sort.key === key ? <SlabIcon name={sort.dir === -1 ? "down" : "up"} size={10} /> : null}
     </th>
   );
 
@@ -105,8 +107,8 @@ export default function Explore() {
       {calls.length > 0 && (
         <section className="section tight mobile-only-block">
           <div className="row between" style={{ marginBottom: 8 }}>
-            <h2 style={{ margin: 0 }}>📣 Live callouts</h2>
-            <Link href="/calls" className="small muted">See all →</Link>
+            <h2 style={{ margin: 0 }}><MojiLabel face="cool">Live callouts</MojiLabel></h2>
+            <Link href="/calls" className="small muted link-chev">See all <SlabIcon name="chevron" size={12} /></Link>
           </div>
           <div className="scroll-x calls-strip">
             {calls.map((c) => (
@@ -140,8 +142,8 @@ export default function Explore() {
         </div>
         <aside className="panel rail">
           <div className="row between">
-            <h2 style={{ margin: 0 }}>📣 Live callouts</h2>
-            <Link href="/calls" className="small muted">All →</Link>
+            <h2 style={{ margin: 0 }}><MojiLabel face="cool">Live callouts</MojiLabel></h2>
+            <Link href="/calls" className="small muted link-chev">All <SlabIcon name="chevron" size={12} /></Link>
           </div>
           <div className="rail-list">
             {calls.length === 0 && <div className="muted small">No callouts yet. Call a token from its page.</div>}
@@ -168,15 +170,15 @@ export default function Explore() {
           <div className="seg scroll-x">
             {(Object.keys(FILTER_LABEL) as Filter[]).map((f) => (
               <button key={f} className={filter === f ? "active" : ""} onClick={() => setFilter(f)}>
-                {FILTER_LABEL[f]}
+                <span className="moji-label"><Moji face={FILTER_FACE[f]} size={20} />{FILTER_LABEL[f]}</span>
               </button>
             ))}
           </div>
           <input className="input search" placeholder="Search name or ticker" value={q} onChange={(e) => setQ(e.target.value)} />
           <div className="spacer desktop-only" />
           <div className="seg desktop-only" aria-label="View">
-            <button className={view === "grid" ? "active" : ""} onClick={() => setView("grid")}>▦ Cards</button>
-            <button className={view === "table" ? "active" : ""} onClick={() => setView("table")}>☰ Table</button>
+            <button className={view === "grid" ? "active" : ""} onClick={() => setView("grid")}><SlabIcon name="grid" size={14} /> Cards</button>
+            <button className={view === "table" ? "active" : ""} onClick={() => setView("table")}><SlabIcon name="rows" size={14} /> Table</button>
           </div>
           <Link href="/create" className="btn primary desktop-only">+ Launch a token</Link>
         </div>
@@ -191,7 +193,7 @@ export default function Explore() {
         {tokens && list.length === 0 && (
           <div className="empty mascot-empty">
             <Mascot pose="flag" size={120} motion="peek" alt="" />
-            <span>No tokens here yet. <Link href="/create" className="green">Plant the first flag →</Link></span>
+            <span>No tokens here yet. <Link href="/create" className="green link-chev">Plant the first flag <SlabIcon name="chevron" size={12} /></Link></span>
           </div>
         )}
 
@@ -274,7 +276,7 @@ function Featured({ t, mcapUsd, floorUsd }: { t: TokenView; mcapUsd: number; flo
       <Avatar t={t} lg />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div className="small green" style={{ fontWeight: 700, letterSpacing: ".04em" }}>
-          {t.grad_stage === "Curve" ? "👑 CLOSEST TO BONDING" : "⭐ FEATURED"}
+          <span className="row" style={{ gap: 6 }}><Moji face={t.grad_stage === "Curve" ? "hero" : "wink"} size={20} />{t.grad_stage === "Curve" ? "CLOSEST TO BONDING" : "FEATURED"}</span>
         </div>
         <div className="row between" style={{ alignItems: "baseline" }}>
           <h2 className="ellipsis" style={{ margin: "2px 0" }}>{t.meta.name} <span className="muted">${t.meta.symbol}</span></h2>

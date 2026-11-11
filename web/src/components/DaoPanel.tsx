@@ -127,7 +127,7 @@ export function DaoPanel({ t }: TokenCtx) {
           <span className="small muted mono">{dao}</span>
         </div>
         {!proposals && <div className="empty">Loading…</div>}
-        {proposals && list.length === 0 && <div className="empty">No proposals yet. Create the first one →</div>}
+        {proposals && list.length === 0 && <div className="empty">No proposals yet. Create the first one.</div>}
         {list.map((p) => {
           const counts = p.vote_counts["holders"] ?? ["0", "0", "0"];
           const yes = BigInt(counts[0]);

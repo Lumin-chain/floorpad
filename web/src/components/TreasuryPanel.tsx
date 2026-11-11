@@ -62,7 +62,7 @@ export function TreasuryPanel({ t, linearPrice }: TokenCtx) {
                 <th>Date</th>
                 <th>Yield (LiNEAR)</th>
                 {BUCKET_LABELS.map((l, i) => (
-                  <th key={l}><span style={{ color: BUCKET_COLORS[i] }}>■</span> {l}</th>
+                  <th key={l}><span className="swatch" style={{ background: BUCKET_COLORS[i] }} /> {l}</th>
                 ))}
               </tr>
             </thead>

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { fmtNear, LAUNCHPAD, LINEAR, parseUnits, YOCTO, type TokenView } from "@/lib/near";
 import { useWallet } from "@/lib/wallet";
+import { MojiLabel } from "./Brand";
 
 /**
  * Sponsors, creators or whales can boost a graduated token's holder rewards:
@@ -31,7 +32,7 @@ export function FundYield({ t, linearPrice }: { t: TokenView; linearPrice: bigin
   if (t.grad_stage !== "Graduated") return null;
   return (
     <div className="panel">
-      <h2>🚀 Boost holder rewards</h2>
+      <h2><MojiLabel face="hero">Boost holder rewards</MojiLabel></h2>
       <p className="small muted">
         Add NEAR to ${t.meta.symbol}&apos;s yield pool. It is staked into LiNEAR and split at the next epoch by the holders&apos; vote:
         buyback &amp; burn, airdrop to lockers, AI agent, treasury or the floor.

@@ -2,6 +2,7 @@
 
 import { LAUNCHPAD, type TokenView } from "@/lib/near";
 import { useWallet } from "@/lib/wallet";
+import { SlabIcon } from "./Brand";
 
 /** Permissionless lifecycle steps. A keeper runs these too, but anyone can push them from here. */
 export function OpsBar({ t, reload }: { t: TokenView; reload: () => void }) {
@@ -22,7 +23,7 @@ export function OpsBar({ t, reload }: { t: TokenView; reload: () => void }) {
     <div className="row wrap">
       {ops.map((o) => (
         <button key={o.method} className="btn sm" disabled={busy} onClick={() => run(o.method, o.gas)} title="Permissionless: anyone can run this step">
-          ⚙ {o.label}
+          <SlabIcon name="ops" size={14} /> {o.label}
         </button>
       ))}
     </div>

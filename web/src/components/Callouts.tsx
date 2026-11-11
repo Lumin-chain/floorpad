@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { ago, type TokenView } from "@/lib/near";
 import { api, fmtUsd, fmtX, useStream, type Callout } from "@/lib/social";
 import { useWallet } from "@/lib/wallet";
+import { Moji } from "./Brand";
 
 export function CallRow({ c, showToken }: { c: Callout; showToken?: boolean }) {
   const up = c.x_now >= 1;
@@ -76,7 +77,7 @@ export function TokenCallouts({ t, usdMcap }: { t: TokenView; usdMcap: number })
             <textarea className="textarea" maxLength={280} placeholder="Why will this run? (280 chars)" value={thesis} onChange={(e) => setThesis(e.target.value)} />
             {err && <div className="small bad" style={{ margin: "6px 0" }}>{err}</div>}
             <button className="btn primary block" style={{ marginTop: 8 }} disabled={busy || thesis.trim().length < 4} onClick={call}>
-              📣 Call it at {fmtUsd(usdMcap)}
+              <Moji face="cool" size={22} /> Call it at {fmtUsd(usdMcap)}
             </button>
           </>
         )}

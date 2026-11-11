@@ -4,6 +4,7 @@ import { ago, fmtNear, isGraduated, lp, YOCTO, type Post } from "@/lib/near";
 import { useView } from "@/lib/wallet";
 import { Kv } from "./ui";
 import type { TokenCtx } from "@/app/token/[id]/page";
+import { SlabIcon } from "./Brand";
 
 export function AgentPanel({ t, linearPrice, onGoDao }: TokenCtx & { onGoDao: () => void }) {
   const { data: posts } = useView(() => lp<Post[]>("get_posts", { token_id: t.token_id, limit: 50 }), [t.token_id, t.post_count], 15000);
@@ -34,7 +35,7 @@ export function AgentPanel({ t, linearPrice, onGoDao }: TokenCtx & { onGoDao: ()
         <div className="panel">
           <h2>Persona</h2>
           <p className="small" style={{ whiteSpace: "pre-wrap" }}>{t.agent_persona}</p>
-          <button className="btn sm" onClick={onGoDao}>Propose a new persona →</button>
+          <button className="btn sm" onClick={onGoDao}>Propose a new persona <SlabIcon name="chevron" size={12} /></button>
         </div>
         <div className="panel">
           <h2>Budget</h2>

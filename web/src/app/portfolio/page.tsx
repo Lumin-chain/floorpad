@@ -5,6 +5,7 @@ import { floorPrice, fmtNear, fmtPrice, fmtTok, LAUNCHPAD, LINEAR, lp, until, vi
 import { storageCallIfNeeded, useView, useWallet } from "@/lib/wallet";
 import { Avatar } from "@/components/ui";
 import { Mascot } from "@/components/Mascot";
+import { SlabIcon } from "@/components/Brand";
 
 interface Row {
   t: TokenView;
@@ -66,7 +67,7 @@ export default function Portfolio() {
           }}
           title="Earn 20% of the platform fee on every trade your link brings"
         >
-          🔗 Copy my ref link
+          <SlabIcon name="share" size={14} /> Copy my ref link
         </button>
         <div className="row">
           <span className="muted">Claimable: <b>{fmtNear(claimable ?? "0")} LiNEAR</b></span>
@@ -100,7 +101,7 @@ export default function Portfolio() {
         {rows?.length === 0 && (
           <div className="empty mascot-empty">
             <Mascot pose="wink" size={96} motion="peek" alt="" />
-            <span>No Floorpad tokens yet. <Link href="/" className="green">Explore launches →</Link></span>
+            <span>No Floorpad tokens yet. <Link href="/" className="green link-chev">Explore launches <SlabIcon name="chevron" size={12} /></Link></span>
           </div>
         )}
         {rows && rows.length > 0 && (

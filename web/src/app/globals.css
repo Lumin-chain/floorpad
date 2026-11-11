@@ -392,3 +392,23 @@ tr.click-row:hover td { background: var(--panel-2); }
 @media (max-width: 767px) {
   .tc-desc.desktop-only-block { display: none !important; }
 }
+
+/* ===================== brand icons (mascot moji + slab icons) ===================== */
+.moji { display: inline-block; vertical-align: middle; object-fit: contain; flex: none; }
+.moji-label { display: inline-flex; align-items: center; gap: 7px; }
+.slab-icon { display: inline-block; vertical-align: -0.15em; flex: none; }
+.link-chev { display: inline-flex; align-items: center; gap: 3px; }
+.btn .slab-icon { margin-right: 2px; }
+.seg button { display: inline-flex; align-items: center; gap: 6px; }
+.swatch { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 4px; vertical-align: 0; }
+.msg-quote .slab-icon { opacity: .7; }
+.bottom-nav .bn-icon { display: grid; place-items: center; height: 26px; }
+
+/* design system (feedloop-DESIGN.md): uniform cards, no heavy shadows, 44px touch targets */
+.card, .panel, .stat, .call, .chip, .featured { border-radius: 12px; }
+.toast { box-shadow: 0 2px 8px rgba(0, 0, 0, .25); }
+@media (max-width: 767px) {
+  .btn, .seg button, .tabs button, .bottom-nav a, .input { min-height: 44px; }
+  .btn.sm { min-height: 40px; }
+  .bottom-nav a { justify-content: center; }
+}

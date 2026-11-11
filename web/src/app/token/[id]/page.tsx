@@ -30,6 +30,7 @@ import { OpsBar } from "@/components/OpsBar";
 import { Chat } from "@/components/Chat";
 import { TokenCallouts } from "@/components/Callouts";
 import { useIsDesktop } from "@/lib/media";
+import { MojiLabel, SlabIcon } from "@/components/Brand";
 
 const TABS = ["Chat", "Calls", "Trades", "Floor", "Lock & vote", "DAO", "Treasury", "Agent"] as const;
 type Tab = (typeof TABS)[number];
@@ -46,7 +47,7 @@ function ShareButton({ tokenId }: { tokenId: string }) {
       /* dismissed */
     }
   };
-  return <button className="btn sm" onClick={share} title="Share with your referral code">🔗 Share</button>;
+  return <button className="btn sm" onClick={share} title="Share with your referral code"><SlabIcon name="share" size={14} /> Share</button>;
 }
 
 export interface TokenCtx {
@@ -128,7 +129,7 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
             <StageBadges t={t} />
             {links.map((l) => (
               <a key={l.label} href={l.href} target="_blank" rel="noreferrer" className="badge">
-                {l.label} ↗
+                {l.label} <SlabIcon name="external" size={10} />
               </a>
             ))}
           </div>
@@ -191,7 +192,7 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
           <TradePanel {...ctx} />
           <div className="panel flush">
             <div className="aside-head row between">
-              <b>💬 Live chat</b>
+              <b><MojiLabel face="wink">Live chat</MojiLabel></b>
               <span className="small muted">${t.meta.symbol}</span>
             </div>
             <Chat t={t} compact />

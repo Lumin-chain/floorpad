@@ -5,6 +5,7 @@ import { fmtNear, LINEAR, view } from "@/lib/near";
 import { encodeDescription } from "@/lib/proposal-format";
 import { useView, useWallet } from "@/lib/wallet";
 import type { TokenView } from "@/lib/near";
+import { MojiLabel } from "./Brand";
 
 interface Bounty {
   id: number;
@@ -57,7 +58,7 @@ export function Bounties({ t, bountyBond }: { t: TokenView; bountyBond: string }
   const days = (ns: string) => Math.round(Number(BigInt(ns) / 1_000_000_000n) / 86400);
   return (
     <div className="panel">
-      <h2>🎯 Bounties</h2>
+      <h2><MojiLabel face="flag">Bounties</MojiLabel></h2>
       <p className="small muted">
         Holders fund bounties by proposal. Anyone can claim one, deliver, and submit the work; lockers vote to pay out.
         Claiming locks a {fmtNear(bountyBond)} NEAR bond, refunded when the claim resolves.
