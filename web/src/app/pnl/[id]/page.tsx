@@ -5,9 +5,12 @@ interface PageProps {
   params: Promise<{ id: string }>;
   searchParams: Promise<{
     symbol?: string;
+    name?: string;
     pnl?: string;
     floor?: string;
     usd?: string;
+    entry?: string;
+    price?: string;
     account?: string;
     ref?: string;
     hideNetworth?: string;
@@ -52,13 +55,16 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
   const sp = await searchParams;
   const tok = await fetchTokenMeta(id);
   const symbol = sp.symbol || tok?.meta?.symbol || id.split(".")[0]?.toUpperCase() || "TOKEN";
+  const name = sp.name || tok?.meta?.name || symbol;
   const pnl = sp.pnl || "100";
   const floor = sp.floor || "10.0";
   const usd = sp.usd || "36.0";
+  const entry = sp.entry || "";
+  const price = sp.price || "";
   const account = sp.account || "trader.near";
   const hideNetworth = sp.hideNetworth === "1" || sp.hideNetworth === "true";
 
-  const ogUrl = `/api/og/pnl?token=${encodeURIComponent(id)}&symbol=${encodeURIComponent(symbol)}&pnl=${encodeURIComponent(pnl)}&floor=${encodeURIComponent(floor)}&usd=${encodeURIComponent(usd)}&account=${encodeURIComponent(account)}${hideNetworth ? "&hideNetworth=1" : ""}`;
+  const ogUrl = `/api/og/pnl?token=${encodeURIComponent(id)}&symbol=${encodeURIComponent(symbol)}&name=${encodeURIComponent(name)}&pnl=${encodeURIComponent(pnl)}&floor=${encodeURIComponent(floor)}&usd=${encodeURIComponent(usd)}&entry=${encodeURIComponent(entry)}&price=${encodeURIComponent(price)}&account=${encodeURIComponent(account)}${hideNetworth ? "&hideNetworth=1" : ""}`;
 
   const isProfit = !pnl.startsWith("-");
   const title = isProfit ? `Up +${pnl}% on $${symbol} | Floorpad` : `Holding $${symbol} (${pnl}%) | Floorpad`;
