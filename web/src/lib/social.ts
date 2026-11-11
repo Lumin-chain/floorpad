@@ -136,3 +136,32 @@ export function fmtUsd(v: number): string {
   return `$${v.toFixed(v < 10 ? 2 : 0)}`;
 }
 export const fmtX = (x: number) => (x >= 10 ? `${x.toFixed(0)}x` : `${x.toFixed(2)}x`);
+
+export interface Candle {
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  trades: number;
+}
+
+export interface IndexedTrade {
+  id: number;
+  token_id: string;
+  ts: number;
+  account: string;
+  is_buy: number;
+  near: string;
+  tokens: string;
+  price: number;
+  v_near: string;
+  v_tokens: string;
+}
+
+export const getCandles = (tokenId: string, tf = "5m", limit = 100) =>
+  api<Candle[]>(`/tokens/${tokenId}/candles?tf=${tf}&limit=${limit}`).catch(() => []);
+
+export const getIndexedTrades = (tokenId: string, limit = 50) =>
+  api<IndexedTrade[]>(`/tokens/${tokenId}/trades?limit=${limit}`).catch(() => []);

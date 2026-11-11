@@ -114,9 +114,12 @@ Key gotchas:
 ## 5. Status
 
 ### Done and verified
-- Contracts: the full feature set in §1. 54 unit tests pass.
+- Contracts: the full feature set in §1. 54 unit tests pass. Wasm release compilation passes cleanly.
 - **On testnet:** launch, buy/sell with referral, lock, graduation into Ref pool #2938 (MEME/LiNEAR, 100% of LP shares held by the launchpad), LiNEAR staking, epoch buyback & burn, airdrop, floor redemption, agent post. Full DAO lifecycle: >70% strict threshold, and a bounty paid to a non-holder (via `dao-check.mjs` on a normally deployed v2.3.1).
-- Web app: mobile + desktop layouts, NEAR Connect, every token tab (trade, chart, chat, callouts, DAO, bounties, treasury, vault, lock, agent), brand assets, animated mascot, mascot "moji" faces and slab icons (no generic emoji). Design follows `feedloop-DESIGN.md`: 12px card radius, 44px touch targets.
+- Web app: mobile + desktop layouts, NEAR Connect, every token tab (trade, chart, chat, callouts, DAO, bounties, treasury, vault, lock, agent), brand assets, animated mascot, mascot "moji" faces and slab icons (no generic emoji).
+- **Trading console UI & indexer (done):** Candlestick (OHLCV) / Line chart with timeframe switcher (1m, 5m, 15m, 1h, 1d), live trade streaming via SSE, live trades tape, Instant Trading Account management (`deposit_trading`, `withdraw_trading`, `withdraw_custody`, non-payable `quick_buy` / `quick_sell` execution), quick-size buttons, keyboard shortcuts (B/S, 1-4). Server-side SQLite trade indexer polls on-chain trades and aggregates candles.
+- **Mechanics page for judges (done):** `/mechanics` route showing cryptographic zero-admin proof (`get_admin_powers`), immutable config parameter sheet (`get_config`), live on-chain mechanics audit log (`get_mech_log`), and interactive 60-day mathematical simulation of floor growth vs volume, fees, redemptions, and staking compounding.
+- **README for screeners (done):** "Try it in 2 minutes" section, target tracks breakdown (Memecoins With Mechanics & Social Money), full economics spec, live app URLs.
 - Social server live on Railway with persistent SQLite.
 - Repo scanned: no keys, `.env` files, databases or personal data committed.
 
@@ -124,16 +127,13 @@ Key gotchas:
 1. **Redeploy the latest contracts to testnet.** `fplpmwbbcg00.testnet` runs old v3, without no-admin, treasury sweep or instant trading. Redeploy with a treasury and `LOCK=1`, re-run e2e, then update `NEXT_PUBLIC_LAUNCHPAD` / `LAUNCHPAD_ID` in Railway and rebuild web. This needs about 50+ testnet NEAR, mostly for the Sputnik global code.
 2. **The launchpad's own `finalize_dao` path on testnet** hasn't run end-to-end (blocked by the Sputnik global cost). It was verified in unit tests and through the separate DAO check only.
 3. **Real wallet signing in the browser** (Meteor/HOT/MyNearWallet through NEAR Connect) hasn't been clicked through on the live site.
-4. **Trading console UI** — the contract side is done (`trading.rs`), the UI isn't. Wanted: candles (OHLC), live trades tape, positions + PnL, an instant-trade session using a function-call key on the trading account, keyboard shortcuts, quick-size buttons. It needs a **server-side trade indexer**: read the NEP-297 trade events or `get_trades_from`, store them in SQLite, serve candles.
-5. **Mechanics page** for the judges: show the immutable params (`get_config`, `get_admin_powers`), the live burn/epoch log (`get_mech_log`), and a **60-day simulation** of floor growth versus volume.
-6. **Agent service on Railway**: create it with root dir `/agent` and start command `npm start`. The owner must add `OPERATOR_ID`, `OPERATOR_PRIVATE_KEY` and `AI_API_KEY`.
-7. **README rewrite for screeners**: a "try it in 2 minutes" section, the testnet addresses, disclosures (testnet, risks), a demo mode.
-8. **Mainnet deploy** (optional for judging): about 45–50 NEAR (token global ~33.1 + launchpad ~8.4 + working balance). It needs a treasury Sputnik DAO first.
-9. **Demo video + X post**: the owner does these.
-10. Optional: a custom domain on Railway; removing the throwaway testnet account name from the README.
+4. **Agent service on Railway**: create it with root dir `/agent` and start command `npm start`. The owner must add `OPERATOR_ID`, `OPERATOR_PRIVATE_KEY` and `AI_API_KEY`.
+5. **Mainnet deploy** (optional for judging): about 45–50 NEAR (token global ~33.1 + launchpad ~8.4 + working balance). It needs a treasury Sputnik DAO first.
+6. **Demo video + X post**: the owner does these.
+7. Optional: a custom domain on Railway; removing the throwaway testnet account name from the README.
 
 ### Suggested order before the deadline
-1 → 6 → 3 → 4 → 5 → 7 → 9. Mainnet (8) only if time and funds allow.
+1 → 4 → 3 → 6. Mainnet (5) only if time and funds allow.
 
 ---
 

@@ -71,6 +71,29 @@ async function cached<T>(key: string, ttlMs: number, f: () => Promise<T>): Promi
 export const getToken = (tokenId: string) =>
   cached(`tok:${tokenId}`, 15_000, () => view<TokenInfo | null>(LAUNCHPAD, "get_token", { token_id: tokenId }));
 
+export const getTokens = (limit = 100) =>
+  cached("all-tokens", 10_000, () => view<TokenInfo[]>(LAUNCHPAD, "get_tokens", { from_index: 0, limit }));
+
+export interface OnChainTrade {
+  ts: number;
+  account: string;
+  is_buy: boolean;
+  near: string;
+  tokens: string;
+  v_near: string;
+  v_tokens: string;
+}
+
+export function calcPrice(vNear: string, vTokens: string): number {
+  const vn = BigInt(vNear);
+  const vt = BigInt(vTokens);
+  if (vt === 0n) return 0;
+  return Number((vn * 10n ** 18n) / vt) / 1e18 / 1e6;
+}
+
+export const getTradesFrom = (tokenId: string, fromIndex: number, limit = 100) =>
+  view<[number, OnChainTrade][]>(LAUNCHPAD, "get_trades_from", { token_id: tokenId, from_index: fromIndex, limit });
+
 export const nearUsd = () =>
   cached("near-usd", 60_000, async () => {
     const [micro] = await view<[string, number]>(LAUNCHPAD, "get_near_usd_price");

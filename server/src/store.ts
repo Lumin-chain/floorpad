@@ -23,6 +23,29 @@ export interface Call {
   updated: number;
 }
 
+export interface StoredTrade {
+  id: number;
+  token_id: string;
+  ts: number;
+  account: string;
+  is_buy: number;
+  near: string;
+  tokens: string;
+  price: number;
+  v_near: string;
+  v_tokens: string;
+}
+
+export interface Candle {
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  trades: number;
+}
+
 export function openStore(path: string) {
   const db = new DatabaseSync(path);
   db.exec(`
@@ -44,6 +67,20 @@ export function openStore(path: string) {
     );
     CREATE INDEX IF NOT EXISTS calls_token ON calls (token_id, id);
     CREATE INDEX IF NOT EXISTS calls_account ON calls (account);
+    CREATE TABLE IF NOT EXISTS trades (
+      token_id TEXT NOT NULL,
+      id INTEGER NOT NULL,
+      ts INTEGER NOT NULL,
+      account TEXT NOT NULL,
+      is_buy INTEGER NOT NULL,
+      near TEXT NOT NULL,
+      tokens TEXT NOT NULL,
+      price REAL NOT NULL,
+      v_near TEXT NOT NULL,
+      v_tokens TEXT NOT NULL,
+      PRIMARY KEY (token_id, id)
+    );
+    CREATE INDEX IF NOT EXISTS trades_token_ts ON trades (token_id, ts);
   `);
 
   const now = () => Math.floor(Date.now() / 1000);
@@ -125,6 +162,60 @@ export function openStore(path: string) {
            ORDER BY avg_peak_x DESC LIMIT ?`,
         )
         .all(since, limit) as unknown as { account: string; calls: number; avg_peak_x: number; best_x: number; hits_2x: number }[];
+    },
+
+    // ---- trades & candles ----
+    addTrade(t: StoredTrade) {
+      db.prepare(
+        `INSERT OR IGNORE INTO trades (token_id, id, ts, account, is_buy, near, tokens, price, v_near, v_tokens)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(t.token_id, t.id, t.ts, t.account, t.is_buy, t.near, t.tokens, t.price, t.v_near, t.v_tokens);
+    },
+    lastTradeIndex(tokenId: string): number {
+      const r = db.prepare("SELECT MAX(id) AS id FROM trades WHERE token_id = ?").get(tokenId) as { id: number | null } | undefined;
+      return r?.id ?? -1;
+    },
+    trades(tokenId: string, limit: number): StoredTrade[] {
+      return db
+        .prepare("SELECT * FROM trades WHERE token_id = ? ORDER BY id DESC LIMIT ?")
+        .all(tokenId, limit) as unknown as StoredTrade[];
+    },
+    candles(tokenId: string, timeframeSecs: number, limit: number): Candle[] {
+      const tf = Math.max(10, timeframeSecs);
+      const rows = db
+        .prepare(
+          `SELECT ts, price, near, is_buy FROM trades
+           WHERE token_id = ? AND ts >= ?
+           ORDER BY ts ASC, id ASC`
+        )
+        .all(tokenId, now() - tf * limit * 2) as unknown as { ts: number; price: number; near: string; is_buy: number }[];
+
+      if (rows.length === 0) return [];
+
+      const map = new Map<number, { open: number; high: number; low: number; close: number; volume: number; trades: number }>();
+      for (const row of rows) {
+        const bucket = Math.floor(row.ts / tf) * tf;
+        const p = row.price;
+        const volNear = Number(BigInt(row.near) / 10n ** 18n) / 1e6;
+        let c = map.get(bucket);
+        if (!c) {
+          c = { open: p, high: p, low: p, close: p, volume: volNear, trades: 1 };
+          map.set(bucket, c);
+        } else {
+          c.high = Math.max(c.high, p);
+          c.low = Math.min(c.low, p);
+          c.close = p;
+          c.volume += volNear;
+          c.trades += 1;
+        }
+      }
+
+      const res: Candle[] = [];
+      for (const [time, c] of map.entries()) {
+        res.push({ time, ...c });
+      }
+      res.sort((a, b) => a.time - b.time);
+      return res.slice(-limit);
     },
   };
 }

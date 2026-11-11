@@ -12,6 +12,7 @@ import { captureReferrer, LAUNCHPAD, NETWORK } from "@/lib/near";
 const NAV = [
   { href: "/", label: "Explore", icon: "explore", plus: false },
   { href: "/calls", label: "Calls", icon: "calls", plus: false },
+  { href: "/mechanics", label: "Mechanics", icon: "ops", plus: false },
   { href: "/create", label: "Launch", icon: "launch", plus: true },
   { href: "/portfolio", label: "Portfolio", icon: "portfolio", plus: false },
 ] as const;

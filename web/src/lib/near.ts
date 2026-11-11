@@ -214,6 +214,19 @@ export interface Quote {
   exit_fee: string;
   refund: string;
 }
+export interface MechEvent {
+  ts: number;
+  kind: string;
+  amount: string;
+  account: string | null;
+}
+export interface TradingAccount {
+  near: string;
+}
+export interface Custody {
+  amount: string;
+  since: number;
+}
 export interface LaunchConfig {
   creation_fee: string;
   lock_min_days: number;

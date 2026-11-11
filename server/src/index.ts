@@ -7,9 +7,9 @@
  */
 import http from "node:http";
 import { randomBytes } from "node:crypto";
-import { env, getToken, holderShare, isFullAccessKey, LAUNCHPAD, marketCap } from "./chain.ts";
+import { calcPrice, env, getToken, getTokens, getTradesFrom, holderShare, isFullAccessKey, LAUNCHPAD, marketCap } from "./chain.ts";
 import { verifySignedMessage } from "./nep413.ts";
-import { openStore, type Call, type Message } from "./store.ts";
+import { openStore, type Call, type Message, type StoredTrade } from "./store.ts";
 
 try {
   process.loadEnvFile?.(".env");
@@ -205,6 +205,28 @@ route("GET", "/callers/leaderboard", async (_req, _res, _p, q) => {
 
 route("GET", "/trending/chat", async () => store.messageCounts(now() - 3600));
 
+// ---- trades & candles ----
+const TF_MAP: Record<string, number> = {
+  "1m": 60,
+  "5m": 300,
+  "15m": 900,
+  "1h": 3600,
+  "4h": 14400,
+  "1d": 86400,
+};
+
+route("GET", "/tokens/:id/trades", async (_req, _res, p, q) => {
+  const limit = Math.min(100, Number(q.get("limit") ?? 50));
+  return store.trades(p.id, limit);
+});
+
+route("GET", "/tokens/:id/candles", async (_req, _res, p, q) => {
+  const tfParam = q.get("tf") ?? "5m";
+  const tfSecs = TF_MAP[tfParam] ?? 300;
+  const limit = Math.min(200, Number(q.get("limit") ?? 100));
+  return store.candles(p.id, tfSecs, limit);
+});
+
 // ---------------- server ----------------
 const server = http.createServer(async (req, res) => {
   const origin = req.headers.origin ?? "";
@@ -242,6 +264,41 @@ const server = http.createServer(async (req, res) => {
   }
   res.writeHead(404, { "content-type": "application/json" }).end(JSON.stringify({ error: "not found" }));
 });
+
+// ---------------- on-chain trade indexer ----------------
+let indexingBusy = false;
+async function indexTrades() {
+  if (indexingBusy) return;
+  indexingBusy = true;
+  try {
+    const tokens = await getTokens(50).catch(() => []);
+    for (const tok of tokens) {
+      const last = store.lastTradeIndex(tok.token_id);
+      const fromIdx = Math.max(0, last + 1);
+      const trades = await getTradesFrom(tok.token_id, fromIdx, 50).catch(() => []);
+      for (const [idx, tr] of trades) {
+        const stored: StoredTrade = {
+          token_id: tok.token_id,
+          id: idx,
+          ts: tr.ts,
+          account: tr.account,
+          is_buy: tr.is_buy ? 1 : 0,
+          near: tr.near,
+          tokens: tr.tokens,
+          price: calcPrice(tr.v_near, tr.v_tokens),
+          v_near: tr.v_near,
+          v_tokens: tr.v_tokens,
+        };
+        store.addTrade(stored);
+        publish(`token:${tok.token_id}`, "trade", stored);
+        publish("global", "trade", stored);
+      }
+    }
+  } finally {
+    indexingBusy = false;
+  }
+}
+setInterval(() => indexTrades().catch((e) => console.warn("indexer:", e.message)), 4_000).unref();
 
 // ---------------- callout performance tracker ----------------
 async function trackCalls() {
