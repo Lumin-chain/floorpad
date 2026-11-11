@@ -58,7 +58,7 @@ export default function Create() {
               agent_persona: opt(f.persona),
             },
             gas: 300,
-            deposit: cfg?.creation_fee ?? "3000000000000000000000000",
+            deposit: cfg?.creation_fee ?? "1500000000000000000000000",
           },
         ],
       },
