@@ -16,6 +16,11 @@ export function OpsBar({ t, reload }: { t: TokenView; reload: () => void }) {
   if (t.dao_stage === "Failed") ops.push({ label: "Retry DAO", method: "retry_dao", gas: 250 });
   if (t.grad_stage !== "Curve" && t.grad_stage !== "Graduated" && !t.grad_busy)
     ops.push({ label: `Graduate: ${t.grad_stage}`, method: "advance_graduation", gas: 300 });
+  if (
+    t.grad_stage === "Graduated" && t.next_harvest_at !== undefined && !t.harvest_busy &&
+    (t.harvest_pending || now >= t.next_harvest_at)
+  )
+    ops.push({ label: t.harvest_pending ? "Finish LP harvest" : "Harvest LP", method: "harvest_lp", gas: 300 });
   if (t.grad_stage === "Graduated" && !t.epoch_busy && now >= t.next_epoch_at)
     ops.push({ label: "Settle epoch", method: "settle_epoch", gas: 300 });
   if (!ops.length) return null;

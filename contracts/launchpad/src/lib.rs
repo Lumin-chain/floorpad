@@ -19,6 +19,7 @@ mod epoch;
 mod ext;
 pub mod math;
 mod graduation;
+mod harvest;
 mod trading;
 mod ve;
 mod vault;
@@ -252,6 +253,19 @@ pub struct TokenState {
     pub custody_total: u128,
     /// Mechanics log ring buffer length (burns, epochs, yield funding, escrow moves).
     pub mech_count: u32,
+
+    // LP harvest (harvest.rs)
+    /// Locked LP depth baseline: sqrt(LiNEAR-side NEAR value x meme side) of the
+    /// launchpad's position. Only growth above it is harvested.
+    pub lp_k0: u128,
+    pub last_harvest_at: u64,
+    pub harvest_busy: bool,
+    /// Removed from the pool but still in the launchpad's Ref deposit (retryable).
+    pub harvest_meme_pending: u128,
+    pub harvest_linear_pending: u128,
+    /// Lifetime totals.
+    pub harvested_linear: u128,
+    pub harvest_burned: u128,
 
     // Agent
     pub agent_account: AccountId,

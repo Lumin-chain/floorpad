@@ -14,7 +14,8 @@ A NEAR meme-coin launchpad where every token gets:
 - a **bonding curve** that graduates at **~$15k market cap**, sized from the live NEAR/USD price read on-chain;
 - a **redeemable floor vault** that only rises (redeem tokens for your share; redeemed tokens are burned);
 - **sell tax > buy tax** (1.25% / 2.5%) plus an **exit fee** decaying 10% → 0 over 7 days of holding;
-- at graduation, **LP locked forever** in a Ref Finance `MEME/LiNEAR` pool, so the liquidity earns staking yield;
+- at graduation, **LP locked forever** in a Ref Finance `MEME/LiNEAR` pool, so the liquidity earns staking yield and swap fees;
+- **LP harvest** (`harvest_lp`, permissionless, once per epoch): removes only the LP growth above the graduation depth, burns the meme side, and adds the LiNEAR side to the epoch yield;
 - **ve-locks**: lock weight (1× at 7 days → 4× at 180 days) is the vote weight in the token's **own Sputnik DAO**;
 - DAO proposals pass only with **>70% of delegated lock weight** (>80% for policy/upgrades); only lockers may propose;
 - **epoch yield split by holder vote**: floor, buyback & burn, airdrop to lockers, AI agent budget, DAO treasury;
@@ -66,12 +67,13 @@ contracts/
     trading.rs         instant trading account: deposit_trading, quick_buy/quick_sell (non-payable → function-call-key safe), custody
     dao.rs             deploys Sputnik v2.3.1 by global hash at <sym>-dao.<launchpad>, finalize_dao, holders policy
     graduation.rs      vault seed, LP at final curve price on Ref, burn unused LP, LiNEAR staking
+    harvest.rs         harvest_lp: remove LP growth above the baseline depth, burn meme side, LiNEAR side -> epoch yield
     epoch.rs           settle_epoch: yield split by vote, buyback & burn, airdrop, platform cut → treasury
     vault.rs           floor redemption, LiNEAR withdrawals
     ve.rs              locks + delegation (launchpad is each DAO's staking contract)
     agent.rs           per-token AI agent budget/posting
     views.rs           quotes, trades, mech log, get_admin_powers, referral balances
-    tests.rs           51 launchpad tests + 3 meme-token tests (all pass)
+    tests.rs           57 launchpad tests + 3 meme-token tests (all pass)
 agent/src/index.ts     keeper (price, finalize_dao, advance_graduation, settle_epoch) + AI poster
 server/src/            social API: chat, callouts + tracker, NEP-413 sign-in, SSE, node:sqlite (zero runtime deps)
 web/src/               Next.js 15 / React 19 app (mobile-first + desktop, PWA)
@@ -114,7 +116,7 @@ Key gotchas:
 ## 5. Status
 
 ### Done and verified
-- Contracts: the full feature set in §1. 54 unit tests pass. Wasm release compilation passes cleanly.
+- Contracts: the full feature set in §1. 60 unit tests pass. Wasm release compilation passes cleanly.
 - **On testnet:** launch, buy/sell with referral, lock, graduation into Ref pool #2938 (MEME/LiNEAR, 100% of LP shares held by the launchpad), LiNEAR staking, epoch buyback & burn, airdrop, floor redemption, agent post. Full DAO lifecycle: >70% strict threshold, and a bounty paid to a non-holder (via `dao-check.mjs` on a normally deployed v2.3.1).
 - Web app: mobile + desktop layouts, NEAR Connect, every token tab (trade, chart, chat, callouts, DAO, bounties, treasury, vault, lock, agent), brand assets, animated mascot, mascot "moji" faces and slab icons (no generic emoji).
 - **Trading console UI & indexer (done):** Candlestick (OHLCV) / Line chart with timeframe switcher (1m, 5m, 15m, 1h, 1d), live trade streaming via SSE, live trades tape, Instant Trading Account management (`deposit_trading`, `withdraw_trading`, `withdraw_custody`, non-payable `quick_buy` / `quick_sell` execution), quick-size buttons, keyboard shortcuts (B/S, 1-4). Server-side SQLite trade indexer polls on-chain trades and aggregates candles.
@@ -127,6 +129,7 @@ Key gotchas:
 1. **Redeploy the latest contracts to testnet.** `fplpmwbbcg00.testnet` runs old v3, without no-admin, treasury sweep or instant trading. Redeploy with a treasury and `LOCK=1`, re-run e2e, then update `NEXT_PUBLIC_LAUNCHPAD` / `LAUNCHPAD_ID` in Railway and rebuild web. This needs about 50+ testnet NEAR, mostly for the Sputnik global code.
 2. **The launchpad's own `finalize_dao` path on testnet** hasn't run end-to-end (blocked by the Sputnik global cost). It was verified in unit tests and through the separate DAO check only.
 3. **Real wallet signing in the browser** (Meteor/HOT/MyNearWallet through NEAR Connect) hasn't been clicked through on the live site.
+3b. **LP harvest on chain**: `harvest_lp` is unit tested (math, flow, failed-withdraw retry) but not yet run against real Ref. Check on testnet that Ref's `remove_liquidity` returns the removed amounts (`Vec<U128>`) and that `withdraw` lands both tokens, then add a harvest step to `e2e/testnet.mjs`.
 4. **Agent service on Railway**: create it with root dir `/agent` and start command `npm start`. The owner must add `OPERATOR_ID`, `OPERATOR_PRIVATE_KEY` and `AI_API_KEY`.
 5. **Mainnet deploy** (optional for judging): about 45–50 NEAR (token global ~33.1 + launchpad ~8.4 + working balance). It needs a treasury Sputnik DAO first.
 6. **Demo video + X post**: the owner does these.

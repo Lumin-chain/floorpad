@@ -1,6 +1,6 @@
 "use client";
 
-import { BUCKET_LABELS, fmtNear, isGraduated, LINEAR, lp, view, YOCTO, type EpochReport } from "@/lib/near";
+import { BUCKET_LABELS, fmtNear, fmtTok, isGraduated, LINEAR, lp, view, YOCTO, type EpochReport } from "@/lib/near";
 import { useView } from "@/lib/wallet";
 import { BUCKET_COLORS, Kv, Stat } from "./ui";
 import { FundYield } from "./FundYield";
@@ -38,6 +38,15 @@ export function TreasuryPanel({ t, linearPrice }: TokenCtx) {
           {grad && <Kv k="LiNEAR price" v={`${fmtNear(linearPrice, 6)} NEAR`} />}
           {grad && <Kv k="Locked LP (LiNEAR side)" v={`${fmtNear(t.lp_shares, 3)} LiNEAR`} />}
           {grad && <Kv k="Ref pool" v={`#${t.pool_id}`} />}
+          {grad && t.harvested_linear !== undefined && (
+            <Kv k="LP growth harvested (LiNEAR)" v={fmtNear(t.harvested_linear, 4)} />
+          )}
+          {grad && t.harvest_burned !== undefined && (
+            <Kv k="Meme burned by LP harvests" v={fmtTok(t.harvest_burned, 0)} />
+          )}
+          {grad && t.next_harvest_at !== undefined && (
+            <Kv k="Next LP harvest" v={new Date(t.next_harvest_at * 1000).toLocaleString()} />
+          )}
           {!grad && <Kv k="Curve NEAR (becomes LP at graduation)" v={fmtNear(t.real_near, 3)} />}
           {daoClaim && daoClaim !== "0" && <Kv k="DAO LiNEAR held at launchpad" v={fmtNear(daoClaim, 4)} />}
         </div>

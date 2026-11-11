@@ -38,9 +38,10 @@ Live demo:
 | **Curve** | Constant product on virtual reserves. Virtual NEAR sized from **NEAR/USD read on-chain from Ref pool #4512**, so every token graduates at **~$15k FDV**. |
 | **Taxes & Asymmetry** | **1.25% buy fee / 2.50% sell fee**, plus an **exit fee** that falls from 10% to 0% over 7 days of holding. |
 | **Fee Split** | **70% to floor vault** · 10% creator (half claimable, half locked until DAO releases) · 20% platform (of which **20% is credited to the trade's referrer**). |
-| **Graduation** | At ~$15k FDV: seeds floor vault, 100% of LP shares locked forever in Ref `MEME/LiNEAR` pool. Unused LP tokens are burned. LP earns staking yield. |
+| **Graduation** | At ~$15k FDV: seeds floor vault, 100% of LP shares locked forever in Ref `MEME/LiNEAR` pool. Unused LP tokens are burned. |
+| **LP Harvest** | The locked LP grows from 0.3% swap fees and LiNEAR staking appreciation. Once per epoch anyone can call `harvest_lp`: it removes only the growth above the graduation depth (`sqrt(LiNEAR side in NEAR × meme side)`, which trades can't lower), **burns the meme side** and adds the LiNEAR side to the epoch yield. Principal liquidity depth never falls. Example: a $45k pool at ~4.5% LiNEAR APY grows ~5.4 NEAR/week from staking, plus 0.3% of volume (~$420/week at $20k/day). |
 | **Floor Vault** | Redeem any time for your share of the vault. Redeemed tokens are permanently burned. Floor strictly rises monotonically. |
-| **Epoch Yield** | Staking yield + sponsor donations: split by ve-weighted holder vote across floor, buyback & burn, airdrop to lockers, AI agent budget, and DAO treasury. |
+| **Epoch Yield** | Vault staking yield + harvested LP growth + sponsor donations: split by ve-weighted holder vote across floor, buyback & burn, airdrop to lockers, AI agent budget, and DAO treasury. |
 | **Instant Trading** | In-contract trading account (`trading.rs`): non-payable `quick_buy` and `quick_sell` callable with function-call keys; custody tracks weighted holding age. |
 | **Anti-Snipe** | Max 20M tokens (2% of supply) per wallet for the first 120 seconds. |
 | **No Admin** | Zero owner keys, zero `set_config` methods. Platform fees only sweep to fixed `treasury_id`. Keys deleted with `LOCK=1`. |

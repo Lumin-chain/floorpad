@@ -116,6 +116,23 @@ pub fn split_by_tally(total: u128, tally: &[u128; 5]) -> [u128; 5] {
     out
 }
 
+/// Depth of an LP position in NEAR terms: sqrt(LiNEAR side valued in NEAR x meme side).
+/// Swaps can't lower it (constant product plus fees) and LiNEAR's price only rises,
+/// so it grows exactly by swap fees and staking appreciation.
+pub fn lp_depth(linear: u128, meme: u128, price: u128) -> u128 {
+    let near_side = U256::from(linear) * U256::from(price) / U256::from(PRICE_SCALE);
+    (near_side * U256::from(meme)).integer_sqrt().as_u128()
+}
+
+/// LP shares to remove so the remaining position's depth falls back to `k0`.
+/// Proportional removal scales depth linearly, so remove `shares * (k - k0) / k`.
+pub fn harvest_shares(shares: u128, k_now: u128, k0: u128) -> u128 {
+    if k_now <= k0 || k_now == 0 {
+        return 0;
+    }
+    mul_div(shares, k_now - k0, k_now)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

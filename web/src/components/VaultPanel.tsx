@@ -56,8 +56,44 @@ export function VaultPanel({ t, linearPrice, balance, holdingSince, reload }: To
           <Stat k="Floor price" v={<span className="green">{fmtPrice(floorPrice(t, linearPrice))} N</span>} s="per token, before fees" />
           <Stat k="Vault value" v={`${fmtNear(vaultNear(t, linearPrice), 3)} N`} s={grad ? `${fmtNear(t.linear_shares, 3)} LiNEAR` : "held as NEAR until graduation"} />
           <Stat k="Redeemable supply" v={fmtTok(circ.toString(), 0)} s={grad ? "incl. tokens in the LP" : "sold on curve minus burned"} />
-          {grad && <Stat k="Unallocated yield" v={`${fmtNear(pendingYield > 0n ? pendingYield : 0n, 4)} LiNEAR`} s="split at the next epoch" />}
+          {grad && (
+            <>
+              <Stat k="Unallocated yield" v={`${fmtNear(pendingYield > 0n ? pendingYield : 0n, 4)} LiNEAR`} s="split at the next epoch" />
+              <Stat
+                k="Harvested LP yield"
+                v={`${fmtNear(t.harvested_linear ?? "0", 3)} LiNEAR`}
+                s={`Burned ${fmtTok(t.harvest_burned ?? "0", 0)} $${t.meta.symbol}`}
+              />
+            </>
+          )}
         </div>
+        {grad && (
+          <div className="panel" style={{ border: "1px dashed var(--accent, #3b82f6)", background: "rgba(59, 130, 246, 0.05)" }}>
+            <div className="row between">
+              <div>
+                <h3 style={{ margin: 0 }}>LP Yield Harvest</h3>
+                <p className="muted small" style={{ margin: "4px 0 0" }}>
+                  Ref swap fees &amp; LiNEAR appreciation above locked depth are harvested each epoch: LiNEAR becomes epoch yield; meme tokens are permanently burned.
+                </p>
+              </div>
+              {t.next_harvest_at && Math.floor(Date.now() / 1000) >= t.next_harvest_at && !t.harvest_busy && (
+                <button
+                  className="btn sm"
+                  disabled={busy}
+                  onClick={async () => {
+                    await send([{
+                      receiverId: LAUNCHPAD,
+                      calls: [{ method: "harvest_lp", args: { token_id: t.token_id }, gas: 300 }],
+                    }]);
+                    reload();
+                  }}
+                >
+                  Harvest LP now
+                </button>
+              )}
+            </div>
+          </div>
+        )}
         <div className="panel">
           <h2>How the floor rises</h2>
           <ul className="muted small" style={{ paddingLeft: 18, margin: 0 }}>

@@ -47,6 +47,26 @@ pub trait ExtRef {
         amounts: Vec<U128>,
         min_amounts: Option<Vec<U128>>,
     ) -> U128;
+    fn get_pool(&self, pool_id: u64) -> RefPoolInfo;
+    fn get_pool_shares(&self, pool_id: u64, account_id: AccountId) -> U128;
+    /// Proportional removal; the tokens land in the caller's Ref deposit.
+    fn remove_liquidity(&mut self, pool_id: u64, shares: U128, min_amounts: Vec<U128>) -> Vec<U128>;
+    fn withdraw(
+        &mut self,
+        token_id: AccountId,
+        amount: U128,
+        unregister: Option<bool>,
+        skip_unwrap_near: Option<bool>,
+    );
+}
+
+/// The fields of Ref's `get_pool` answer that the launchpad reads.
+#[derive(near_sdk::serde::Serialize, near_sdk::serde::Deserialize, Clone)]
+#[serde(crate = "near_sdk::serde")]
+pub struct RefPoolInfo {
+    pub token_account_ids: Vec<AccountId>,
+    pub amounts: Vec<U128>,
+    pub shares_total_supply: U128,
 }
 
 /// Sputnik DAO v2 (deployed per token by the Sputnik factory).

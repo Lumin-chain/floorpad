@@ -25,7 +25,7 @@ For context, pump.fun's graduation rate fell to about **0.2–0.3%** of launches
 
 1. **Holders always have an exit price.** None of the platforms above lets holders redeem against a vault, so on all of them the price can go to zero.
 2. **Dumping pays the holders who stay.** The 2% sell fee, the exit fee and redemption fees all go to the floor, where pump.fun charges both sides the same.
-3. **Liquidity keeps earning.** pump.fun and LetsBonk LP is either locked and idle or not locked at all. Floorpad's locked LP earns NEAR staking yield.
+3. **Liquidity keeps earning.** pump.fun and LetsBonk LP is either locked and idle or not locked at all. Floorpad's locked LP earns NEAR staking yield and swap fees, and each epoch `harvest_lp` pays that growth out: the meme side is burned and the LiNEAR side goes to the holders' vote, while the principal depth stays locked.
 4. **Graduation is easier and priced in dollars.** At ~$15k, versus about $69k on pump.fun, more tokens reach the DEX, and the target doesn't drift when NEAR's price moves.
 5. **Creators are paid but accountable.** The creator share matches or beats pump.fun's 0.30%, but half of it depends on milestones the holders vote on.
 6. **Engagement comes built in.** Chat, tracked callouts, a holder DAO and an AI agent come with every launch, which no single competitor in this table bundles.

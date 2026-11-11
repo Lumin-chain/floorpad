@@ -739,3 +739,139 @@ fn deployer_cannot_set_price() {
     ctx(&acc("deployer.testnet"), 0, T0 + 1);
     c.set_near_usd_price(U128(1));
 }
+
+// ---- LP harvest ----
+
+fn pool_info(meme: u128, lin: u128, shares: u128) -> crate::ext::RefPoolInfo {
+    crate::ext::RefPoolInfo {
+        token_account_ids: vec![token(), acc("linear-protocol.testnet")],
+        amounts: vec![U128(meme), U128(lin)],
+        shares_total_supply: U128(shares),
+    }
+}
+
+#[test]
+fn harvest_math_takes_only_growth() {
+    let p = NEAR * 12 / 10;
+    let (lin, meme) = (750 * NEAR, 200_000_000 * TOK);
+    let k0 = math::lp_depth(lin, meme, p);
+    // no growth -> nothing
+    assert_eq!(math::harvest_shares(1_000 * NEAR, k0, k0), 0);
+    // fees grew x*y by ~2% (both sides +1%)
+    let k = math::lp_depth(lin * 101 / 100, meme * 101 / 100, p);
+    let s = 1_000 * NEAR;
+    let rm = math::harvest_shares(s, k, k0);
+    let left = math::lp_depth(math::mul_div(lin * 101 / 100, s - rm, s), math::mul_div(meme * 101 / 100, s - rm, s), p);
+    assert!(left.abs_diff(k0) * 1_000_000 <= k0, "depth after harvest {left} vs {k0}");
+    // LiNEAR +10% -> depth +sqrt(1.1) ~ 4.88% -> remove ~4.65% of shares
+    let k = math::lp_depth(lin, meme, p * 11 / 10);
+    let pct = math::harvest_shares(10_000, k, k0);
+    assert!((464..=466).contains(&pct), "removed bps {pct}");
+}
+
+#[test]
+fn harvest_depth_ignores_trades_and_handles_big_pools() {
+    // a fee-less constant-product swap leaves depth unchanged
+    let p = NEAR * 13 / 10;
+    let (lin, meme) = (5_000 * NEAR, 100_000_000 * TOK);
+    let k0 = math::lp_depth(lin, meme, p);
+    let lin2 = lin + 1_000 * NEAR;
+    let meme2 = math::mul_div_ceil(lin, meme, lin2);
+    let k1 = math::lp_depth(lin2, meme2, p);
+    assert!(k1.abs_diff(k0) * 1_000_000_000 <= k0);
+    // 10M LiNEAR x 1B tokens at 3 NEAR doesn't overflow
+    let big = math::lp_depth(10_000_000 * NEAR, 1_000_000_000 * TOK, 3 * NEAR);
+    assert!(big > 0);
+}
+
+#[test]
+#[should_panic(expected = "ERR_HARVEST_NOT_DUE")]
+fn harvest_waits_one_epoch() {
+    let (mut c, _) = graduated();
+    ctx(&acc("anyone.testnet"), 0, T0 + 400);
+    c.harvest_lp(token());
+}
+
+#[test]
+fn harvest_burns_meme_and_feeds_epoch_yield() {
+    let (mut c, _) = graduated();
+    let t = c.tok(0).clone();
+    assert!(t.lp_k0 > 0);
+    let price0 = t.last_linear_price;
+    let shares = 1_000 * NEAR;
+    let epoch = cfg().epoch_secs;
+
+    // anyone can start it once an epoch has passed
+    ctx(&acc("anyone.testnet"), 0, T0 + 302 + epoch);
+    c.harvest_lp(token());
+    assert!(c.tok(0).harvest_busy);
+
+    // pool grew 1% on both sides from fees; LiNEAR +5%
+    let (meme, lin) = (t.lp_tokens * 101 / 100, t.lp_shares * 101 / 100);
+    let new_price = price0 * 105 / 100;
+    ctx(&lp(), 0, T0 + 303 + epoch);
+    let _ = c.on_harvest_quote(0, Ok(U128(new_price)), Ok(pool_info(meme, lin, shares)), Ok(U128(shares)));
+    let k = math::lp_depth(lin, meme, new_price);
+    let rm = math::harvest_shares(shares, k, t.lp_k0);
+    assert!(rm > 0);
+    let (out_meme, out_lin) = (math::mul_div(meme, rm, shares), math::mul_div(lin, rm, shares));
+
+    ctx(&lp(), 0, T0 + 303 + epoch);
+    let _ = c.on_harvest_removed(0, 0, 1, Ok(vec![U128(out_meme), U128(out_lin)]));
+    assert_eq!(c.tok(0).harvest_meme_pending, out_meme);
+    assert_eq!(c.tok(0).harvest_linear_pending, out_lin);
+
+    // both withdrawals land
+    let shares_before = c.tok(0).linear_shares;
+    let in_flight0 = c.tok(0).tokens_in_flight;
+    ctx_results(T0 + 304 + epoch, vec![PromiseResult::Successful(vec![]), PromiseResult::Successful(vec![])]);
+    let _ = c.on_harvest_withdrawn(0, U128(out_meme), U128(out_lin));
+    let t2 = c.tok(0);
+    assert!(!t2.harvest_busy);
+    assert_eq!(t2.harvest_linear_pending + t2.harvest_meme_pending, 0);
+    assert_eq!(t2.linear_shares, shares_before + out_lin);
+    assert_eq!(t2.harvested_linear, out_lin);
+    assert_eq!(t2.tokens_in_flight, in_flight0 + out_meme);
+
+    let burned0 = c.tok(0).burned;
+    ctx(&lp(), 0, T0 + 305 + epoch);
+    c.on_harvest_burned(0, U128(out_meme), Ok(()));
+    assert_eq!(c.tok(0).burned, burned0 + out_meme);
+    assert_eq!(c.tok(0).harvest_burned, out_meme);
+
+    // the harvested LiNEAR is yield, not principal: the next epoch splits it
+    let principal = c.tok(0).principal_near;
+    let principal_shares = math::mul_div_ceil(principal, math::PRICE_SCALE, new_price);
+    assert!(c.tok(0).linear_shares - principal_shares >= out_lin);
+}
+
+#[test]
+fn failed_harvest_withdrawal_is_retried() {
+    let (mut c, _) = graduated();
+    let epoch = cfg().epoch_secs;
+    c.tok_mut(0).harvest_busy = true;
+    ctx(&lp(), 0, T0 + 303 + epoch);
+    let _ = c.on_harvest_removed(0, 0, 1, Ok(vec![U128(5 * TOK), U128(NEAR)]));
+    // LiNEAR withdrawal fails, meme lands
+    ctx_results(T0 + 304 + epoch, vec![PromiseResult::Successful(vec![]), PromiseResult::Failed]);
+    let _ = c.on_harvest_withdrawn(0, U128(5 * TOK), U128(NEAR));
+    let t = c.tok(0);
+    assert_eq!(t.harvest_meme_pending, 0);
+    assert_eq!(t.harvest_linear_pending, NEAR);
+    assert!(!t.harvest_busy);
+    // retry is allowed right away (no epoch wait) and only withdraws what's pending
+    ctx(&acc("anyone.testnet"), 0, T0 + 305 + epoch);
+    c.harvest_lp(token());
+    assert!(c.tok(0).harvest_busy);
+}
+
+#[test]
+fn tiny_harvest_is_skipped() {
+    let (mut c, _) = graduated();
+    let t = c.tok(0).clone();
+    c.tok_mut(0).harvest_busy = true;
+    ctx(&lp(), 0, T0 + 999_999);
+    let r = c.on_harvest_quote(0, Ok(U128(t.last_linear_price)), Ok(pool_info(t.lp_tokens, t.lp_shares, NEAR)), Ok(U128(NEAR)));
+    assert!(matches!(r, PromiseOrValue::Value(())));
+    assert!(!c.tok(0).harvest_busy);
+}

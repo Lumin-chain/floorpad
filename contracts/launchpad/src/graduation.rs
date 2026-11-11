@@ -183,6 +183,9 @@ impl Contract {
             tok.grad_stage = GradStage::Graduated;
             tok.graduated_at = now_secs();
             tok.last_epoch_at = tok.graduated_at;
+            tok.last_harvest_at = tok.graduated_at;
+            // Baseline depth of the locked LP; harvests only take growth above it.
+            tok.lp_k0 = math::lp_depth(tok.lp_shares, tok.lp_tokens, tok.last_linear_price);
         }
     }
 }

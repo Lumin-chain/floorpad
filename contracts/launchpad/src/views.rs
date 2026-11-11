@@ -58,6 +58,13 @@ pub struct TokenView {
     pub snipe_window_ends: u64,
     pub custody_total: U128,
     pub mech_count: u32,
+    pub lp_k0: U128,
+    pub last_harvest_at: u64,
+    pub next_harvest_at: u64,
+    pub harvest_busy: bool,
+    pub harvest_pending: bool,
+    pub harvested_linear: U128,
+    pub harvest_burned: U128,
 }
 
 #[near(serializers = [json])]
@@ -290,6 +297,17 @@ impl Contract {
             snipe_window_ends: t.created_at + c.snipe_window_secs,
             custody_total: U128(t.custody_total),
             mech_count: t.mech_count,
+            lp_k0: U128(t.lp_k0),
+            last_harvest_at: t.last_harvest_at,
+            next_harvest_at: if t.grad_stage == GradStage::Graduated {
+                t.last_harvest_at + c.epoch_secs
+            } else {
+                0
+            },
+            harvest_busy: t.harvest_busy,
+            harvest_pending: t.harvest_meme_pending > 0 || t.harvest_linear_pending > 0,
+            harvested_linear: U128(t.harvested_linear),
+            harvest_burned: U128(t.harvest_burned),
         }
     }
 }

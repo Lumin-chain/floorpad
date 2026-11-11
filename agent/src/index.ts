@@ -4,7 +4,8 @@
  * Keeper (permissionless, anyone can run one):
  *   - finalize_dao      for freshly created DAOs
  *   - advance_graduation for tokens whose curve sold out
- *   - settle_epoch       when an epoch is due
+ *   - harvest_lp         when due (LP growth above the locked baseline -> burn + epoch yield)
+ *   - settle_epoch       when an epoch is due (runs after the harvest so it splits it)
  *
  * Agent (only for tokens whose agent_account is OPERATOR_ID):
  *   - every POST_INTERVAL_SECS, writes a post in the token's voted persona,
@@ -52,6 +53,9 @@ interface TokenView {
   grad_busy: boolean;
   epoch_busy: boolean;
   next_epoch_at: number;
+  harvest_busy?: boolean;
+  harvest_pending?: boolean;
+  next_harvest_at?: number;
   v_near: U128;
   v_tokens: U128;
   sold: U128;
@@ -131,6 +135,10 @@ async function keep(t: TokenView) {
     }
     if (t.grad_stage !== "Curve" && t.grad_stage !== "Graduated" && !t.grad_busy) {
       await call("advance_graduation", { token_id: t.token_id }, 300n);
+    }
+    const harvestDue = t.next_harvest_at !== undefined && (t.harvest_pending || now >= t.next_harvest_at);
+    if (t.grad_stage === "Graduated" && !t.harvest_busy && harvestDue) {
+      await call("harvest_lp", { token_id: t.token_id }, 300n).catch((e) => console.warn(`harvest ${t.token_id}:`, (e as Error).message));
     }
     if (t.grad_stage === "Graduated" && !t.epoch_busy && now >= t.next_epoch_at) {
       await call("settle_epoch", { token_id: t.token_id }, 300n);

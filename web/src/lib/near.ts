@@ -172,6 +172,13 @@ export interface TokenView {
   agent_budget_shares: string;
   post_count: number;
   snipe_window_ends: number;
+  // LP harvest (absent on launchpads deployed before it existed)
+  last_harvest_at?: number;
+  next_harvest_at?: number;
+  harvest_busy?: boolean;
+  harvest_pending?: boolean;
+  harvested_linear?: string;
+  harvest_burned?: string;
 }
 
 export interface Position {
