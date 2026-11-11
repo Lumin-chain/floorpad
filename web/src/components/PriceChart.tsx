@@ -178,6 +178,16 @@ export function PriceChart({ t, linearPrice }: TokenCtx) {
   const lineArea = `${linePts} L${scaleX(candles.length - 1)},${PAD_TOP + priceHeight} L${scaleX(0)},${PAD_TOP + priceHeight} Z`;
 
   const activeCandle = hoverIndex !== null && candles[hoverIndex] ? candles[hoverIndex] : candles[candles.length - 1];
+  const sparse = candles.length < 3;
+  const effectiveMode = sparse ? "line" : mode;
+  const linePtsClean =
+    candles.length === 1
+      ? `M${P},${scaleY(candles[0].close).toFixed(1)} L${W - P},${scaleY(candles[0].close).toFixed(1)}`
+      : linePts;
+  const lineAreaClean =
+    candles.length === 1
+      ? `${linePtsClean} L${W - P},${PAD_TOP + priceHeight} L${P},${PAD_TOP + priceHeight} Z`
+      : lineArea;
 
   return (
     <div className="panel chart-panel stack" style={{ gap: 12 }}>
@@ -186,8 +196,8 @@ export function PriceChart({ t, linearPrice }: TokenCtx) {
         <div className="row wrap" style={{ gap: 12 }}>
           <h2 style={{ margin: 0 }}>Price vs Floor</h2>
           <div className="seg">
-            <button className={mode === "candles" ? "active" : ""} onClick={() => setMode("candles")}>Candles</button>
-            <button className={mode === "line" ? "active" : ""} onClick={() => setMode("line")}>Line</button>
+            <button className={effectiveMode === "candles" ? "active" : ""} disabled={sparse} title={sparse ? "Needs at least 3 time buckets for candles" : undefined} onClick={() => setMode("candles")}>Candles</button>
+            <button className={effectiveMode === "line" ? "active" : ""} onClick={() => setMode("line")}>Line</button>
           </div>
           <div className="seg">
             {TIMEFRAMES.map((item) => (
@@ -205,6 +215,12 @@ export function PriceChart({ t, linearPrice }: TokenCtx) {
           </span>
         </div>
       </div>
+
+      {sparse && (
+        <div className="xs muted">
+          Early trade history ({candles.length} bucket{candles.length === 1 ? "" : "s"} on {tf}) — showing price line vs floor.
+        </div>
+      )}
 
       {/* OHLC Bar Info with fixed minHeight to eliminate layout shift */}
       <div className="row wrap small mono" style={{ gap: 14, minHeight: 28, color: "var(--muted)", background: "var(--panel-2)", padding: "4px 10px", borderRadius: 8, alignItems: "center" }}>
@@ -272,15 +288,15 @@ export function PriceChart({ t, linearPrice }: TokenCtx) {
           </text>
 
           {/* Line Mode */}
-          {mode === "line" && (
+          {effectiveMode === "line" && (
             <>
-              <path d={lineArea} fill="url(#areaGrad)" />
-              <path d={linePts} fill="none" stroke="#3B82F6" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+              <path d={lineAreaClean} fill="url(#areaGrad)" />
+              <path d={linePtsClean} fill="none" stroke="#3B82F6" strokeWidth="2" vectorEffect="non-scaling-stroke" />
             </>
           )}
 
           {/* Candlestick Mode */}
-          {mode === "candles" &&
+          {effectiveMode === "candles" &&
             candles.map((c, i) => {
               const cx = scaleX(i);
               const yOpen = scaleY(c.open);

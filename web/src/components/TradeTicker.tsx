@@ -154,18 +154,23 @@ export function TradeTicker() {
     el.scrollTo({ left: el.scrollWidth, behavior: "smooth" });
   }, [trades]);
 
+  if (loaded && trades.length === 0) return null;
+
+  const newestTs = trades.length > 0 ? trades[trades.length - 1].ts : 0;
+  const isRecentlyLive = newestTs > 0 && Math.floor(Date.now() / 1000) - newestTs <= 900;
+
   return (
-    <aside className="trade-ticker-bar" aria-label="Live Launchpad Trades">
+    <aside className="trade-ticker-bar" aria-label="Recent Launchpad Trades">
       <div className="container wide trade-ticker-inner">
-        <div className="ticker-label">
-          <span className="live-pulse" />
-          <span className="ticker-label-text">LIVE TRADES</span>
+        <div className={`ticker-label ${isRecentlyLive ? "" : "stale"}`}>
+          {isRecentlyLive && <span className="live-pulse" />}
+          <span className="ticker-label-text">{isRecentlyLive ? "LIVE TRADES" : "RECENT TRADES"}</span>
         </div>
 
         <div className="ticker-flow-wrap" ref={trackRef}>
           {trades.length === 0 ? (
             <div className="ticker-empty small muted">
-              {loaded ? "Waiting for live launchpad trades…" : "Syncing live trades…"}
+              Loading recent trades…
             </div>
           ) : (
             <div className="ticker-track">
@@ -189,7 +194,7 @@ export function TradeTicker() {
 
                     {safeIcon ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={safeIcon} alt="" className="ticker-avatar" />
+                      <img src={safeIcon} alt={`$${sym} icon`} className="ticker-avatar" />
                     ) : (
                       <span className="ticker-avatar-placeholder">{sym.slice(0, 2)}</span>
                     )}

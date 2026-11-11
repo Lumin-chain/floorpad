@@ -4,11 +4,13 @@ import { useEffect, useState } from "react";
 import {
   getReferrer,
   fmtNear,
+  fmtPrice,
   fmtTok,
   LAUNCHPAD,
   LINEAR,
   lp,
   parseUnits,
+  pricePerToken,
   REF,
   view,
   YOCTO,
@@ -497,7 +499,7 @@ function RefTrade({ t, balance, linearPrice, reload, initialSide, onDone }: Trad
   const shares = side === "buy" && linP > 0n ? (((base * YOCTO) / linP) * 995n) / 1000n : 0n;
   const out = !pool || base === 0n || rMeme === 0n || rLin === 0n ? 0n : side === "buy" ? refOut(shares, rLin, rMeme, fee) : refOut(base, rMeme, rLin, fee);
   const min = (out * (10000n - SLIPPAGE_BPS)) / 10000n;
-  const spot = rMeme > 0n && linP > 0n ? Number((rLin * linP * 10n ** 12n) / rMeme / YOCTO) / 1e18 / 1e6 : 0;
+  const spot = rMeme > 0n && linP > 0n ? pricePerToken((rLin * linP) / YOCTO, rMeme) : 0;
 
   async function submit() {
     if (!accountId || out === 0n) return;
@@ -636,7 +638,7 @@ function RefTrade({ t, balance, linearPrice, reload, initialSide, onDone }: Trad
 
       <div className="small muted">
         Ref pool #{t.pool_id}: {fmtTok(rMeme.toString(), 0)} ${t.meta.symbol} / {fmtNear(rLin.toString(), 2)} LiNEAR. LP is 100% locked
-        forever and earns staking yield. Spot ≈ {spot.toExponential(3)} N.
+        forever and earns staking yield. Spot ≈ {fmtPrice(spot)} N.
       </div>
 
       <div className="input-suffix">

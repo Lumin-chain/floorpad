@@ -4,8 +4,8 @@ import { LAUNCHPAD, type TokenView } from "@/lib/near";
 import { useWallet } from "@/lib/wallet";
 import { SlabIcon } from "./Brand";
 
-/** Permissionless lifecycle steps. A keeper runs these too, but anyone can push them from here. */
-export function OpsBar({ t, reload }: { t: TokenView; reload: () => void }) {
+/** Permissionless lifecycle steps. Keeper/advanced actions tuck into a menu in the token header. */
+export function OpsBar({ t, reload, menu = false }: { t: TokenView; reload: () => void; menu?: boolean }) {
   const { send, busy } = useWallet();
   const run = async (method: string, gas: number) => {
     if (await send([{ receiverId: LAUNCHPAD, calls: [{ method, args: { token_id: t.token_id }, gas }] }])) reload();
@@ -24,6 +24,31 @@ export function OpsBar({ t, reload }: { t: TokenView; reload: () => void }) {
   if (t.grad_stage === "Graduated" && !t.epoch_busy && now >= t.next_epoch_at)
     ops.push({ label: "Settle epoch", method: "settle_epoch", gas: 300 });
   if (!ops.length) return null;
+
+  if (menu) {
+    return (
+      <details className="ops-details">
+        <summary className="btn sm ghost" title="Permissionless keeper maintenance actions">
+          <SlabIcon name="ops" size={14} /> Keeper ({ops.length})
+        </summary>
+        <div className="ops-menu">
+          <div className="xs muted" style={{ padding: "2px 4px" }}>Permissionless maintenance</div>
+          {ops.map((o) => (
+            <button
+              key={o.method}
+              className="btn sm"
+              style={{ justifyContent: "flex-start", width: "100%" }}
+              disabled={busy}
+              onClick={() => run(o.method, o.gas)}
+            >
+              <SlabIcon name="ops" size={13} /> {o.label}
+            </button>
+          ))}
+        </div>
+      </details>
+    );
+  }
+
   return (
     <div className="row wrap">
       {ops.map((o) => (

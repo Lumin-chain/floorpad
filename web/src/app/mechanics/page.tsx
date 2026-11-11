@@ -149,44 +149,42 @@ export default function MechanicsPage() {
           <div className="row" style={{ gap: 12 }}>
             <Moji face="hero" size={36} />
             <div>
-              <h1 style={{ margin: 0, fontSize: "1.6rem" }}>Floorpad Mechanics & Audit</h1>
-              <span className="small muted">NEAR Protocol · Fair-launch bonding curves with a rising floor vault</span>
+              <h1 style={{ margin: 0 }}>Floorpad Mechanics &amp; Simulator</h1>
+              <span className="small muted">NEAR Protocol · Bonding curves, vault math, and on-chain parameter checks</span>
             </div>
           </div>
           <div className="row wrap" style={{ gap: 6 }}>
             <span className="badge green">100% On-Chain</span>
-            <span className="badge">No Admin Key</span>
+            <span className="badge">Immutable Config</span>
             <span className="badge sky">Ref MEME/LiNEAR LP Locked</span>
-            <span className="badge violet">Sputnik DAO ve-Locks</span>
+            <span className="badge violet">Sputnik DAO Locks</span>
           </div>
         </div>
 
-        <p className="muted" style={{ marginTop: 8, maxWidth: 860, fontSize: "0.95rem" }}>
-          Floorpad eliminates rug-pulls and structural decay in meme coins by combining a strictly rising{" "}
-          <strong className="green">Redeemable Floor Vault</strong>, an asymmetric fee model (1.25% buy / 2.5% sell + decaying 10% exit fee),{" "}
-          permanent Ref Finance LP locking, and Sputnik DAO governance where <strong style={{ color: "var(--violet)" }}>ve-lock weights</strong> vote on yield splits.
+        <p className="muted" style={{ marginTop: 8, maxWidth: 860 }}>
+          Floorpad pairs a bonding curve with an on-chain <strong className="green">Redeemable Floor Vault</strong> (denominated in NEAR/LiNEAR), an asymmetric fee model (1.25% buy / 2.5% sell + decaying 10% quick-flip exit fee), permanent Ref Finance LP locking, and Sputnik DAO lock-weighted yield governance.
         </p>
 
         <div className="grid four stats" style={{ marginTop: 6 }}>
           <div className="stat">
-            <div className="k">Admin Control</div>
-            <div className="v green">None</div>
-            <div className="s">Immutable config</div>
+            <div className="k">User Fund Custody</div>
+            <div className="v green">No Admin Drain</div>
+            <div className="s">Immutable config parameters</div>
           </div>
           <div className="stat">
             <div className="k">Vault Floor Share</div>
             <div className="v">{(Number(config?.fee_vault_bps ?? 4000) / 100).toFixed(0)}%</div>
-            <div className="s">From all curve fees + 100% exit fees</div>
+            <div className="s">Curve fees + 100% exit fees</div>
           </div>
           <div className="stat">
             <div className="k">LP Locking</div>
             <div className="v">100% Ref Pool</div>
-            <div className="s">Locked forever on-chain</div>
+            <div className="s">Held forever by contract</div>
           </div>
           <div className="stat">
             <div className="k">DAO Pass Threshold</div>
-            <div className="v" style={{ color: "var(--violet)" }}>&gt; 70%</div>
-            <div className="s">Ve-lock token-weighted</div>
+            <div className="v" style={{ color: "var(--violet-bright)" }}>&gt; 70%</div>
+            <div className="s">Lock-weighted approval</div>
           </div>
         </div>
       </div>
@@ -197,10 +195,10 @@ export default function MechanicsPage() {
           <span className="row" style={{ gap: 6 }}><Moji face="hero" size={18} /> 60-Day Simulator</span>
         </button>
         <button className={tab === "security" ? "active" : ""} onClick={() => setTab("security")}>
-          <span className="row" style={{ gap: 6 }}><Moji face="cool" size={18} /> Zero-Admin & Parameters</span>
+          <span className="row" style={{ gap: 6 }}><Moji face="cool" size={18} /> On-Chain Parameters &amp; Keys</span>
         </button>
         <button className={tab === "events" ? "active" : ""} onClick={() => setTab("events")}>
-          <span className="row" style={{ gap: 6 }}><Moji face="wink" size={18} /> On-Chain Audit Log</span>
+          <span className="row" style={{ gap: 6 }}><Moji face="wink" size={18} /> On-Chain Mechanics Log</span>
         </button>
       </div>
 
@@ -335,8 +333,8 @@ export default function MechanicsPage() {
           <div className="row wrap" style={{ gap: 20 }}>
             <div>
               <span className="small muted">Floor Price: </span>
-              <strong className="green">${activePoint.floorPriceUsd.toFixed(6)}</strong>
-              <span className="small muted"> ({activePoint.floorPriceNear.toFixed(6)} N)</span>
+              <strong className="green">${fmtPrice(activePoint.floorPriceUsd)}</strong>
+              <span className="small muted"> ({fmtPrice(activePoint.floorPriceNear)} N)</span>
             </div>
             <div>
               <span className="small muted">Floor Vault Value: </span>
@@ -358,7 +356,7 @@ export default function MechanicsPage() {
             return (
               <div key={d} className="stat">
                 <div className="k">Day {d} Milestone</div>
-                <div className="v green">${pt.floorPriceUsd.toFixed(6)}</div>
+                <div className="v green">${fmtPrice(pt.floorPriceUsd)}</div>
                 <div className="s">{pt.burnedPct.toFixed(1)}% burned · {fmtUsd(pt.vaultUsd)} vault</div>
               </div>
             );
@@ -367,17 +365,16 @@ export default function MechanicsPage() {
       </div>
       )}
 
-      {/* Tab 2: Zero-Admin Proof & Immutable Parameter Sheet */}
+      {/* Tab 2: On-Chain Contract Checks & Immutable Parameter Sheet */}
       {tab === "security" && (
         <div className="stack" style={{ gap: 20 }}>
-          {/* Zero Admin Proof */}
           <div className="panel stack">
             <div className="row between wrap">
-              <h2><MojiLabel face="cool">Cryptographic Zero-Admin Proof</MojiLabel></h2>
+              <h2><MojiLabel face="cool">On-Chain Contract Checks</MojiLabel></h2>
               <span className="badge mono">{LAUNCHPAD}</span>
             </div>
             <p className="small muted">
-              Verified live from <code className="mono">get_admin_powers()</code> on the launchpad contract. Config cannot be updated, and no keys exist that can withdraw funds or alter mechanics.
+              Returned by the contract&apos;s <code className="mono">get_admin_powers()</code> view method (this is a self-reported contract view, not a third-party security audit). Testnet keeps an upgrade key during development; production mainnet deploy scripts remove full-access keys (<code className="mono">LOCK=1</code>).
             </p>
             <div className="grid half" style={{ gap: 12 }}>
               {(adminPowers ?? [
@@ -494,7 +491,7 @@ export default function MechanicsPage() {
       {tab === "events" && (
       <div className="panel stack">
         <div className="row between wrap">
-          <h2><MojiLabel face="wink">Live Mechanics Audit Log</MojiLabel></h2>
+          <h2><MojiLabel face="wink">Live Mechanics Event Log</MojiLabel></h2>
           {tokens && tokens.length > 0 && (
             <div className="row" style={{ gap: 8 }}>
               <span className="small muted">Token:</span>

@@ -7,13 +7,16 @@ import {
   fmtNear,
   fmtPrice,
   fmtTok,
+  isGraduated,
   LAUNCHPAD,
   LINEAR,
   lp,
-  pricePerToken,
+  nearUsd,
+  REF,
   tokenSpotPrice,
   until,
   view,
+  YOCTO,
   type Position,
   type TokenView,
 } from "@/lib/near";
@@ -27,21 +30,29 @@ interface Row {
   t: TokenView;
   balance: bigint;
   pos: Position | null;
+  refPool?: { token_account_ids: string[]; amounts: string[] } | null;
 }
 
 export default function Portfolio() {
   const { accountId, signIn, send, busy } = useWallet();
   const [pnlTarget, setPnlTarget] = useState<Row | null>(null);
+  const { data: usd } = useView(() => nearUsd(), [], 60000);
+  const { data: linearPriceStr } = useView(() => view<string>(LINEAR, "ft_price"), [], 60000);
+  const linearPrice = linearPriceStr ? BigInt(linearPriceStr) : YOCTO;
   const { data: rows } = useView<Row[]>(
     accountId
       ? async () => {
           const tokens = (await lp<TokenView[]>("get_tokens", { from_index: 0, limit: 100 })).filter((t) => t.deployed);
           const out = await Promise.all(
-            tokens.map(async (t) => ({
-              t,
-              balance: BigInt(await view<string>(t.token_id, "ft_balance_of", { account_id: accountId }).catch(() => "0")),
-              pos: await lp<Position | null>("get_position", { token_id: t.token_id, account_id: accountId }),
-            })),
+            tokens.map(async (t) => {
+              const balance = BigInt(await view<string>(t.token_id, "ft_balance_of", { account_id: accountId }).catch(() => "0"));
+              const pos = await lp<Position | null>("get_position", { token_id: t.token_id, account_id: accountId });
+              const refPool =
+                isGraduated(t) && t.pool_id !== null && (balance > 0n || (pos && BigInt(pos.amount) > 0n))
+                  ? await view<{ token_account_ids: string[]; amounts: string[] }>(REF, "get_pool", { pool_id: t.pool_id }).catch(() => null)
+                  : null;
+              return { t, balance, pos, refPool };
+            }),
           );
           return out.filter((r) => r.balance > 0n || (r.pos && BigInt(r.pos.amount) > 0n));
         }
@@ -80,7 +91,7 @@ export default function Portfolio() {
           className="btn sm"
           onClick={async () => {
             const url = `${window.location.origin}/?ref=${accountId}`;
-            await navigator.clipboard.writeText(url).catch(() => {});
+            await navigator.clipboard.writeText(url).catch(() => { });
           }}
           title="Earn 20% of the platform fee on every trade your link brings"
         >
@@ -128,9 +139,9 @@ export default function Portfolio() {
                 <tr><th>Token</th><th>Wallet</th><th>Locked</th><th>Unlocks</th><th>Floor value</th><th>Rewards</th><th>Share</th></tr>
               </thead>
               <tbody>
-                {rows.map(({ t, balance, pos }) => {
+                {rows.map(({ t, balance, pos, refPool }) => {
                   const locked = pos ? BigInt(pos.amount) : 0n;
-                  const floorVal = floorPrice(t) * Number((balance + locked) / 10n ** 14n) / 1e4;
+                  const floorVal = floorPrice(t, linearPrice) * Number((balance + locked) / 10n ** 14n) / 1e4;
                   return (
                     <tr key={t.token_id}>
                       <td>
@@ -147,7 +158,7 @@ export default function Portfolio() {
                         <button
                           className="btn sm"
                           style={{ padding: "4px 10px", fontSize: 12, gap: 4 }}
-                          onClick={() => setPnlTarget({ t, balance, pos })}
+                          onClick={() => setPnlTarget({ t, balance, pos, refPool })}
                           title="Share PNL Card on X"
                         >
                           <SlabIcon name="share" size={12} /> PNL
@@ -167,9 +178,9 @@ export default function Portfolio() {
           t={pnlTarget.t}
           balance={pnlTarget.balance + (pnlTarget.pos ? BigInt(pnlTarget.pos.amount) : 0n)}
           holdingSince={pnlTarget.pos ? pnlTarget.pos.unlock_at - 7 * 86400 : null}
-          spotPriceNear={tokenSpotPrice(pnlTarget.t)}
-          floorPriceNear={floorPrice(pnlTarget.t)}
-          nearUsd={3.6}
+          spotPriceNear={tokenSpotPrice(pnlTarget.t, pnlTarget.refPool, linearPrice)}
+          floorPriceNear={floorPrice(pnlTarget.t, linearPrice)}
+          nearUsd={usd ?? 3.6}
           onClose={() => setPnlTarget(null)}
         />
       )}

@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { LAUNCHPAD, NETWORK } from "@/lib/near";
+import { LAUNCHPAD, lp, NETWORK, type LaunchConfig } from "@/lib/near";
+import { useView } from "@/lib/wallet";
 import { Moji, MojiLabel, SlabIcon } from "@/components/Brand";
 
 const SECTIONS = [
@@ -24,6 +25,8 @@ type SectionId = (typeof SECTIONS)[number]["id"];
 export default function DocsPage() {
   const [activeSection, setActiveSection] = useState<SectionId>("overview");
   const [viewMode, setViewMode] = useState<"focus" | "all">("focus");
+  const { data: cfg } = useView(() => lp<LaunchConfig>("get_config"), [], 0);
+  const gradTargetUsd = cfg ? cfg.grad_mcap_usd : NETWORK === "testnet" ? 100 : 15000;
 
   const curIdx = SECTIONS.findIndex((s) => s.id === activeSection);
   const prevSec = curIdx > 0 ? SECTIONS[curIdx - 1] : null;
@@ -117,7 +120,7 @@ export default function DocsPage() {
             <div className="grid half stats">
               <div className="stat">
                 <div className="k">The Floor Vault</div>
-                <div className="v green">Only Rises</div>
+                <div className="v green">Rises in NEAR</div>
                 <div className="s">Redeem tokens for vault share anytime</div>
               </div>
               <div className="stat">
@@ -132,8 +135,8 @@ export default function DocsPage() {
               </div>
               <div className="stat">
                 <div className="k">Sputnik DAO</div>
-                <div className="v" style={{ color: "var(--violet)" }}>&gt; 70% Quorum</div>
-                <div className="s">ve-Lock weighted vote governance</div>
+                <div className="v" style={{ color: "var(--violet-bright)" }}>&gt; 70% Pass Threshold</div>
+                <div className="s">Lock-weighted approval required</div>
               </div>
             </div>
           </div>
@@ -167,9 +170,9 @@ export default function DocsPage() {
             <p>
               The bonding curve uses a virtual reserve constant-product model (<code>x · y = k</code>) with 1,160,000,000 virtual tokens.
             </p>
-            <h3>Live Dynamic Sizing via On-Chain Ref Oracle</h3>
+            <h3>Live Dynamic Sizing via On-Chain Price</h3>
             <p className="muted small">
-              Unlike static launchpads where token graduation fluctuates wildly with the price of the base coin, Floorpad reads the live <strong>NEAR/USD spot price on-chain directly from Ref pool #4512 (wNEAR/USDC)</strong>. Virtual reserves scale dynamically so that every token graduates at exactly <strong>~$15,000 USD FDV</strong> on mainnet ($100 on testnet).
+              Virtual reserves scale dynamically using the live NEAR/USD price (read on-chain from Ref pool #4512 on mainnet, or keeper price feed on testnet) so launches currently graduate at <strong>${gradTargetUsd.toLocaleString()} USD FDV</strong> ({NETWORK} setting; mainnet target ~$15,000 USD).
             </p>
 
             <h3>Zero-Slippage Smooth Migration onto Ref Finance</h3>
@@ -193,21 +196,21 @@ export default function DocsPage() {
             <p>
               Every Floorpad token is backed by an on-chain <strong>Floor Vault</strong> holding NEAR (before graduation) and yield-bearing LiNEAR (after graduation).
             </p>
-            <h3>Why the Floor Price Only Rises (Monotonically):</h3>
+            <h3>Why the Floor Vault Grows in NEAR / LiNEAR Terms</h3>
             <p className="muted small">
               Floor price is calculated as:
             </p>
             <div className="panel tight mono small" style={{ background: "var(--panel-2)", textAlign: "center" }}>
-              Floor Price = Vault Backing / Circulating Supply (Total Supply − Burned)
+              Floor Price (NEAR) = Vault Backing / Circulating Supply (Total Supply − Burned)
             </div>
             <p className="muted small">
-              The floor vault grows from:
+              The floor vault grows in NEAR / LiNEAR from:
             </p>
             <ul className="muted small stack" style={{ paddingLeft: 20 }}>
-              <li><strong>70% of all trading fees</strong> (buys, sells, and decayed exit fees).</li>
+              <li><strong>40% of all trading fees</strong> (25% goes to creator, 35% to platform) + <strong>100% of quick-flip exit penalties</strong>.</li>
               <li><strong>15% of the curve graduation raise</strong>.</li>
-              <li><strong>Continuous staking rewards</strong> from LiNEAR compounding.</li>
-              <li><strong>Token Redemptions:</strong> Holders can redeem their tokens for their exact pro-rata share of the vault at any time. When tokens are redeemed, <strong>they are burned permanently</strong>. This removes circulating supply and mathematically raises the floor price per token for all remaining holders!</li>
+              <li><strong>Continuous staking rewards</strong> from LiNEAR compounding (when allocated to floor).</li>
+              <li><strong>Token Redemptions:</strong> Holders can burn their tokens anytime to redeem their exact pro-rata share of the vault. Redemptions keep the 2% fee + exit fee inside the vault, raising the remaining NEAR backing per token.</li>
             </ul>
           </div>
           )}
@@ -217,16 +220,16 @@ export default function DocsPage() {
           <div id="fees" className="panel stack">
             <h2><MojiLabel face="flag">5. Taxes &amp; Decaying Exit Fees</MojiLabel></h2>
             <p>
-              Floorpad employs an asymmetric tax model that rewards long-term conviction and penalizes rapid dumping:
+              Floorpad employs an asymmetric fee model that rewards holding and penalizes rapid dumping:
             </p>
             <div className="grid half">
               <div className="panel tight stack" style={{ background: "var(--panel-2)" }}>
                 <b>Buy Fee: 1.25%</b>
-                <span className="small muted">Low friction to enter. 70% goes to the floor vault, 10% to creator, 20% to platform.</span>
+                <span className="small muted">Low entry friction. 40% goes to the floor vault, 25% to creator (half instant, half DAO-escrowed), 35% to platform.</span>
               </div>
               <div className="panel tight stack" style={{ background: "var(--panel-2)" }}>
                 <b>Sell Fee: 2.50% + Decaying Exit Fee</b>
-                <span className="small muted">Selling always costs more than buying. Discourages predatory flipping.</span>
+                <span className="small muted">Same 40% vault / 25% creator / 35% platform split on base fee, plus 100% of the exit fee straight to the vault.</span>
               </div>
             </div>
 
@@ -347,18 +350,18 @@ export default function DocsPage() {
           </div>
           )}
 
-          {/* Section 10: Zero Admin */}
+          {/* Section 10: Admin Controls & Key Status */}
           {showSec("security") && (
           <div id="security" className="panel stack">
-            <h2><MojiLabel face="cool">10. Cryptographic Zero-Admin &amp; Security</MojiLabel></h2>
+            <h2><MojiLabel face="cool">10. Contract Controls &amp; Immutability</MojiLabel></h2>
             <p>
-              Floorpad has <strong>no owner</strong>, no admin privileges, and no backdoor methods:
+              The launchpad contract separates treasury fee collection from user assets and has no admin methods to withdraw user funds, vault principal, or LP shares:
             </p>
             <ul className="muted small stack" style={{ paddingLeft: 20 }}>
-              <li><strong>Immutable Parameters:</strong> The contract configuration is set once at deployment and contains no <code>set_config</code> or update functions.</li>
-              <li><strong>No Withdrawal Keys:</strong> The deployer cannot withdraw user funds, liquidity, or floor assets.</li>
-              <li><strong>Permanent Key Deletion:</strong> Deploy scripts delete all full-access keys (<code>LOCK=1</code>).</li>
-              <li><strong>Auditable Proof:</strong> The contract provides a public view method <code>get_admin_powers()</code> that returns cryptographic statements of these guarantees for auditability.</li>
+              <li><strong>Immutable Parameters:</strong> Contract configuration is set at deployment with no runtime <code>set_config</code> method.</li>
+              <li><strong>No Withdrawal Backdoors:</strong> The deployer cannot move vault backing, locked LP, or user custody balances.</li>
+              <li><strong>Key Lock Status:</strong> Production mainnet deployments remove full-access keys (<code>LOCK=1</code>) so code upgrades become permanently impossible. During active testnet development, an upgrade key may remain present until testnet testing concludes.</li>
+              <li><strong>Transparent Checks:</strong> Calling the on-chain view function <code>get_admin_powers()</code> lists these contract restrictions publicly.</li>
             </ul>
           </div>
           )}
@@ -371,13 +374,13 @@ export default function DocsPage() {
               <div className="panel tight stack" style={{ background: "var(--panel-2)" }}>
                 <b>Can the dev or creator rug-pull?</b>
                 <span className="small muted">
-                  No. There is zero dev allocation and zero premint. 100% of Ref liquidity is permanently locked inside the contract.
+                  Creators receive zero free premint tokens, and 100% of graduated Ref Finance LP is held by the launchpad contract rather than the creator. Meme tokens remain volatile and risky on the open market.
                 </span>
               </div>
               <div className="panel tight stack" style={{ background: "var(--panel-2)" }}>
                 <b>Can the floor price ever drop?</b>
                 <span className="small muted">
-                  No. The vault only receives inflows (fees, seed, staking rewards). Redemptions burn tokens proportionally, which maintains or raises the remaining floor per token.
+                  Not in NEAR / LiNEAR terms. Because the vault only receives inflows and redemptions keep fees in the vault while burning supply, the NEAR backing per remaining token is non-decreasing. However, the <strong>USD value fluctuates with NEAR&apos;s market price</strong>, and open-market pool price trades independently.
                 </span>
               </div>
               <div className="panel tight stack" style={{ background: "var(--panel-2)" }}>

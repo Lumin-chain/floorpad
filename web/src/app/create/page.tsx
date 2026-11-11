@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { fmtNear, LAUNCHPAD, lp, safeExternalUrl, safeTelegramUrl, safeTwitterUrl, type LaunchConfig } from "@/lib/near";
+import { fmtNear, LAUNCHPAD, lp, NETWORK, safeExternalUrl, safeTelegramUrl, safeTwitterUrl, type LaunchConfig } from "@/lib/near";
 import { useView, useWallet } from "@/lib/wallet";
 import { Mascot } from "@/components/Mascot";
 
@@ -75,25 +75,40 @@ export default function Create() {
     ]);
   }
 
+  const gradTargetStr = cfg ? `$${cfg.grad_mcap_usd.toLocaleString()}` : "target market cap";
+  const creationFeeStr = cfg ? fmtNear(cfg.creation_fee, 2) : "1.5";
+
   return (
     <div className="grid two section">
       <div className="panel">
-        <h1>Launch a token</h1>
+        <div className="row between wrap" style={{ marginBottom: 6 }}>
+          <h1 style={{ margin: 0 }}>Launch a token</h1>
+          <span className="badge primary mono">Fee: {creationFeeStr} NEAR</span>
+        </div>
         <p className="muted">
-          A single transaction deploys the token, opens the bonding curve and creates the holders&apos; DAO.
-          Total supply is 1B: 760M sell on the curve, which is sized from the live NEAR price so every token graduates to Ref at about ${cfg ? cfg.grad_mcap_usd.toLocaleString() : "15,000"} market cap.
-          There is no premint and no dev allocation.
+          One transaction creates the token, opens the bonding curve, and sets up the community DAO.
+          760M of the 1B total supply sell on the curve, sized from live NEAR price to graduate to Ref Finance at{" "}
+          <strong>{gradTargetStr} USD</strong> ({NETWORK} setting). Zero premint, zero team allocation.
         </p>
         <div className="grid half">
           <label className="field"><span>Name</span><input className="input" value={f.name} onChange={set("name")} maxLength={40} placeholder="Floor Cat" /></label>
           <label className="field"><span>Ticker</span><input className="input mono" value={f.symbol} onChange={set("symbol")} placeholder="FCAT" /></label>
         </div>
         <label className="field"><span>Description</span><textarea className="textarea" value={f.description} onChange={set("description")} maxLength={600} placeholder="What is the meme?" /></label>
-        <label className="field">
-          <span>Image (resized to fit on-chain)</span>
-          <div className="row">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            {icon && <img src={icon} alt="" className="avatar lg" />}
+        <div className="field">
+          <span style={{ display: "block", fontSize: ".875rem", fontWeight: 600, color: "var(--muted)", marginBottom: 5 }}>Token Image (automatically resized on-chain)</span>
+          <label className="dropzone">
+            {icon ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={icon} alt="Token preview" className="avatar lg" />
+            ) : (
+              <div className="avatar lg">{(f.symbol || "IMG").slice(0, 2)}</div>
+            )}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="bold small">{icon ? "Image ready — click to replace" : "Choose a PNG, JPG, or WEBP image"}</div>
+              <div className="xs muted">Cropped square and stored directly on-chain (no external hosting needed).</div>
+            </div>
+            <span className="btn sm">Upload</span>
             <input
               type="file"
               accept="image/*"
@@ -107,8 +122,8 @@ export default function Create() {
                 }
               }}
             />
-          </div>
-        </label>
+          </label>
+        </div>
         <div className="grid half">
           <label className="field"><span>Website</span><input className="input" maxLength={200} value={f.website} onChange={set("website")} placeholder="https://" /></label>
           <label className="field"><span>X / Twitter</span><input className="input" maxLength={64} value={f.twitter} onChange={set("twitter")} placeholder="@handle" /></label>
@@ -136,10 +151,10 @@ export default function Create() {
           <h2>What holders get</h2>
           <ul className="muted small" style={{ paddingLeft: 18, margin: 0 }}>
             <li><b>Fair launch:</b> per-wallet caps during the first minutes stop snipers.</li>
-            <li><b>Floor vault:</b> 40% of every fee (1.25% buy, 2.5% sell), every exit fee and 15% of the graduation raise back a redeemable floor.</li>
-            <li><b>Decaying exit fee:</b> up to {cfg ? cfg.max_exit_fee_bps / 100 : 10}% for fresh buyers, falling to 0 over {cfg ? Math.round(cfg.exit_decay_secs / 86400) : 7} days. Selling always costs more than buying.</li>
-            <li><b>Graduation:</b> at ~$15k the curve closes and liquidity moves to a Ref MEME/LiNEAR pool at the same price. The LP is locked forever and earns staking yield.</li>
-            <li><b>Epoch votes:</b> holders split staking yield across floor, buyback &amp; burn, airdrop, AI agent and treasury.</li>
+            <li><b>Floor vault:</b> 40% of every trade fee (1.25% buy, 2.5% sell), 100% of exit fees and 15% of the graduation raise back the redeemable vault floor.</li>
+            <li><b>Exit penalty on quick flips:</b> starts at {cfg ? cfg.max_exit_fee_bps / 100 : 10}% right after buying and decays linearly to 0% over {cfg ? Math.round(cfg.exit_decay_secs / 86400) : 7} days.</li>
+            <li><b>Graduation:</b> at {gradTargetStr} ({NETWORK}), the curve closes and liquidity moves to a locked Ref pool at the same price, earning staking yield.</li>
+            <li><b>Yield votes:</b> lockers split staking yield across vault floor, buyback &amp; burn, locker rewards, AI agent and DAO treasury.</li>
             <li><b>Creator rewards:</b> 25% of curve fees (0.31% of buys, 0.63% of sells, above pump.fun&apos;s 0.30%). Half is claimable any time; half unlocks by holder vote (&gt;70%), and the DAO can claw it back.</li>
             <li><b>Referrals:</b> anyone who shares a ref link earns 20% of the platform fee on the trades they bring.</li>
           </ul>

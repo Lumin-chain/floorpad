@@ -19,6 +19,14 @@ const NAV = [
   { href: "/portfolio", label: "Portfolio", icon: "portfolio", plus: false },
 ] as const;
 
+const BOTTOM_NAV = [
+  { href: "/", label: "Explore", icon: "explore", plus: false },
+  { href: "/calls", label: "Calls", icon: "calls", plus: false },
+  { href: "/create", label: "Launch", icon: "launch", plus: true },
+  { href: "/docs", label: "Docs", icon: "rows", plus: false },
+  { href: "/portfolio", label: "Portfolio", icon: "portfolio", plus: false },
+] as const;
+
 
 const X_URL = "https://x.com/usefloorpad_";
 
@@ -38,7 +46,7 @@ function Header() {
       <div className="container wide">
         <Link href="/" className="brand">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/symbol.png" alt="" className="brand-symbol" />
+          <img src="/brand/symbol.png" alt="Floorpad mark" className="brand-symbol" />
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/wordmark.png" alt="Floorpad" className="brand-wordmark" />
         </Link>
@@ -53,7 +61,7 @@ function Header() {
         <a
           href={X_URL}
           target="_blank"
-          rel="noreferrer"
+          rel="noopener noreferrer"
           className="x-profile-link"
           aria-label="Floorpad on X (@usefloorpad_)"
           title="@usefloorpad_ on X"
@@ -61,10 +69,10 @@ function Header() {
           <XLogo size={14} />
           <span className="desktop-only">@usefloorpad_</span>
         </a>
-        <span className="badge desktop-only">{NETWORK}</span>
+        <span className={`badge ${NETWORK === "testnet" ? "warn" : "green"}`}>{NETWORK}</span>
         {accountId ? (
           <div className="row" style={{ gap: 6 }}>
-            <span className="badge green mono" title="Wallet NEAR Balance" style={{ fontSize: "0.85rem", padding: "4px 8px" }}>
+            <span className="badge green mono desktop-only" title="Wallet NEAR Balance" style={{ padding: "4px 8px" }}>
               {fmtNear(nearBalance, 2)} N
             </span>
             <button className="btn sm account-btn" onClick={signOut} title="Sign out">
@@ -85,7 +93,7 @@ function BottomNav() {
   const path = usePathname();
   return (
     <nav className="bottom-nav mobile-only" aria-label="Main">
-      {NAV.map((n) => (
+      {BOTTOM_NAV.map((n) => (
         <Link key={n.href} href={n.href} className={`${path === n.href ? "active" : ""} ${n.plus ? "plus" : ""}`}>
           <span className="bn-icon"><SlabIcon name={n.icon} size={20} /></span>
           <span>{n.label}</span>
@@ -100,7 +108,7 @@ function Toast() {
   if (!toast) return null;
   return (
     <div className={`toast ${toast.kind}`}>
-      {toast.kind === "ok" && <Mascot pose="wink" size={44} motion="celebrate" alt="" />}
+      {toast.kind === "ok" && <Mascot pose="wink" size={44} motion="celebrate" alt="Success" />}
       <span>{toast.text}</span>
     </div>
   );
@@ -117,12 +125,12 @@ export function Shell({ children }: { children: ReactNode }) {
         <div className="container wide row between wrap">
           <div className="row" style={{ gap: 12 }}>
             <span>Floorpad · contract <span className="mono">{LAUNCHPAD}</span></span>
-            <a href={X_URL} target="_blank" rel="noreferrer" className="x-profile-link" aria-label="Floorpad on X">
+            <a href={X_URL} target="_blank" rel="noopener noreferrer" className="x-profile-link" aria-label="Floorpad on X">
               <XLogo size={13} />
               <span>@usefloorpad_</span>
             </a>
           </div>
-          <span>Not financial advice. Meme tokens are volatile; the floor limits, but does not remove, risk.</span>
+          <span>Floor backing is denominated in NEAR/LiNEAR; USD value fluctuates with market prices. Not financial advice.</span>
         </div>
       </footer>
       <BottomNav />

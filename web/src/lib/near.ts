@@ -86,10 +86,26 @@ export function pricePerToken(nearYocto: bigint, tokensBase: bigint): number {
   // (near/1e24) / (tokens/1e18) = near / tokens / 1e6
   return Number((nearYocto * 10n ** 18n) / tokensBase) / 1e18 / 1e6;
 }
+const SUB_DIGITS = ["₀", "₁", "₂", "₃", "₄", "₅", "₆", "₇", "₈", "₉"];
+function toSubscript(n: number): string {
+  return String(n)
+    .split("")
+    .map((d) => SUB_DIGITS[Number(d)] ?? d)
+    .join("");
+}
+
 export function fmtPrice(p: number): string {
-  if (!isFinite(p) || p === 0) return "0";
-  if (p >= 0.01) return p.toFixed(4);
-  return p.toExponential(3);
+  if (!isFinite(p) || p <= 0) return "0";
+  if (p >= 1) return p.toLocaleString("en-US", { maximumFractionDigits: 3 });
+  if (p >= 0.001) return p.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
+  // Count leading zeros after decimal point; show readable 0.0ₙXXXX notation
+  const s = p.toFixed(18);
+  const frac = s.split(".")[1] ?? "";
+  let zeros = 0;
+  while (zeros < frac.length && frac[zeros] === "0") zeros++;
+  const sig = frac.slice(zeros, zeros + 4).replace(/0+$/, "") || "0";
+  if (zeros <= 3) return `0.${frac.slice(0, zeros + 4).replace(/0+$/, "")}`;
+  return `0.0${toSubscript(zeros)}${sig}`;
 }
 
 export function ago(ts: number): string {
@@ -274,7 +290,7 @@ export function tokenSpotPrice(
     const rLin = BigInt(refPool.amounts[1 - iMeme] || "0");
     if (rMeme > 0n) {
       const linP = linearPrice && linearPrice > 0n ? linearPrice : BigInt(t.last_linear_price || YOCTO.toString());
-      return Number((rLin * linP * 10n ** 12n) / rMeme / YOCTO) / 1e18 / 1e6;
+      return pricePerToken((rLin * linP) / YOCTO, rMeme);
     }
   }
   return curvePrice(t);

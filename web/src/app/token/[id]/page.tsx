@@ -103,6 +103,12 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
   const [showPnl, setShowPnl] = useState(false);
 
   useEffect(() => {
+    if (tok.data?.meta?.symbol) {
+      document.title = `$${tok.data.meta.symbol} · Floorpad`;
+    }
+  }, [tok.data?.meta?.symbol]);
+
+  useEffect(() => {
     document.body.style.overflow = sheet ? "hidden" : "";
     return () => {
       document.body.style.overflow = "";
@@ -160,18 +166,19 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
         </div>
         <div className="row desktop-only" style={{ gap: 8 }}>
           <ShareButton tokenId={t.token_id} />
-          <button 
-            className="btn sm" 
+          <button
+            className="btn sm"
             onClick={() => setShowPnl(true)}
             title="Share PNL Card on X"
           >
             <SlabIcon name="share" size={14} /> PNL Card
           </button>
-          <OpsBar t={t} reload={ctx.reload} />
+          <OpsBar t={t} reload={ctx.reload} menu />
         </div>
         <div className="mobile-only row" style={{ gap: 6 }}>
           <ShareButton tokenId={t.token_id} />
           <button className="btn sm" onClick={() => setShowPnl(true)}>PNL</button>
+          <OpsBar t={t} reload={ctx.reload} menu />
         </div>
       </div>
 
@@ -237,8 +244,6 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
           <div className="progress big"><div style={{ width: `${pct}%` }} /></div>
         </div>
       )}
-
-      <div className="mobile-only"><OpsBar t={t} reload={ctx.reload} /></div>
 
       <div className="token-layout">
         <div className="token-main">
