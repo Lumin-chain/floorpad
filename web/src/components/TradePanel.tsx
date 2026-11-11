@@ -46,7 +46,7 @@ function useAge(holdingSince: number | null) {
 }
 
 function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: TradeProps) {
-  const { send, busy, accountId, setToast } = useWallet();
+  const { send, busy, accountId, nearBalance, setToast } = useWallet();
   const [side, setSide] = useState<"buy" | "sell">(initialSide ?? "buy");
   const [amt, setAmt] = useState("");
   const [q, setQ] = useState<Quote | null>(null);
@@ -343,7 +343,9 @@ function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: T
             ? side === "buy"
               ? `Avail: ${fmtNear(tradingNearBal.toString(), 2)} N`
               : `Custody: ${fmtTok(custodyTokensBal.toString())}`
-            : `Wallet: ${fmtTok(balance.toString())}`}
+            : side === "buy"
+              ? `Wallet: ${fmtNear(nearBalance, 2)} N`
+              : `Wallet: ${fmtTok(balance.toString())} $${t.meta.symbol}`}
         </span>
       </div>
 

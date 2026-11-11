@@ -7,7 +7,7 @@ import { WalletProvider, useWallet } from "@/lib/wallet";
 import { Mascot, MascotPreload } from "./Mascot";
 import { SlabIcon } from "./Brand";
 import { useEffect } from "react";
-import { captureReferrer, LAUNCHPAD, NETWORK } from "@/lib/near";
+import { captureReferrer, fmtNear, LAUNCHPAD, NETWORK } from "@/lib/near";
 
 const NAV = [
   { href: "/", label: "Explore", icon: "explore", plus: false },
@@ -19,7 +19,7 @@ const NAV = [
 
 
 function Header() {
-  const { accountId, signIn, signOut, ready } = useWallet();
+  const { accountId, nearBalance, signIn, signOut, ready } = useWallet();
   const path = usePathname();
   return (
     <header className="header">
@@ -40,9 +40,14 @@ function Header() {
         <div className="spacer" />
         <span className="badge desktop-only">{NETWORK}</span>
         {accountId ? (
-          <button className="btn sm account-btn" onClick={signOut} title="Sign out">
-            {accountId}
-          </button>
+          <div className="row" style={{ gap: 6 }}>
+            <span className="badge green mono" title="Wallet NEAR Balance" style={{ fontSize: "0.85rem", padding: "4px 8px" }}>
+              {fmtNear(nearBalance, 2)} N
+            </span>
+            <button className="btn sm account-btn" onClick={signOut} title="Sign out">
+              {accountId}
+            </button>
+          </div>
         ) : (
           <button className="btn primary sm" onClick={signIn} disabled={!ready}>
             Connect

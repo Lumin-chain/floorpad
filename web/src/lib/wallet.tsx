@@ -8,7 +8,7 @@
  */
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import type { NearConnector } from "@hot-labs/near-connect";
-import { NETWORK, RPC, view } from "./near";
+import { NETWORK, RPC, view, viewAccount } from "./near";
 import { clearSession, completeRedirectSignIn, getSession, signInChat, type Session } from "./social";
 
 export interface Call {
@@ -26,6 +26,8 @@ export interface Tx {
 
 interface WalletCtx {
   accountId: string | null;
+  nearBalance: string;
+  reloadNearBalance: () => void;
   ready: boolean;
   signIn: () => void;
   signOut: () => void;
@@ -62,6 +64,24 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<WalletCtx["toast"]>(null);
   const [chat, setChat] = useState<Session | null>(null);
+  const [nearBalance, setNearBalance] = useState("0");
+
+  const reloadNearBalance = useCallback(() => {
+    if (!accountId) {
+      setNearBalance("0");
+      return;
+    }
+    viewAccount(accountId).then((a) => {
+      if (a?.amount) setNearBalance(a.amount);
+    }).catch(() => {});
+  }, [accountId]);
+
+  useEffect(() => {
+    reloadNearBalance();
+    if (!accountId) return;
+    const h = setInterval(reloadNearBalance, 8000);
+    return () => clearInterval(h);
+  }, [accountId, reloadNearBalance]);
 
   useEffect(() => {
     let cancelled = false;
@@ -156,6 +176,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           })),
         });
         setToast({ kind: "ok", text: "Transaction sent" });
+        setTimeout(reloadNearBalance, 1500);
         return true;
       } catch (e) {
         setToast({ kind: "err", text: (e as Error)?.message ?? "Transaction failed" });
@@ -164,7 +185,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         setBusy(false);
       }
     },
-    [accountId, signIn],
+    [accountId, signIn, reloadNearBalance],
   );
 
   const chatSignIn = useCallback(async () => {
@@ -188,7 +209,22 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   }, [accountId, signIn]);
 
   return (
-    <Ctx.Provider value={{ accountId, ready, signIn, signOut, send, busy, toast, setToast, chat, chatSignIn }}>
+    <Ctx.Provider
+      value={{
+        accountId,
+        nearBalance,
+        reloadNearBalance,
+        ready,
+        signIn,
+        signOut,
+        send,
+        busy,
+        toast,
+        setToast,
+        chat,
+        chatSignIn,
+      }}
+    >
       {children}
     </Ctx.Provider>
   );
