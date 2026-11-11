@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { fmtNear, fmtPrice, fmtTok, type TokenView } from "@/lib/near";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { fmtPrice, lp, pricePerToken, type TokenView, type Trade } from "@/lib/near";
+import { getIndexedTrades } from "@/lib/social";
 import { useWallet } from "@/lib/wallet";
 import { SlabIcon, Moji } from "./Brand";
 
@@ -35,23 +36,77 @@ export function PnlModal({
   const currentValNear = tokensNum * spotPriceNear;
   const currentValUsd = currentValNear * usdPrice;
   const floorValNear = tokensNum * floorPriceNear;
-  const floorValUsd = floorValNear * usdPrice;
 
-  // Estimated baseline entry: floor price when launched or 60% of spot
-  const estEntryPriceNear = floorPriceNear > 0 ? floorPriceNear * 0.8 : spotPriceNear * 0.5;
-  const estEntryPriceUsd = estEntryPriceNear * usdPrice;
-  const spotPriceUsd = spotPriceNear * usdPrice;
-
-  const defaultPnlPct =
-    estEntryPriceNear > 0
-      ? Math.round(((spotPriceNear - estEntryPriceNear) / estEntryPriceNear) * 100)
-      : 125;
-
-  const [pnlMultiplier, setPnlMultiplier] = useState<number>(defaultPnlPct);
+  const [userTrades, setUserTrades] = useState<Trade[]>([]);
   const [showNetworth, setShowNetworth] = useState<boolean>(true);
-  const [customPnlInput, setCustomPnlInput] = useState<string>("");
 
-  const isProfit = pnlMultiplier >= 0;
+  // Fetch user's real buy trades for this token to calculate actual average entry price
+  useEffect(() => {
+    if (!accountId) return;
+    let active = true;
+    Promise.all([
+      lp<Trade[]>("get_trades", { token_id: t.token_id, limit: 200 }).catch(() => [] as Trade[]),
+      getIndexedTrades(t.token_id, 200).catch(() => []),
+    ]).then(([chainTrades, indexed]) => {
+      if (!active) return;
+      const mappedIndexed: Trade[] = (indexed || []).map((r) => ({
+        ts: r.ts,
+        account: r.account,
+        is_buy: Boolean(r.is_buy),
+        near: r.near,
+        tokens: r.tokens,
+        v_near: r.v_near,
+        v_tokens: r.v_tokens,
+      }));
+      const combined = [...(chainTrades || []), ...mappedIndexed].filter(
+        (tr) => tr.account === accountId && tr.is_buy,
+      );
+      const seen = new Set<string>();
+      const unique: Trade[] = [];
+      for (const tr of combined) {
+        const key = `${Math.floor(tr.ts)}-${tr.near}-${tr.tokens}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          unique.push(tr);
+        }
+      }
+      setUserTrades(unique);
+    });
+    return () => {
+      active = false;
+    };
+  }, [t.token_id, accountId]);
+
+  const { entryPriceNear, pnlPct } = useMemo(() => {
+    let totalBuyNear = 0n;
+    let totalBuyTokens = 0n;
+    for (const tr of userTrades) {
+      try {
+        totalBuyNear += BigInt(tr.near);
+        totalBuyTokens += BigInt(tr.tokens);
+      } catch {
+        // ignore malformed trade record
+      }
+    }
+
+    const realEntry =
+      totalBuyTokens > 0n
+        ? pricePerToken(totalBuyNear, totalBuyTokens)
+        : floorPriceNear > 0
+          ? floorPriceNear
+          : spotPriceNear;
+
+    const pct =
+      realEntry > 0
+        ? ((spotPriceNear - realEntry) / realEntry) * 100
+        : 0;
+
+    return { entryPriceNear: realEntry, pnlPct: pct };
+  }, [userTrades, floorPriceNear, spotPriceNear]);
+
+  const entryPriceUsd = entryPriceNear * usdPrice;
+  const spotPriceUsd = spotPriceNear * usdPrice;
+  const isProfit = pnlPct >= 0;
 
   // Render high-res 1200x675 card on canvas
   useEffect(() => {
@@ -217,16 +272,14 @@ export function PnlModal({
 
       // Hero Huge Percentage
       const sign = isProfit ? "+" : "";
-      const pnlDisplay = `${sign}${pnlMultiplier.toFixed(2)}%`;
+      const pnlDisplay = `${sign}${pnlPct.toFixed(2)}%`;
       ctx.fillStyle = isProfit ? "#00ffa3" : "#ff3b5c";
       ctx.font = "900 84px 'Space Grotesk', system-ui, sans-serif";
       ctx.fillText(pnlDisplay, 75, 348);
 
       // Networth Wallet Pill (Toggled by user)
       if (showNetworth) {
-        const costBasisUsd =
-          pnlMultiplier > -99 ? currentValUsd / (1 + pnlMultiplier / 100) : currentValUsd;
-        const pnlUsdGain = pnlMultiplier === 0 ? 0 : currentValUsd - costBasisUsd;
+        const pnlUsdGain = tokensNum * (spotPriceNear - entryPriceNear) * usdPrice;
         const absUsdGain = Math.abs(pnlUsdGain);
         const gainText = `${pnlUsdGain >= 0 ? "+ $" : "- $"}${absUsdGain.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -311,7 +364,7 @@ export function PnlModal({
 
       ctx.fillStyle = "#ffffff";
       ctx.font = "bold 25px monospace";
-      ctx.fillText(`$${estEntryPriceUsd.toFixed(4)}`, barX + 28, barY + 68);
+      ctx.fillText(`$${entryPriceUsd.toFixed(4)}`, barX + 28, barY + 68);
 
       // Col 2: Current Price (or Position Networth when shown)
       ctx.fillStyle = "rgba(255, 255, 255, 0.45)";
@@ -348,15 +401,16 @@ export function PnlModal({
     mascotImg.onload = render;
     if (tokenIconImg) tokenIconImg.onload = render;
     render();
-  }, [t, balance, spotPriceNear, floorPriceNear, usdPrice, isProfit, pnlMultiplier, showNetworth]);
+  }, [t, balance, spotPriceNear, floorPriceNear, entryPriceNear, usdPrice, isProfit, pnlPct, showNetworth, tokensNum, currentValUsd, entryPriceUsd, spotPriceUsd, floorValNear]);
 
   // Download image as PNG
   const downloadPng = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     setDownloading(true);
+    const roundedPnl = pnlPct.toFixed(2);
     const link = document.createElement("a");
-    link.download = `Floorpad-${t.meta.symbol}-${isProfit ? "Profit" : "Loss"}-${pnlMultiplier}pct.png`;
+    link.download = `Floorpad-${t.meta.symbol}-${isProfit ? "Profit" : "Loss"}-${roundedPnl}pct.png`;
     link.href = canvas.toDataURL("image/png");
     link.click();
     setDownloading(false);
@@ -387,12 +441,13 @@ export function PnlModal({
     const origin = typeof window !== "undefined" ? window.location.origin : "https://web-production-964c7668.up.railway.app";
     const refParam = accountId ? `&ref=${encodeURIComponent(accountId)}` : "";
     const hideNetworthParam = !showNetworth ? "&hideNetworth=1" : "";
+    const pnlParam = pnlPct.toFixed(2);
 
-    const shareUrl = `${origin}/pnl/${t.token_id}?symbol=${encodeURIComponent(t.meta.symbol)}&name=${encodeURIComponent(t.meta.name)}&pnl=${pnlMultiplier}&account=${encodeURIComponent(accountId || "")}&floor=${floorValNear.toFixed(2)}&usd=${currentValUsd.toFixed(2)}&entry=${estEntryPriceUsd.toFixed(4)}&price=${spotPriceUsd.toFixed(4)}${hideNetworthParam}${refParam}`;
+    const shareUrl = `${origin}/pnl/${t.token_id}?symbol=${encodeURIComponent(t.meta.symbol)}&name=${encodeURIComponent(t.meta.name)}&pnl=${pnlParam}&account=${encodeURIComponent(accountId || "")}&floor=${floorValNear.toFixed(2)}&usd=${currentValUsd.toFixed(2)}&entry=${entryPriceUsd.toFixed(4)}&price=${spotPriceUsd.toFixed(4)}${hideNetworthParam}${refParam}`;
 
     const text = isProfit
-      ? `🚀 Up +${pnlMultiplier}% on $${t.meta.symbol} on @Floorpad! 📈\n\n🛡️ Floor vault only rises\n🔒 100% LP locked in Ref Finance earning staking yield\n🏛️ Holder DAO\n\nView my position:`
-      : `Holding $${t.meta.symbol} on @Floorpad! 📉\n\n🛡️ Backed by the redeemable rising floor vault\n🔒 Locked LP\n\nView my position:`;
+      ? `🚀 Up +${pnlParam}% on $${t.meta.symbol} on @Floorpad! 📈\n\n🛡️ Floor vault only rises\n🔒 100% LP locked in Ref Finance earning staking yield\n🏛️ Holder DAO\n\nView my position:`
+      : `Holding $${t.meta.symbol} (${pnlParam}%) on @Floorpad! 📉\n\n🛡️ Backed by the redeemable rising floor vault\n🔒 Locked LP\n\nView my position:`;
 
     const tweetUrl = `https://x.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(shareUrl)}`;
     window.open(tweetUrl, "_blank", "width=550,height=440");
@@ -431,10 +486,10 @@ export function PnlModal({
             <Moji face={isProfit ? "hero" : "cool"} size={30} />
             <div>
               <h2 style={{ margin: 0, fontSize: "1.3rem" }}>
-                Generate {isProfit ? "Profit" : "Loss"} Card
+                Your {isProfit ? "Profit" : "Loss"} Card
               </h2>
               <span className="small muted">
-                Share verified performance for <b>${t.meta.symbol}</b> on X
+                Verified on-chain performance for <b>${t.meta.symbol}</b>
               </span>
             </div>
           </div>
@@ -456,93 +511,37 @@ export function PnlModal({
           <canvas ref={canvasRef} style={{ width: "100%", height: "auto", display: "block" }} />
         </div>
 
-        {/* User Options: Privacy & Multipliers */}
-        <div className="stack" style={{ gap: 14, marginTop: 16, background: "rgba(255,255,255,0.02)", padding: 14, borderRadius: 12, border: "1px solid var(--line)" }}>
-          {/* Privacy Toggle: Show Networth vs Percentage Only */}
-          <div className="row between wrap" style={{ gap: 8 }}>
-            <div>
-              <strong style={{ fontSize: "0.9rem" }}>Display Networth Amount</strong>
-              <div className="small muted">
-                Show dollar value ($) or hide networth to flex percentage only (%)
-              </div>
-            </div>
-            <div className="seg">
-              <button
-                className={showNetworth ? "active" : ""}
-                onClick={() => setShowNetworth(true)}
-              >
-                Show Networth ($)
-              </button>
-              <button
-                className={!showNetworth ? "active" : ""}
-                onClick={() => setShowNetworth(false)}
-              >
-                🔒 Percentage Only (%)
-              </button>
+        {/* Privacy Toggle: Show Networth vs Percentage Only */}
+        <div
+          className="row between wrap"
+          style={{
+            gap: 10,
+            marginTop: 16,
+            background: "rgba(255,255,255,0.02)",
+            padding: 14,
+            borderRadius: 12,
+            border: "1px solid var(--line)",
+          }}
+        >
+          <div>
+            <strong style={{ fontSize: "0.9rem" }}>Display Networth Amount</strong>
+            <div className="small muted">
+              Show dollar value ($) or hide networth to display percentage only (%)
             </div>
           </div>
-
-          {/* Quick Presets */}
-          <div className="row between wrap" style={{ gap: 8 }}>
-            <span className="small muted bold">Presets:</span>
-            <div className="row wrap" style={{ gap: 6 }}>
-              {/* Profit Presets */}
-              {[25, 50, 100, 250, 500].map((pct) => (
-                <button
-                  key={pct}
-                  className={`btn sm ${pnlMultiplier === pct ? "primary" : "ghost"}`}
-                  style={{
-                    padding: "3px 9px",
-                    fontSize: 12,
-                    color: pnlMultiplier === pct ? "#000" : "#7cf29a",
-                    borderColor: "rgba(0, 255, 163, 0.3)",
-                  }}
-                  onClick={() => {
-                    setPnlMultiplier(pct);
-                    setCustomPnlInput("");
-                  }}
-                >
-                  +{pct}%
-                </button>
-              ))}
-
-              {/* Loss Presets */}
-              {[-25, -50, -75].map((pct) => (
-                <button
-                  key={pct}
-                  className={`btn sm ${pnlMultiplier === pct ? "danger" : "ghost"}`}
-                  style={{
-                    padding: "3px 9px",
-                    fontSize: 12,
-                    color: pnlMultiplier === pct ? "#fff" : "#ff5555",
-                    borderColor: "rgba(255, 59, 92, 0.3)",
-                  }}
-                  onClick={() => {
-                    setPnlMultiplier(pct);
-                    setCustomPnlInput("");
-                  }}
-                >
-                  {pct}%
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Custom Percentage Input */}
-          <div className="row" style={{ gap: 10, alignItems: "center" }}>
-            <span className="small muted">Custom PNL:</span>
-            <input
-              className="input sm mono"
-              style={{ width: 110 }}
-              placeholder="e.g. 180 or -40"
-              value={customPnlInput}
-              onChange={(e) => {
-                setCustomPnlInput(e.target.value);
-                const num = parseFloat(e.target.value);
-                if (!isNaN(num)) setPnlMultiplier(num);
-              }}
-            />
-            <span className="small muted">%</span>
+          <div className="seg">
+            <button
+              className={showNetworth ? "active" : ""}
+              onClick={() => setShowNetworth(true)}
+            >
+              Show Networth ($)
+            </button>
+            <button
+              className={!showNetworth ? "active" : ""}
+              onClick={() => setShowNetworth(false)}
+            >
+              🔒 Percentage Only (%)
+            </button>
           </div>
         </div>
 
