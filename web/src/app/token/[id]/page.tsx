@@ -30,7 +30,7 @@ import { OpsBar } from "@/components/OpsBar";
 import { Chat } from "@/components/Chat";
 import { TokenCallouts } from "@/components/Callouts";
 import { useIsDesktop } from "@/lib/media";
-import { MojiLabel, SlabIcon } from "@/components/Brand";
+import { Moji, MojiLabel, SlabIcon } from "@/components/Brand";
 
 const TABS = ["Chat", "Calls", "Trades", "Floor", "Lock & vote", "DAO", "Treasury", "Agent"] as const;
 type Tab = (typeof TABS)[number];
@@ -150,7 +150,51 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
         <div className="chip"><span>Burned</span><b>{fmtTok(t.burned, 0)}</b></div>
       </div>
 
-      {!graduated && (
+      {/* Graduation Status Banners */}
+      {t.grad_stage !== "Curve" && !graduated && (
+        <div className="panel stack" style={{ background: "linear-gradient(180deg, #1f2a1f 0%, #131b13 100%)", border: "1px solid var(--accent)", gap: 10 }}>
+          <div className="row between wrap">
+            <div className="row" style={{ gap: 10 }}>
+              <Moji face="hero" size={28} />
+              <div>
+                <strong>Bonding Curve 100% Filled! Migration to Ref Finance in Progress</strong>
+                <div className="small muted">
+                  Step: <span className="green mono bold">{t.grad_stage}</span> · Sizing Ref pool at final curve price with 100% permanent LP lock
+                </div>
+              </div>
+            </div>
+            <OpsBar t={t} reload={ctx.reload} />
+          </div>
+        </div>
+      )}
+
+      {graduated && (
+        <div className="panel row between wrap" style={{ background: "linear-gradient(180deg, #132219 0%, #0e1712 100%)", border: "1px solid var(--accent)", gap: 12 }}>
+          <div className="row" style={{ gap: 10 }}>
+            <Moji face="flag" size={28} />
+            <div>
+              <strong className="green">Graduated to Ref Finance!</strong>
+              <div className="small muted">
+                Trading live on Ref Finance Pool #{t.pool_id}. 100% of LP shares are locked forever in the launchpad contract and accruing LiNEAR staking yield.
+              </div>
+            </div>
+          </div>
+          {t.pool_id !== null && (
+            <a
+              href={`https://testnet.ref.finance/#${t.token_id}|linear-protocol.testnet`}
+              target="_blank"
+              rel="noreferrer"
+              className="btn sm primary row"
+              style={{ gap: 6 }}
+            >
+              <span>View on Ref Pool #{t.pool_id}</span>
+              <SlabIcon name="external" size={12} />
+            </a>
+          )}
+        </div>
+      )}
+
+      {!graduated && t.grad_stage === "Curve" && (
         <div className="bond">
           <div className="row between small">
             <span>Bonding curve · {pct.toFixed(1)}%</span>
