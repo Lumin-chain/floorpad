@@ -262,11 +262,12 @@ route("POST", "/tokens/:id/trades", async (req, _res, p) => {
   if (!b.account || !b.near || !b.tokens) throw new HttpError(400, "invalid trade body");
 
   const tok = await getToken(p.id).catch(() => null);
-  const nextId = (store.lastTradeIndex(p.id) || 0) + 1;
+  const ts = now();
+  const nextId = Math.max(1_000_000_000, (store.lastTradeIndex(p.id) || 0) + 1);
   const stored: StoredTrade = {
     token_id: p.id,
     id: nextId,
-    ts: now(),
+    ts,
     account: clean(b.account, 64),
     is_buy: b.is_buy ? 1 : 0,
     near: b.near,
@@ -344,10 +345,27 @@ async function indexTrades() {
     for (const tok of tokens) {
       if (tok.grad_stage !== "Graduated" || tok.pool_id === null) {
         // Curve indexing via launchpad get_trades_from
-        const last = store.lastTradeIndex(tok.token_id);
+        const last = store.lastCurveTradeIndex(tok.token_id);
         const fromIdx = Math.max(0, last + 1);
         const trades = await getTradesFrom(tok.token_id, fromIdx, 50).catch(() => []);
         for (const [idx, tr] of trades) {
+          if (store.hasRecentSimilarTrade(tok.token_id, tr.is_buy ? 1 : 0, tr.tokens, 25)) {
+            // Avoid double-broadcasting if already optimistically logged via POST /trades; still record canonical id
+            const stored: StoredTrade = {
+              token_id: tok.token_id,
+              id: idx,
+              ts: tr.ts,
+              account: tr.account,
+              is_buy: tr.is_buy ? 1 : 0,
+              near: tr.near,
+              tokens: tr.tokens,
+              price: calcPrice(tr.v_near, tr.v_tokens),
+              v_near: tr.v_near,
+              v_tokens: tr.v_tokens,
+            };
+            store.addTrade(stored);
+            continue;
+          }
           const stored: StoredTrade = {
             token_id: tok.token_id,
             id: idx,
@@ -390,36 +408,39 @@ async function indexTrades() {
                 const isBuy = deltaMeme < 0n; // tokens left pool to buyer
                 const absMeme = deltaMeme < 0n ? -deltaMeme : deltaMeme;
                 const absLin = deltaLin < 0n ? -deltaLin : deltaLin;
-                const linPrice = BigInt(
-                  await cached("linear-price", 60_000, () => view<string>(LINEAR, "ft_price").catch(() => YOCTO.toString())),
-                );
-                const nearYocto = (absLin * linPrice) / YOCTO;
-                const price =
-                  absMeme > 0n
-                    ? Number((nearYocto * 10n ** 18n) / absMeme) / 1e18 / 1e6
-                    : 0;
+                const isBuyInt = isBuy ? 1 : 0;
+                if (!store.hasRecentSimilarTrade(tok.token_id, isBuyInt, absMeme.toString(), 25)) {
+                  const linPrice = BigInt(
+                    await cached("linear-price", 60_000, () => view<string>(LINEAR, "ft_price").catch(() => YOCTO.toString())),
+                  );
+                  const nearYocto = (absLin * linPrice) / YOCTO;
+                  const price =
+                    absMeme > 0n
+                      ? Number((nearYocto * 10n ** 18n) / absMeme) / 1e18 / 1e6
+                      : 0;
 
-                const nextId = (store.lastTradeIndex(tok.token_id) || 0) + 1;
-                const stored: StoredTrade = {
-                  token_id: tok.token_id,
-                  id: nextId,
-                  ts: now(),
-                  account: "ref-finance.near",
-                  is_buy: isBuy ? 1 : 0,
-                  near: nearYocto.toString(),
-                  tokens: absMeme.toString(),
-                  price,
-                  v_near: currLin.toString(),
-                  v_tokens: currMeme.toString(),
-                };
-                const payload = {
-                  ...stored,
-                  symbol: tok.meta.symbol,
-                  icon: tok.meta.icon,
-                };
-                store.addTrade(stored);
-                publish(`token:${tok.token_id}`, "trade", payload);
-                publish("global", "trade", payload);
+                  const nextId = Math.max(1_000_000_000, (store.lastTradeIndex(tok.token_id) || 0) + 1);
+                  const stored: StoredTrade = {
+                    token_id: tok.token_id,
+                    id: nextId,
+                    ts: now(),
+                    account: "ref-finance.near",
+                    is_buy: isBuyInt,
+                    near: nearYocto.toString(),
+                    tokens: absMeme.toString(),
+                    price,
+                    v_near: currLin.toString(),
+                    v_tokens: currMeme.toString(),
+                  };
+                  const payload = {
+                    ...stored,
+                    symbol: tok.meta.symbol,
+                    icon: tok.meta.icon,
+                  };
+                  store.addTrade(stored);
+                  publish(`token:${tok.token_id}`, "trade", payload);
+                  publish("global", "trade", payload);
+                }
               }
             }
             prevPoolReserves.set(tok.pool_id, { rMeme: currMeme, rLin: currLin });

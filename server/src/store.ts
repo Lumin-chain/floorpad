@@ -175,6 +175,18 @@ export function openStore(path: string) {
       const r = db.prepare("SELECT MAX(id) AS id FROM trades WHERE token_id = ?").get(tokenId) as { id: number | null } | undefined;
       return r?.id ?? -1;
     },
+    lastCurveTradeIndex(tokenId: string): number {
+      const r = db
+        .prepare("SELECT MAX(id) AS id FROM trades WHERE token_id = ? AND id < 1000000000")
+        .get(tokenId) as { id: number | null } | undefined;
+      return r?.id ?? -1;
+    },
+    hasRecentSimilarTrade(tokenId: string, isBuy: number, tokens: string, withinSecs = 20): boolean {
+      const r = db
+        .prepare("SELECT 1 FROM trades WHERE token_id = ? AND is_buy = ? AND tokens = ? AND ts >= ? LIMIT 1")
+        .get(tokenId, isBuy, tokens, now() - withinSecs);
+      return Boolean(r);
+    },
     trades(tokenId: string, limit: number): StoredTrade[] {
       return db
         .prepare("SELECT * FROM trades WHERE token_id = ? ORDER BY id DESC LIMIT ?")

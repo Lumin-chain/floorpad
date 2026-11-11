@@ -501,17 +501,23 @@ tr.click-row:hover td { background: var(--panel-2); }
   border-color: var(--accent);
 }
 .ticker-item.new-entry {
-  animation: ticker-slide-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: ticker-slide-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+  box-shadow: 0 0 12px rgba(124, 242, 154, 0.28);
+  border-color: rgba(124, 242, 154, 0.55);
 }
 @keyframes ticker-slide-in {
   from {
     opacity: 0;
-    transform: translateX(-16px) scale(0.92);
+    transform: translateX(18px) scale(0.92);
   }
   to {
     opacity: 1;
     transform: translateX(0) scale(1);
   }
+}
+.ticker-empty {
+  white-space: nowrap;
+  padding: 0 6px;
 }
 .ticker-tag {
   font-size: 0.62rem;

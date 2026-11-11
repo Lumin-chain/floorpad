@@ -15,7 +15,7 @@ import {
   type TokenView,
   type Trade,
 } from "@/lib/near";
-import { getCandles, getIndexedTrades, useStream, type Candle } from "@/lib/social";
+import { getCandles, getIndexedTrades, isSocialConfigured, useStream, type Candle } from "@/lib/social";
 import { useView } from "@/lib/wallet";
 import type { TokenCtx } from "@/app/token/[id]/page";
 
@@ -26,6 +26,7 @@ function useTrades(t: TokenView) {
 
   // Fetch server indexed trades (captures Ref Finance pool trades for graduated tokens)
   useEffect(() => {
+    if (!isSocialConfigured()) return;
     getIndexedTrades(t.token_id, 100).then((res) => {
       if (res && res.length > 0) {
         setServerTrades(
@@ -44,7 +45,7 @@ function useTrades(t: TokenView) {
   }, [t.token_id, t.trade_count]);
 
   // Stream new trades live via SSE
-  useStream(`token:${t.token_id}`, {
+  useStream(isSocialConfigured() ? `token:${t.token_id}` : null, {
     trade: (data: unknown) => {
       const tr = data as { ts: number; account: string; is_buy: number; near: string; tokens: string; v_near: string; v_tokens: string };
       if (!tr || !tr.near) return;
@@ -107,6 +108,7 @@ export function PriceChart({ t, linearPrice }: TokenCtx) {
 
   // Fetch indexed candles from server
   useEffect(() => {
+    if (!isSocialConfigured()) return;
     let active = true;
     getCandles(t.token_id, tf, 80).then((c) => {
       if (active && c && c.length > 0) setServerCandles(c);

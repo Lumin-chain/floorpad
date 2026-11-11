@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { PnlClientView } from "./PnlClientView";
 
 interface PageProps {
@@ -64,7 +65,15 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
   const account = sp.account || "trader.near";
   const hideNetworth = sp.hideNetworth === "1" || sp.hideNetworth === "true";
 
-  const ogUrl = `/api/og/pnl?token=${encodeURIComponent(id)}&symbol=${encodeURIComponent(symbol)}&name=${encodeURIComponent(name)}&pnl=${encodeURIComponent(pnl)}&floor=${encodeURIComponent(floor)}&usd=${encodeURIComponent(usd)}&entry=${encodeURIComponent(entry)}&price=${encodeURIComponent(price)}&account=${encodeURIComponent(account)}${hideNetworth ? "&hideNetworth=1" : ""}`;
+  const hdrs = await headers();
+  const host = hdrs.get("x-forwarded-host") || hdrs.get("host") || "";
+  const proto = hdrs.get("x-forwarded-proto") || "https";
+  const origin =
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    (host ? `${proto}://${host}` : process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : "");
+
+  const ogPath = `/api/og/pnl?token=${encodeURIComponent(id)}&symbol=${encodeURIComponent(symbol)}&name=${encodeURIComponent(name)}&pnl=${encodeURIComponent(pnl)}&floor=${encodeURIComponent(floor)}&usd=${encodeURIComponent(usd)}&entry=${encodeURIComponent(entry)}&price=${encodeURIComponent(price)}&account=${encodeURIComponent(account)}${hideNetworth ? "&hideNetworth=1" : ""}`;
+  const ogUrl = origin ? `${origin}${ogPath}` : ogPath;
 
   const isProfit = !pnl.startsWith("-");
   const title = isProfit ? `Up +${pnl}% on $${symbol} | Floorpad` : `Holding $${symbol} (${pnl}%) | Floorpad`;

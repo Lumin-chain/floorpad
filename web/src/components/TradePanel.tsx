@@ -18,7 +18,7 @@ import {
   type TradingAccount,
 } from "@/lib/near";
 import { storageCallIfNeeded, useView, useWallet, type Tx } from "@/lib/wallet";
-import { postTrade } from "@/lib/social";
+import { isSocialConfigured, postTrade } from "@/lib/social";
 import { Kv } from "./ui";
 import type { TokenCtx } from "@/app/token/[id]/page";
 import { MojiLabel, SlabIcon } from "./Brand";
@@ -73,7 +73,8 @@ function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: T
   const custodyTokensBal = BigInt(custodyAcc.data?.amount ?? "0");
   const custodySince = Number(custodyAcc.data?.since ?? 0);
 
-  const age = tradeMode === "instant" && custodySince > 0 ? Math.max(0, Math.floor(Date.now() / 1000) - custodySince) : useAge(holdingSince);
+  const walletAge = useAge(holdingSince);
+  const age = tradeMode === "instant" && custodySince > 0 ? Math.max(0, Math.floor(Date.now() / 1000) - custodySince) : walletAge;
   const closed = t.grad_stage !== "Curve";
 
   const effectiveBal = tradeMode === "instant" ? (side === "buy" ? tradingNearBal : custodyTokensBal) : (side === "buy" ? 0n : balance);
@@ -114,6 +115,43 @@ function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: T
     return () => window.removeEventListener("keydown", onKey);
   }, [side, effectiveBal]);
 
+  function emitCurveTrade(nearAmount: bigint, tokenAmount: bigint) {
+    if (!accountId) return;
+    const nearNum = Number(nearAmount / 10n ** 18n) / 1e6;
+    const tokNum = Math.max(0.000001, Number(tokenAmount / 10n ** 12n) / 1e6);
+    const estPrice = nearNum / tokNum;
+    const nowTs = Math.floor(Date.now() / 1000);
+    window.dispatchEvent(
+      new CustomEvent("floorpad:trade", {
+        detail: {
+          id: nowTs,
+          token_id: t.token_id,
+          ts: nowTs,
+          account: accountId,
+          is_buy: side === "buy" ? 1 : 0,
+          near: nearAmount.toString(),
+          tokens: tokenAmount.toString(),
+          price: estPrice,
+          v_near: t.v_near,
+          v_tokens: t.v_tokens,
+          symbol: t.meta.symbol,
+          icon: t.meta.icon,
+        },
+      }),
+    );
+    if (isSocialConfigured()) {
+      postTrade(t.token_id, {
+        account: accountId,
+        is_buy: side === "buy",
+        near: nearAmount.toString(),
+        tokens: tokenAmount.toString(),
+        price: estPrice,
+        v_near: t.v_near,
+        v_tokens: t.v_tokens,
+      }).catch(() => {});
+    }
+  }
+
   async function submit() {
     if (!q || !accountId) return;
     const min = (BigInt(q.amount_out) * (10000n - SLIPPAGE_BPS)) / 10000n;
@@ -139,6 +177,7 @@ function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: T
           }],
         };
         if (await send([tx])) {
+          emitCurveTrade(base, BigInt(q.amount_out));
           setAmt("");
           reload();
           onDone?.();
@@ -162,6 +201,7 @@ function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: T
           }],
         };
         if (await send([tx])) {
+          emitCurveTrade(BigInt(q.amount_out), base);
           setAmt("");
           reload();
           onDone?.();
@@ -201,6 +241,7 @@ function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: T
           };
 
     if (await send([tx])) {
+      emitCurveTrade(side === "buy" ? base : BigInt(q.amount_out), side === "buy" ? BigInt(q.amount_out) : base);
       setAmt("");
       reload();
       onDone?.();
@@ -400,7 +441,7 @@ function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: T
           <div className="stack" style={{ gap: 4 }}>
             <Kv k="You receive" v={side === "buy" ? `${fmtTok(q.amount_out)} $${t.meta.symbol}` : `${fmtNear(q.amount_out)} NEAR`} />
             <Kv
-              k={`${side === "buy" ? "Buy" : "Sell"} fee (${((side === "buy" ? cfg?.buy_fee_bps ?? 125 : cfg?.sell_fee_bps ?? 250) / 100).toFixed(1)}%, 70% to floor)`}
+              k={`${side === "buy" ? "Buy" : "Sell"} fee (${((side === "buy" ? cfg?.buy_fee_bps ?? 125 : cfg?.sell_fee_bps ?? 250) / 100).toFixed(1)}%, ${((cfg?.fee_vault_bps ?? 4000) / 100).toFixed(0)}% to floor)`}
               v={`${fmtNear(q.fee)} N`}
             />
             {side === "sell" && <Kv k={`Exit fee (${exitPct.toFixed(1)}%, to floor)`} v={`${fmtNear(q.exit_fee)} N`} />}
@@ -530,20 +571,44 @@ function RefTrade({ t, balance, linearPrice, reload, initialSide, onDone }: Trad
     }
 
     if (await send(txs)) {
-      // Immediately index and broadcast trade to social API for real-time chart & tape update
-      const nearSpent = side === "buy" ? base.toString() : ((out * linP) / YOCTO).toString();
-      const tokensTransferred = side === "buy" ? out.toString() : base.toString();
-      const tradePrice = spot > 0 ? spot : (Number(base / 10n ** 18n) / 1e6) / Math.max(1, Number(out / 10n ** 18n));
+      // Immediately index and broadcast trade to social API & ticker for real-time updates
+      const nearSpent = side === "buy" ? base : (out * linP) / YOCTO;
+      const tokensTransferred = side === "buy" ? out : base;
+      const nearNum = Number(nearSpent / 10n ** 18n) / 1e6;
+      const tokNum = Math.max(0.000001, Number(tokensTransferred / 10n ** 12n) / 1e6);
+      const tradePrice = spot > 0 ? spot : nearNum / tokNum;
+      const nowTs = Math.floor(Date.now() / 1000);
 
-      postTrade(t.token_id, {
-        account: accountId,
-        is_buy: side === "buy",
-        near: nearSpent,
-        tokens: tokensTransferred,
-        price: tradePrice,
-        v_near: rLin.toString(),
-        v_tokens: rMeme.toString(),
-      }).catch(() => {});
+      window.dispatchEvent(
+        new CustomEvent("floorpad:trade", {
+          detail: {
+            id: nowTs,
+            token_id: t.token_id,
+            ts: nowTs,
+            account: accountId,
+            is_buy: side === "buy" ? 1 : 0,
+            near: nearSpent.toString(),
+            tokens: tokensTransferred.toString(),
+            price: tradePrice,
+            v_near: rLin.toString(),
+            v_tokens: rMeme.toString(),
+            symbol: t.meta.symbol,
+            icon: t.meta.icon,
+          },
+        }),
+      );
+
+      if (isSocialConfigured()) {
+        postTrade(t.token_id, {
+          account: accountId,
+          is_buy: side === "buy",
+          near: nearSpent.toString(),
+          tokens: tokensTransferred.toString(),
+          price: tradePrice,
+          v_near: rLin.toString(),
+          v_tokens: rMeme.toString(),
+        }).catch(() => {});
+      }
 
       setAmt("");
       reload();
