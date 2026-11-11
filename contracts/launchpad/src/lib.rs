@@ -20,6 +20,7 @@ mod ext;
 pub mod math;
 mod graduation;
 mod harvest;
+mod migrate;
 mod trading;
 mod ve;
 mod vault;

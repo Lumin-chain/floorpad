@@ -875,3 +875,67 @@ fn tiny_harvest_is_skipped() {
     assert!(matches!(r, PromiseOrValue::Value(())));
     assert!(!c.tok(0).harvest_busy);
 }
+
+#[test]
+fn migrate_deserializes_live_v1_state_and_upgrades_in_place() {
+    use near_sdk::borsh;
+    use near_sdk::base64::{engine::general_purpose::STANDARD as B64, Engine as _};
+
+    // Exact on-chain STATE (597 bytes) and token[0] (768 bytes) fetched from fplpmwbbcg00.testnet
+    let live_state_b64 = "FgAAAGZwYmFua213YmJjOTV6LnRlc3RuZXSEgydDxT2eEpcYnL3j8E43kv4IC8Fg1ytFuxERM4IRXL9vlR7l5Flo4zZ/qFe+v4vIC63sGDmYwiOcSHI34Nf2FwAAAHJlZi1maW5hbmNlLTEwMS50ZXN0bmV0FwAAAGxpbmVhci1wcm90b2NvbC50ZXN0bmV0FgAAAGZwYmFua213YmJjOTV6LnRlc3RuZXQAAIBxZDO2KaM9AQAAAAAAAACA0HZm5w3haQAAAAAAAAAAgOPgo1cIhz8AAAAAAAAAAIDQdmbnDeFpAAAAAAAAAACA9krhxwItFQAAAAAAAAAAAOg8gNCfPC47AwAAAAAAAAD4dWHwjUKodAIAAAAAAAAA8MYe4BH6hcYAAAAAAAAAAIjBlBABjoe/AwAAAABkAAAAAAAAAADQB4BRAQAAAAAAFgAAAGZwYmFua213YmJjOTV6LnRlc3RuZXTQB30A+gCgD8QJiBPcBWQA6APoA4A6CQAAAAAAyAAUAAAAAAAAAAAAAJSQAigsKosQAAAAAAAHAAAAAAAAALQAAAAAAAAAHgAAAAAAAABYAgAAAAAAAAAAgPZK4ccCLRUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHgAAAAAAQLK6yeAZHgIAAAAAAAADAAAAAQAAAAABAAAAAQEAAAACAQAAAAMBAAAACQEAAAAEAQAAAAUBAAAABgEAAAAHAQAAAAj8sG4RWLrnTG/pAQAAAAAAAHDHNgAAAAAAAAAAAAAAAAAEqPNqAAAAAAEAAAAK";
+    let live_tok0_b64 = "HAAAAGUyZWpoNDAuZnBscG13YmJjZzAwLnRlc3RuZXQWAAAAZnBiYW5rbXdiYmM5NXoudGVzdG5ldAgAAABFMkUgTW9vbgcAAABFMkVKSDQwAA8AAABlbmQtdG8tZW5kIHRlc3QAAAAMqPNqAAAAAAEhAAAAZTJlamg0MC1kYW8xLmZwbHBtd2JiY2cwMC50ZXN0bmV0AwG+mkEcVD00Wmw3CQAAAAAAAAAAkEszIHNL30oBAAAAAAAAAPh1YfCNQqh0AgAAAAAAAAAAAAAAAAAAAAAAAAAABow4g7msTDzfd1UAAAAAAAIAAAD51Zr+BEM8W29dBgAAAAAAAwAAAAAAAAAAAAAAAAAAAAAAAAB1NNS/PymZqiuBAAAAAAAA+UKyhhHTlT67KQEAAAAAAKUyuKCbMQEVngIAAAAAAAAAAAAAAAAAAAAAAAAAAAAApDK4oJsxARWeAgAAAAAAAGQAAAAAAAAAcMc2AAAAAAAAAAAAAAAAAAUAAXoLAAAAAAAAfAHMFm/5BAWeqAQAAAAAAKp88YZGPjQaHwoCAAAAAABENQJMR5QytPU+pwAAAAAAAQHLqPNqAAAAAJx+Kg6i4iaL6Ry0AAAAAAD7Gq3ax27NgCXx+wAAAAAA8MhiaFx58UT+9EuwBwAAAGgtlJwKNmpnfe9xiAsAAABoLZScCjZqZ33vcYgLAAAAeGQxNK68eCJ/+iXYAwAAAHhkMTSuvHgif/ol2AMAAAB84fpUdVtG5HdJhQEAAAAAAQAAAM4AAAD9gfRqAAAAAAC8OkYw5idKeBfoAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWAAAAZnBiYW5rbXdiYmM5NXoudGVzdG5ldFAAAABZb3UgYXJlIHRoZSB2b2ljZSBvZiAkRTJFSkg0MC4gQmUgZnVubnksIHVwYmVhdCBhbmQgbmV2ZXIgZ2l2ZSBmaW5hbmNpYWwgYWR2aWNlLgp9j/QIfQnYMAkAAAAAAAABAAAA";
+
+    let raw_state = B64.decode(live_state_b64).unwrap();
+    let raw_tok0 = B64.decode(live_tok0_b64).unwrap();
+
+    // Verify byte-for-byte Borsh match with live fplpmwbbcg00.testnet state
+    let parsed_old_state: migrate::OldContract = borsh::from_slice(&raw_state).expect("live STATE must deserialize");
+    let parsed_old_tok0: migrate::OldTokenState = borsh::from_slice(&raw_tok0).expect("live token[0] must deserialize");
+    assert_eq!(parsed_old_state.tokens.len(), 3);
+    assert_eq!(parsed_old_tok0.token_id.as_str(), "e2ejh40.fplpmwbbcg00.testnet");
+    assert_eq!(parsed_old_tok0.grad_stage, GradStage::Graduated);
+    drop(parsed_old_state);
+
+    // Run full migrate() in VM storage (with 1-token state constructed identically to v1)
+    ctx(&lp(), 0, T0);
+    let mut single_vec: near_sdk::store::Vector<migrate::OldTokenState> = near_sdk::store::Vector::new(StorageKey::Tokens);
+    single_vec.push(parsed_old_tok0);
+    single_vec.flush();
+    let mut old_c = migrate::OldContract {
+        config: borsh::from_slice::<migrate::OldContract>(&raw_state).unwrap().config,
+        tokens: single_vec,
+        token_index: LookupMap::new(StorageKey::TokenIndex),
+        positions: LookupMap::new(StorageKey::Positions),
+        claimable_linear: LookupMap::new(StorageKey::Claimable),
+        pending_tokens: LookupMap::new(StorageKey::PendingTokens),
+        snipe_bought: LookupMap::new(StorageKey::SnipeBought),
+        known_holders: LookupMap::new(StorageKey::KnownHolders),
+        trades: LookupMap::new(StorageKey::Trades),
+        posts: LookupMap::new(StorageKey::Posts),
+        epochs: LookupMap::new(StorageKey::Epochs),
+        platform_fees: 123,
+        ref_registered: true,
+        near_usd_micro: 3_600_000,
+        price_updated_at: T0,
+        referral_balance: LookupMap::new(StorageKey::Referrals),
+    };
+    let encoded_old = borsh::to_vec(&old_c).unwrap();
+    old_c.tokens.flush();
+    std::mem::forget(old_c);
+    env::storage_write(b"STATE", &encoded_old);
+
+    let migrated = Contract::migrate();
+    assert_eq!(migrated.tokens.len(), 1);
+    let t = migrated.tok(0);
+    assert_eq!(t.token_id.as_str(), "e2ejh40.fplpmwbbcg00.testnet");
+    assert_eq!(t.grad_stage, GradStage::Graduated);
+    assert!(t.lp_k0 > 0);
+    assert_eq!(t.custody_total, 0);
+    assert_eq!(t.mech_count, 0);
+    assert!(!t.harvest_busy);
+
+    // Writing migrated state back confirms re-migration guard triggers
+    env::storage_write(b"STATE", &borsh::to_vec(&migrated).unwrap());
+    let re = std::panic::catch_unwind(|| Contract::migrate());
+    assert!(re.is_err());
+}
