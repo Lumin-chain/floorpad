@@ -20,10 +20,12 @@ export function FundYield({ t, linearPrice }: { t: TokenView; linearPrice: bigin
   async function fund() {
     if (!accountId) return signIn();
     const ok = await send([
-      { receiverId: LINEAR, calls: [{ method: "deposit_and_stake", args: {}, gas: 50, deposit: near }] },
       {
         receiverId: LINEAR,
-        calls: [{ method: "ft_transfer_call", args: { receiver_id: LAUNCHPAD, amount: shares.toString(), msg: JSON.stringify({ fund_yield: t.token_id }) }, gas: 100, deposit: "1" }],
+        calls: [
+          { method: "deposit_and_stake", args: {}, gas: 50, deposit: near },
+          { method: "ft_transfer_call", args: { receiver_id: LAUNCHPAD, amount: shares.toString(), msg: JSON.stringify({ fund_yield: t.token_id }) }, gas: 100, deposit: "1" },
+        ],
       },
     ]);
     if (ok) setAmt("");

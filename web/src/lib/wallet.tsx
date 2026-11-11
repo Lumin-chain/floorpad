@@ -159,22 +159,39 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       setBusy(true);
       try {
         const wallet = await connector.current.wallet();
-        await wallet.signAndSendTransactions({
-          network: NETWORK,
-          signerId: accountId,
-          transactions: txs.map((tx) => ({
-            receiverId: tx.receiverId,
-            actions: tx.calls.map((c) => ({
-              type: "FunctionCall" as const,
-              params: {
-                methodName: c.method,
-                args: c.args,
-                gas: (BigInt(c.gas ?? 100) * 10n ** 12n).toString(),
-                deposit: (c.deposit ?? "0").toString(),
-              },
-            })),
+        const mapped = txs.map((tx) => ({
+          receiverId: tx.receiverId,
+          actions: tx.calls.map((c) => ({
+            type: "FunctionCall" as const,
+            params: {
+              methodName: c.method,
+              args: c.args,
+              gas: (BigInt(c.gas ?? 100) * 10n ** 12n).toString(),
+              deposit: (c.deposit ?? "0").toString(),
+            },
           })),
-        });
+        }));
+        const outcomes =
+          mapped.length === 1
+            ? [
+                await wallet.signAndSendTransaction({
+                  network: NETWORK,
+                  signerId: accountId,
+                  receiverId: mapped[0].receiverId,
+                  actions: mapped[0].actions,
+                }),
+              ]
+            : await wallet.signAndSendTransactions({
+                network: NETWORK,
+                signerId: accountId,
+                transactions: mapped,
+              });
+        for (const o of outcomes) {
+          const status = o && typeof o === "object" && "status" in o ? (o.status as { Failure?: unknown }) : null;
+          if (status?.Failure) {
+            throw new Error(typeof status.Failure === "string" ? status.Failure : JSON.stringify(status.Failure));
+          }
+        }
         setToast({ kind: "ok", text: "Transaction sent" });
         setTimeout(reloadNearBalance, 1500);
         return true;

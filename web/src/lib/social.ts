@@ -2,13 +2,19 @@
 
 import { useEffect, useRef } from "react";
 
-export const SOCIAL_API = process.env.NEXT_PUBLIC_SOCIAL_API ?? "http://localhost:8787";
+const RAW_SOCIAL_API = process.env.NEXT_PUBLIC_SOCIAL_API;
+export const SOCIAL_API =
+  RAW_SOCIAL_API && !RAW_SOCIAL_API.includes("localhost:8787")
+    ? RAW_SOCIAL_API
+    : typeof window !== "undefined" &&
+        (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") &&
+        RAW_SOCIAL_API
+      ? RAW_SOCIAL_API
+      : "/api/social";
 
-/** True when running locally or when a real remote NEXT_PUBLIC_SOCIAL_API URL is configured. */
+/** True when either an external Social API or the built-in /api/social route is active. */
 export function isSocialConfigured(): boolean {
-  if (typeof window === "undefined") return Boolean(process.env.NEXT_PUBLIC_SOCIAL_API);
-  const isLocalHost = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
-  return isLocalHost || !SOCIAL_API.includes("localhost:8787");
+  return true;
 }
 const SESSION_KEY = "floorpad.chat.session";
 const PENDING_KEY = "floorpad.chat.pending";
