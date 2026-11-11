@@ -64,8 +64,8 @@ export default function Explore() {
   useEffect(() => {
     api<{ token_id: string; n: number }[]>("/trending/chat")
       .then((r) => setChatCounts(Object.fromEntries(r.map((x) => [x.token_id, x.n]))))
-      .catch(() => {});
-    api<Callout[]>("/calls?limit=20").then(setCalls).catch(() => {});
+      .catch(() => { });
+    api<Callout[]>("/calls?limit=20").then(setCalls).catch(() => { });
   }, []);
   useStream("global", { call: (c) => setCalls((xs) => [c as Callout, ...xs].slice(0, 20)) });
 
@@ -177,71 +177,86 @@ export default function Explore() {
 
   return (
     <>
-      {/* ---------- unified responsive hero (single h1, mobile + desktop) ---------- */}
-      <section className={`grid explore-top ${hasCalls ? "" : "single"}`}>
-        <div className="stack">
-          <div className="hero-box tagline-row">
-            <div>
-              <div className="row wrap" style={{ gap: 8, marginBottom: 8 }}>
+      {/* ---------- compact token-first top strip ---------- */}
+      <section className={`hero-strip ${hasCalls ? "with-calls" : ""}`}>
+        <div className="hero-strip-main">
+          <div className="hero-strip-top">
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div className="row wrap" style={{ gap: 8, marginBottom: 4 }}>
                 <span className={`badge ${NETWORK === "testnet" ? "warn" : "green"}`}>
-                  {NETWORK === "testnet" ? "Testnet Live · Graduation at $100 FDV" : `Mainnet · Graduation at $${gradTargetUsd.toLocaleString()}`}
+                  {NETWORK === "testnet" ? "Testnet · $100 grad" : `Mainnet · $${gradTargetUsd.toLocaleString()} grad`}
                 </span>
-                <span className="xs muted">40% of trade fees back the floor</span>
+                <span className="xs muted">Zero premint · 40% fees to floor vault</span>
               </div>
-              <h1 className="hero-title">Meme launches where late buyers aren&apos;t exit liquidity.</h1>
-              <p className="hero-sub">
-                Every token has an on-chain NEAR floor you can always redeem against — funded by trade fees, exit penalties, and LiNEAR staking yield.
+              <h1 className="hero-title-compact">Meme launches where late buyers aren&apos;t exit liquidity.</h1>
+              <p className="hero-sub-compact">
+                Every token has a redeemable NEAR vault floor + locked yield LP.
               </p>
-              <div className="row wrap" style={{ marginTop: 14, gap: 8 }}>
-                {featured ? (
-                  <Link href={`/token/${featured.token_id}`} className="btn primary sm">
-                    Trade ${featured.meta.symbol}
-                  </Link>
-                ) : (
-                  <a href="#launches" className="btn primary sm">Explore tokens</a>
-                )}
-                <Link href="/create" className="btn buy sm">+ Launch a token</Link>
-                <button
-                  className="btn sm ghost"
-                  onClick={() => setShowGuide(!showGuide)}
-                >
-                  <SlabIcon name="ops" size={14} />
-                  <span>{showGuide ? "Hide 30s guide" : "How it works (30s)"}</span>
-                </button>
-              </div>
             </div>
-            <Mascot pose="hero" size={128} blink alt="Floorpad mascot" />
+            <div className="row wrap hero-actions">
+              <Link href="/create" className="btn buy sm">+ Launch</Link>
+              <button className="btn sm ghost" onClick={() => setShowGuide(!showGuide)}>
+                <SlabIcon name="ops" size={14} />
+                <span>{showGuide ? "Hide guide" : "30s guide"}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Slim single-row live metrics ribbon + optional desktop featured pill */}
+          <div className="stats-ribbon">
+            <div className="sr-item">
+              <span className="xs muted">Tokens</span>
+              <b className="mono">{tokens ? `${stats.count} (${stats.graduated} grad)` : <span className="skeleton" style={{ minWidth: 42, minHeight: 16 }} />}</b>
+            </div>
+            <div className="sr-item">
+              <span className="xs muted">Volume</span>
+              <b className="mono">{tokens && usd ? fmtUsd(stats.vol) : <span className="skeleton" style={{ minWidth: 48, minHeight: 16 }} />}</b>
+            </div>
+            <div className="sr-item">
+              <span className="xs muted">In floors</span>
+              <b className="mono green">{tokens && usd ? fmtUsd(stats.vault) : <span className="skeleton" style={{ minWidth: 48, minHeight: 16 }} />}</b>
+            </div>
+            {featured && (
+              <Link href={`/token/${featured.token_id}`} className="sr-featured desktop-only">
+                <span className="xs green bold">{featured.grad_stage === "Curve" ? "HOT" : "TOP"}</span>
+                <span className="bold">${featured.meta.symbol}</span>
+                <span className="mono small">{usd && mcap(featured) ? fmtUsd(mcap(featured)) : "–"}</span>
+                <span className="xs muted">
+                  {featured.grad_stage === "Graduated" ? "Graduated" : `${progressPct(featured).toFixed(0)}%`}
+                </span>
+              </Link>
+            )}
           </div>
 
           {showGuide && (
-            <div className="panel stack" style={{ border: "1.5px solid var(--accent)", gap: 12 }}>
+            <div className="panel stack" style={{ border: "1.5px solid var(--accent)", gap: 10 }}>
               <div className="row between">
                 <strong className="green row" style={{ gap: 8 }}>
-                  <Moji face="hero" size={24} />
-                  How Floorpad Works (30-Second Guide)
+                  <Moji face="hero" size={22} />
+                  How Floorpad Works (30s)
                 </strong>
                 <button className="btn sm ghost" onClick={() => setShowGuide(false)}>✕ Close</button>
               </div>
-              <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
-                <div className="panel tight stack" style={{ background: "var(--tertiary)", gap: 6 }}>
+              <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 10 }}>
+                <div className="panel tight stack" style={{ background: "var(--tertiary)", gap: 4 }}>
                   <div className="row" style={{ gap: 6 }}>
                     <span className="badge primary">Step 1</span>
                     <strong>Fair Curve Launch</strong>
                   </div>
                   <span className="small muted">
-                    Zero premint and zero team tokens. Buy with NEAR on the curve; early per-wallet limits slow down snipers.
+                    Zero premint or team allocation. Buy with NEAR on the curve; early wallet caps slow snipers.
                   </span>
                 </div>
-                <div className="panel tight stack" style={{ background: "var(--tertiary)", gap: 6 }}>
+                <div className="panel tight stack" style={{ background: "var(--tertiary)", gap: 4 }}>
                   <div className="row" style={{ gap: 6 }}>
                     <span className="badge green">Step 2</span>
                     <strong>Redeemable Floor</strong>
                   </div>
                   <span className="small muted">
-                    40% of trading fees + 100% of quick-flip exit penalties grow the NEAR vault. Burn your tokens anytime for your vault share.
+                    40% of trading fees + 100% of quick-flip exit penalties grow the NEAR vault. Burn tokens anytime for your share.
                   </span>
                 </div>
-                <div className="panel tight stack" style={{ background: "var(--tertiary)", gap: 6 }}>
+                <div className="panel tight stack" style={{ background: "var(--tertiary)", gap: 4 }}>
                   <div className="row" style={{ gap: 6 }}>
                     <span className="badge violet">Step 3</span>
                     <strong>Locked Ref Pool</strong>
@@ -253,31 +268,6 @@ export default function Explore() {
               </div>
             </div>
           )}
-
-          {featured && <Featured t={featured} mcapUsd={mcap(featured)} floorUsd={floorUsd(featured)} readyUsd={Boolean(usd)} />}
-
-          <div className="grid stats-4">
-            <div className="stat">
-              <div className="k">Active tokens</div>
-              <div className="v">{tokens ? stats.count : <span className="skeleton" />}</div>
-            </div>
-            <div className="stat">
-              <div className="k">Graduated</div>
-              <div className="v">{tokens ? stats.graduated : <span className="skeleton" />}</div>
-            </div>
-            <div className="stat">
-              <div className="k">Total volume</div>
-              <div className="v">{tokens && usd ? fmtUsd(stats.vol) : <span className="skeleton" />}</div>
-            </div>
-            <div className="stat">
-              <div className="k">Backed in floors</div>
-              <div className="v green">{tokens && usd ? fmtUsd(stats.vault) : <span className="skeleton" />}</div>
-            </div>
-          </div>
-
-          <div className="pillars scroll-x scroll-cue mobile-only-block" style={{ display: undefined }}>
-            <Pillars />
-          </div>
         </div>
 
         {hasCalls && (
@@ -287,14 +277,14 @@ export default function Explore() {
               <Link href="/calls" className="small muted link-chev">All <SlabIcon name="chevron" size={12} /></Link>
             </div>
             <div className="rail-list">
-              {calls.slice(0, 6).map((c) => (
+              {calls.slice(0, 3).map((c) => (
                 <Link key={c.id} href={`/token/${c.token_id}`} className="rail-item">
                   <div className="row between">
                     <b>${c.symbol}</b>
                     <span className={c.x_now >= 1 ? "green" : "bad"}>{fmtX(c.x_now)}</span>
                   </div>
                   <div className="small ellipsis">“{c.thesis}”</div>
-                  <div className="xs muted">{c.account} · at {fmtUsd(c.mcap_usd)} · {ago(c.ts)}</div>
+                  <div className="xs muted">{c.account} · {ago(c.ts)}</div>
                 </Link>
               ))}
             </div>
@@ -302,26 +292,8 @@ export default function Explore() {
         )}
       </section>
 
-      {hasCalls && (
-        <section className="section tight mobile-only-block">
-          <div className="row between" style={{ marginBottom: 8 }}>
-            <h2 style={{ margin: 0 }}><MojiLabel face="cool">Live callouts</MojiLabel></h2>
-            <Link href="/calls" className="small muted link-chev">See all <SlabIcon name="chevron" size={12} /></Link>
-          </div>
-          <div className="scroll-x scroll-cue calls-strip">
-            {calls.map((c) => (
-              <Link key={c.id} href={`/token/${c.token_id}`} className="call-chip">
-                <b>${c.symbol}</b>
-                <span className={c.x_now >= 1 ? "green" : "bad"}>{fmtX(c.x_now)}</span>
-                <span className="muted xs">{c.account.split(".")[0]} · {ago(c.ts)}</span>
-              </Link>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* ---------- list ---------- */}
-      <section className="section" id="launches">
+      {/* ---------- list (immediately visible above the fold) ---------- */}
+      <section className="section" id="launches" style={{ marginTop: 10 }}>
         <div className="toolbar">
           <div className="seg scroll-x scroll-cue" role="tablist" aria-label="Filter launches">
             {(Object.keys(FILTER_LABEL) as Filter[]).map((f) => (
@@ -423,6 +395,13 @@ export default function Explore() {
           </div>
         )}
       </section>
+
+      {/* ---------- below-the-fold protocol summary pillars ---------- */}
+      <section className="section">
+        <div className="pillars">
+          <Pillars />
+        </div>
+      </section>
     </>
   );
 }
@@ -435,30 +414,6 @@ function Pillars() {
       <div className="pillar"><b>Locked yield LP</b><span>Graduated liquidity stays locked in Ref Finance earning LiNEAR staking rewards.</span></div>
       <div className="pillar"><b>Holder DAO</b><span>Token lockers vote on yield splits and proposals (&gt;70% approval threshold).</span></div>
     </>
-  );
-}
-
-function Featured({ t, mcapUsd, floorUsd, readyUsd }: { t: TokenView; mcapUsd: number; floorUsd: number; readyUsd: boolean }) {
-  const pct = progressPct(t);
-  return (
-    <Link href={`/token/${t.token_id}`} className="featured">
-      <Avatar t={t} lg />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div className="xs green" style={{ fontWeight: 700, letterSpacing: ".04em" }}>
-          <span className="row" style={{ gap: 6 }}><Moji face={t.grad_stage === "Curve" ? "hero" : "wink"} size={18} />{t.grad_stage === "Curve" ? "CLOSEST TO GRADUATION" : "FEATURED TOKEN"}</span>
-        </div>
-        <div className="row between" style={{ alignItems: "baseline" }}>
-          <h2 className="ellipsis" style={{ margin: "2px 0" }}>{t.meta.name} <span className="muted">${t.meta.symbol}</span></h2>
-          <b className="mono" style={{ fontSize: "1.25rem" }}>{readyUsd && mcapUsd ? fmtUsd(mcapUsd) : "–"}</b>
-        </div>
-        <p className="muted small ellipsis" style={{ margin: "0 0 8px" }}>{t.meta.description}</p>
-        <div className="progress big"><div style={{ width: `${pct}%` }} /></div>
-        <div className="row between small muted">
-          <span>{pct.toFixed(1)}% bonded · graduates at ${t.grad_mcap_usd.toLocaleString()}</span>
-          <span>{t.holders} holders · floor <span className="green">{readyUsd && floorUsd ? fmtUsd(floorUsd) : "–"}</span></span>
-        </div>
-      </div>
-    </Link>
   );
 }
 
