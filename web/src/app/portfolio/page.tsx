@@ -105,31 +105,33 @@ export default function Portfolio() {
           </div>
         )}
         {rows && rows.length > 0 && (
-          <table className="t">
-            <thead>
-              <tr><th>Token</th><th>Wallet</th><th>Locked</th><th>Unlocks</th><th>Floor value</th><th>Rewards</th></tr>
-            </thead>
-            <tbody>
-              {rows.map(({ t, balance, pos }) => {
-                const locked = pos ? BigInt(pos.amount) : 0n;
-                const floorVal = floorPrice(t) * Number((balance + locked) / 10n ** 14n) / 1e4;
-                return (
-                  <tr key={t.token_id}>
-                    <td>
-                      <Link href={`/token/${t.token_id}`} className="row" style={{ gap: 8 }}>
-                        <Avatar t={t} /> <b>${t.meta.symbol}</b>
-                      </Link>
-                    </td>
-                    <td>{fmtTok(balance.toString(), 0)}</td>
-                    <td>{fmtTok(locked.toString(), 0)}</td>
-                    <td>{locked > 0n ? until(pos!.unlock_at) : "–"}</td>
-                    <td className="green">{fmtPrice(floorVal)} N</td>
-                    <td>{pos ? `${fmtNear(pos.pending_reward, 5)} LiNEAR` : "–"}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div className="table-scroll">
+            <table className="t">
+              <thead>
+                <tr><th>Token</th><th>Wallet</th><th>Locked</th><th>Unlocks</th><th>Floor value</th><th>Rewards</th></tr>
+              </thead>
+              <tbody>
+                {rows.map(({ t, balance, pos }) => {
+                  const locked = pos ? BigInt(pos.amount) : 0n;
+                  const floorVal = floorPrice(t) * Number((balance + locked) / 10n ** 14n) / 1e4;
+                  return (
+                    <tr key={t.token_id}>
+                      <td>
+                        <Link href={`/token/${t.token_id}`} className="row" style={{ gap: 8 }}>
+                          <Avatar t={t} /> <b>${t.meta.symbol}</b>
+                        </Link>
+                      </td>
+                      <td>{fmtTok(balance.toString(), 0)}</td>
+                      <td>{fmtTok(locked.toString(), 0)}</td>
+                      <td>{locked > 0n ? until(pos!.unlock_at) : "–"}</td>
+                      <td className="green">{fmtPrice(floorVal)} N</td>
+                      <td>{pos ? `${fmtNear(pos.pending_reward, 5)} LiNEAR` : "–"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>

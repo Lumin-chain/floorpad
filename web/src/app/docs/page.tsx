@@ -408,7 +408,9 @@ export default function DocsPage() {
                   }}
                   style={{ gap: 6 }}
                 >
-                  <SlabIcon name="chevron" size={14} style={{ transform: "rotate(180deg)" }} />
+                  <span style={{ display: "inline-flex", transform: "rotate(180deg)" }}>
+                    <SlabIcon name="chevron" size={14} />
+                  </span>
                   <span>{prevSec.title}</span>
                 </button>
               ) : <div />}

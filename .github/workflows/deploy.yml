@@ -51,3 +51,4 @@ jobs:
         run: |
           cd server
           railway up --service social --detach
+

@@ -67,7 +67,19 @@ const PATHS: Record<string, string[]> = {
 
 export type SlabIconName = keyof typeof PATHS;
 
-export function SlabIcon({ name, size = 18, className = "", title }: { name: SlabIconName; size?: number; className?: string; title?: string }) {
+export function SlabIcon({
+  name,
+  size = 18,
+  className = "",
+  style,
+  title,
+}: {
+  name: SlabIconName;
+  size?: number;
+  className?: string;
+  style?: React.CSSProperties;
+  title?: string;
+}) {
   return (
     <svg
       className={`slab-icon ${className}`}
@@ -78,6 +90,7 @@ export function SlabIcon({ name, size = 18, className = "", title }: { name: Sla
       stroke="currentColor"
       strokeWidth={1.2}
       strokeLinejoin="round"
+      style={style}
       role={title ? "img" : undefined}
       aria-label={title}
       aria-hidden={title ? undefined : true}
