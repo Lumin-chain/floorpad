@@ -262,6 +262,43 @@ export const isGraduated = (t: TokenView) => t.grad_stage === "Graduated";
 /** Spot price on the curve (NEAR per token). */
 export const curvePrice = (t: TokenView) => pricePerToken(BigInt(t.v_near), BigInt(t.v_tokens));
 
+/** Real spot price in NEAR per token: live Ref pool price if graduated, curve price otherwise. */
+export function tokenSpotPrice(
+  t: TokenView,
+  refPool?: { amounts: string[]; token_account_ids: string[] } | null,
+  linearPrice?: bigint,
+): number {
+  if (isGraduated(t) && t.pool_id !== null && refPool && refPool.amounts.length >= 2) {
+    const iMeme = Math.max(0, refPool.token_account_ids.indexOf(t.token_id));
+    const rMeme = BigInt(refPool.amounts[iMeme] || "0");
+    const rLin = BigInt(refPool.amounts[1 - iMeme] || "0");
+    if (rMeme > 0n) {
+      const linP = linearPrice && linearPrice > 0n ? linearPrice : BigInt(t.last_linear_price || YOCTO.toString());
+      return Number((rLin * linP * 10n ** 12n) / rMeme / YOCTO) / 1e18 / 1e6;
+    }
+  }
+  return curvePrice(t);
+}
+
+/** Real fully-diluted value in yoctoNEAR: live Ref pool FDV if graduated, curve FDV otherwise. */
+export function tokenFdvNear(
+  t: TokenView,
+  refPool?: { amounts: string[]; token_account_ids: string[] } | null,
+  linearPrice?: bigint,
+): bigint {
+  if (isGraduated(t) && t.pool_id !== null && refPool && refPool.amounts.length >= 2) {
+    const iMeme = Math.max(0, refPool.token_account_ids.indexOf(t.token_id));
+    const rMeme = BigInt(refPool.amounts[iMeme] || "0");
+    const rLin = BigInt(refPool.amounts[1 - iMeme] || "0");
+    if (rMeme > 0n) {
+      const linP = linearPrice && linearPrice > 0n ? linearPrice : BigInt(t.last_linear_price || YOCTO.toString());
+      const supply = BigInt(t.total_supply) - BigInt(t.burned);
+      return (rLin * linP * supply) / rMeme / YOCTO;
+    }
+  }
+  return BigInt(t.fdv_near);
+}
+
 /** Floor price (NEAR per token) – what one token redeems for before fees. */
 export function floorPrice(t: TokenView, linearPrice?: bigint): number {
   if (isGraduated(t)) {

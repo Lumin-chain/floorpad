@@ -12,6 +12,9 @@ import {
   nearUsd,
   pricePerToken,
   progressPct,
+  REF,
+  tokenFdvNear,
+  tokenSpotPrice,
   vaultNear,
   view,
   yoctoToUsd,
@@ -112,7 +115,16 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
     },
   };
   const graduated = isGraduated(t);
-  const mcapUsd = yoctoToUsd(t.fdv_near, nearUsdPrice);
+  const { data: refPool } = useView(
+    graduated && t.pool_id !== null
+      ? () => view<{ token_account_ids: string[]; amounts: string[]; total_fee: number }>(REF, "get_pool", { pool_id: t.pool_id })
+      : null,
+    [t.token_id, t.pool_id],
+    6000,
+  );
+  const spotPriceNear = tokenSpotPrice(t, refPool, linearPrice);
+  const realFdvNear = tokenFdvNear(t, refPool, linearPrice);
+  const mcapUsd = yoctoToUsd(realFdvNear.toString(), nearUsdPrice);
   const gradUsd = yoctoToUsd(t.grad_fdv_near, nearUsdPrice);
   const pct = progressPct(t);
   const links = [
@@ -283,7 +295,7 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
           t={t}
           balance={ctx.balance}
           holdingSince={ctx.holdingSince}
-          spotPriceNear={pricePerToken(BigInt(t.v_near), BigInt(t.v_tokens))}
+          spotPriceNear={spotPriceNear}
           floorPriceNear={floorPrice(t, linearPrice)}
           nearUsd={nearUsdPrice}
           onClose={() => setShowPnl(false)}

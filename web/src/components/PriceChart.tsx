@@ -1,14 +1,47 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ago, floorPrice, fmtNear, fmtPrice, fmtTok, lp, pricePerToken, type TokenView, type Trade } from "@/lib/near";
-import { getCandles, useStream, type Candle } from "@/lib/social";
+import {
+  ago,
+  floorPrice,
+  fmtNear,
+  fmtPrice,
+  fmtTok,
+  lp,
+  pricePerToken,
+  REF,
+  tokenSpotPrice,
+  view,
+  type TokenView,
+  type Trade,
+} from "@/lib/near";
+import { getCandles, getIndexedTrades, useStream, type Candle } from "@/lib/social";
 import { useView } from "@/lib/wallet";
 import type { TokenCtx } from "@/app/token/[id]/page";
 
 function useTrades(t: TokenView) {
   const [liveTrades, setLiveTrades] = useState<Trade[]>([]);
   const fetched = useView(() => lp<Trade[]>("get_trades", { token_id: t.token_id, limit: 200 }), [t.token_id, t.trade_count], 8000).data;
+  const [serverTrades, setServerTrades] = useState<Trade[]>([]);
+
+  // Fetch server indexed trades (captures Ref Finance pool trades for graduated tokens)
+  useEffect(() => {
+    getIndexedTrades(t.token_id, 100).then((res) => {
+      if (res && res.length > 0) {
+        setServerTrades(
+          res.map((r) => ({
+            ts: r.ts,
+            account: r.account,
+            is_buy: Boolean(r.is_buy),
+            near: r.near,
+            tokens: r.tokens,
+            v_near: r.v_near,
+            v_tokens: r.v_tokens,
+          })),
+        );
+      }
+    });
+  }, [t.token_id, t.trade_count]);
 
   // Stream new trades live via SSE
   useStream(`token:${t.token_id}`, {
@@ -29,8 +62,8 @@ function useTrades(t: TokenView) {
   });
 
   return useMemo(() => {
-    if (!fetched && liveTrades.length === 0) return null;
-    const combined = [...liveTrades, ...(fetched ?? [])];
+    if (!fetched && serverTrades.length === 0 && liveTrades.length === 0) return null;
+    const combined = [...liveTrades, ...serverTrades, ...(fetched ?? [])];
     const seen = new Set<string>();
     const unique: Trade[] = [];
     for (const tr of combined) {
@@ -41,7 +74,7 @@ function useTrades(t: TokenView) {
       }
     }
     return unique;
-  }, [fetched, liveTrades]);
+  }, [fetched, serverTrades, liveTrades]);
 }
 
 const TIMEFRAMES = ["1m", "5m", "15m", "1h", "1d"] as const;
@@ -63,6 +96,15 @@ export function PriceChart({ t, linearPrice }: TokenCtx) {
   const [serverCandles, setServerCandles] = useState<Candle[]>([]);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
 
+  // Fetch Ref pool if token has graduated to Rhea/Ref Finance
+  const { data: refPool } = useView(
+    t.grad_stage === "Graduated" && t.pool_id !== null
+      ? () => view<{ token_account_ids: string[]; amounts: string[]; total_fee: number }>(REF, "get_pool", { pool_id: t.pool_id })
+      : null,
+    [t.token_id, t.pool_id],
+    6000,
+  );
+
   // Fetch indexed candles from server
   useEffect(() => {
     let active = true;
@@ -72,9 +114,9 @@ export function PriceChart({ t, linearPrice }: TokenCtx) {
     return () => {
       active = false;
     };
-  }, [t.token_id, tf, t.trade_count]);
+  }, [t.token_id, tf, t.trade_count, trades?.length]);
 
-  const now = pricePerToken(BigInt(t.v_near), BigInt(t.v_tokens));
+  const now = tokenSpotPrice(t, refPool, linearPrice);
   const floor = floorPrice(t, linearPrice);
 
   // Fallback: build candles locally from trade ring buffer if server has no candles yet
@@ -90,7 +132,10 @@ export function PriceChart({ t, linearPrice }: TokenCtx) {
 
     for (const tr of sorted) {
       const bucket = Math.floor(tr.ts / bucketSecs) * bucketSecs;
-      const p = pricePerToken(BigInt(tr.v_near), BigInt(tr.v_tokens));
+      const p =
+        tr.v_tokens && BigInt(tr.v_tokens) > 0n
+          ? pricePerToken(BigInt(tr.v_near), BigInt(tr.v_tokens))
+          : (Number(BigInt(tr.near) / 10n ** 18n) / 1e6) / Math.max(0.000001, Number(BigInt(tr.tokens) / 10n ** 18n));
       const volNear = Number(BigInt(tr.near) / 10n ** 18n) / 1e6;
       const existing = map.get(bucket);
       if (!existing) {
@@ -345,7 +390,10 @@ export function TradesTable({ t, trades: given, limit = 50 }: { t: TokenView; tr
           </thead>
           <tbody>
             {filtered.slice(0, limit).map((tr, i) => {
-              const p = pricePerToken(BigInt(tr.v_near), BigInt(tr.v_tokens));
+              const p =
+                tr.v_tokens && BigInt(tr.v_tokens) > 0n
+                  ? pricePerToken(BigInt(tr.v_near), BigInt(tr.v_tokens))
+                  : (Number(BigInt(tr.near) / 10n ** 18n) / 1e6) / Math.max(0.000001, Number(BigInt(tr.tokens) / 10n ** 18n));
               return (
                 <tr key={i}>
                   <td className={tr.is_buy ? "green" : "bad"}>

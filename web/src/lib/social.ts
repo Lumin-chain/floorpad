@@ -165,3 +165,20 @@ export const getCandles = (tokenId: string, tf = "5m", limit = 100) =>
 
 export const getIndexedTrades = (tokenId: string, limit = 50) =>
   api<IndexedTrade[]>(`/tokens/${tokenId}/trades?limit=${limit}`).catch(() => []);
+
+export const postTrade = (
+  tokenId: string,
+  trade: {
+    account: string;
+    is_buy: boolean;
+    near: string;
+    tokens: string;
+    price: number;
+    v_near?: string;
+    v_tokens?: string;
+  },
+) =>
+  api<IndexedTrade>(`/tokens/${tokenId}/trades`, {
+    method: "POST",
+    body: JSON.stringify(trade),
+  });

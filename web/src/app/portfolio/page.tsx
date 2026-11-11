@@ -2,7 +2,21 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { floorPrice, fmtNear, fmtPrice, fmtTok, LAUNCHPAD, LINEAR, lp, pricePerToken, until, view, type Position, type TokenView } from "@/lib/near";
+import {
+  floorPrice,
+  fmtNear,
+  fmtPrice,
+  fmtTok,
+  LAUNCHPAD,
+  LINEAR,
+  lp,
+  pricePerToken,
+  tokenSpotPrice,
+  until,
+  view,
+  type Position,
+  type TokenView,
+} from "@/lib/near";
 import { storageCallIfNeeded, useView, useWallet } from "@/lib/wallet";
 import { Avatar } from "@/components/ui";
 import { Mascot } from "@/components/Mascot";
@@ -153,7 +167,7 @@ export default function Portfolio() {
           t={pnlTarget.t}
           balance={pnlTarget.balance + (pnlTarget.pos ? BigInt(pnlTarget.pos.amount) : 0n)}
           holdingSince={pnlTarget.pos ? pnlTarget.pos.unlock_at - 7 * 86400 : null}
-          spotPriceNear={pricePerToken(BigInt(pnlTarget.t.v_near), BigInt(pnlTarget.t.v_tokens))}
+          spotPriceNear={tokenSpotPrice(pnlTarget.t)}
           floorPriceNear={floorPrice(pnlTarget.t)}
           nearUsd={3.6}
           onClose={() => setPnlTarget(null)}

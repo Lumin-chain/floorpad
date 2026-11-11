@@ -7,7 +7,21 @@
  */
 import http from "node:http";
 import { randomBytes } from "node:crypto";
-import { calcPrice, env, getToken, getTokens, getTradesFrom, holderShare, isFullAccessKey, LAUNCHPAD, marketCap } from "./chain.ts";
+import {
+  calcPrice,
+  cached,
+  env,
+  getToken,
+  getTokens,
+  getTradesFrom,
+  holderShare,
+  isFullAccessKey,
+  LAUNCHPAD,
+  LINEAR,
+  marketCap,
+  REF,
+  view,
+} from "./chain.ts";
 import { verifySignedMessage } from "./nep413.ts";
 import { openStore, type Call, type Message, type StoredTrade } from "./store.ts";
 
@@ -220,6 +234,37 @@ route("GET", "/tokens/:id/trades", async (_req, _res, p, q) => {
   return store.trades(p.id, limit);
 });
 
+route("POST", "/tokens/:id/trades", async (req, _res, p) => {
+  const b = await body<{
+    account: string;
+    is_buy: boolean;
+    near: string;
+    tokens: string;
+    price: number;
+    v_near?: string;
+    v_tokens?: string;
+  }>(req);
+  if (!b.account || !b.near || !b.tokens) throw new HttpError(400, "invalid trade body");
+
+  const nextId = (store.lastTradeIndex(p.id) || 0) + 1;
+  const stored: StoredTrade = {
+    token_id: p.id,
+    id: nextId,
+    ts: now(),
+    account: clean(b.account, 64),
+    is_buy: b.is_buy ? 1 : 0,
+    near: b.near,
+    tokens: b.tokens,
+    price: b.price || calcPrice(b.v_near || b.near, b.v_tokens || b.tokens),
+    v_near: b.v_near || b.near,
+    v_tokens: b.v_tokens || b.tokens,
+  };
+  store.addTrade(stored);
+  publish(`token:${p.id}`, "trade", stored);
+  publish("global", "trade", stored);
+  return stored;
+});
+
 route("GET", "/tokens/:id/candles", async (_req, _res, p, q) => {
   const tfParam = q.get("tf") ?? "5m";
   const tfSecs = TF_MAP[tfParam] ?? 300;
@@ -267,31 +312,90 @@ const server = http.createServer(async (req, res) => {
 
 // ---------------- on-chain trade indexer ----------------
 let indexingBusy = false;
+const prevPoolReserves = new Map<number, { rMeme: bigint; rLin: bigint }>();
+const YOCTO = 10n ** 24n;
+
 async function indexTrades() {
   if (indexingBusy) return;
   indexingBusy = true;
   try {
     const tokens = await getTokens(50).catch(() => []);
     for (const tok of tokens) {
-      const last = store.lastTradeIndex(tok.token_id);
-      const fromIdx = Math.max(0, last + 1);
-      const trades = await getTradesFrom(tok.token_id, fromIdx, 50).catch(() => []);
-      for (const [idx, tr] of trades) {
-        const stored: StoredTrade = {
-          token_id: tok.token_id,
-          id: idx,
-          ts: tr.ts,
-          account: tr.account,
-          is_buy: tr.is_buy ? 1 : 0,
-          near: tr.near,
-          tokens: tr.tokens,
-          price: calcPrice(tr.v_near, tr.v_tokens),
-          v_near: tr.v_near,
-          v_tokens: tr.v_tokens,
-        };
-        store.addTrade(stored);
-        publish(`token:${tok.token_id}`, "trade", stored);
-        publish("global", "trade", stored);
+      if (tok.grad_stage !== "Graduated" || tok.pool_id === null) {
+        // Curve indexing via launchpad get_trades_from
+        const last = store.lastTradeIndex(tok.token_id);
+        const fromIdx = Math.max(0, last + 1);
+        const trades = await getTradesFrom(tok.token_id, fromIdx, 50).catch(() => []);
+        for (const [idx, tr] of trades) {
+          const stored: StoredTrade = {
+            token_id: tok.token_id,
+            id: idx,
+            ts: tr.ts,
+            account: tr.account,
+            is_buy: tr.is_buy ? 1 : 0,
+            near: tr.near,
+            tokens: tr.tokens,
+            price: calcPrice(tr.v_near, tr.v_tokens),
+            v_near: tr.v_near,
+            v_tokens: tr.v_tokens,
+          };
+          store.addTrade(stored);
+          publish(`token:${tok.token_id}`, "trade", stored);
+          publish("global", "trade", stored);
+        }
+      } else {
+        // Ref Finance pool indexing for graduated tokens
+        try {
+          const pool = await view<{ token_account_ids: string[]; amounts: string[] }>(REF, "get_pool", {
+            pool_id: tok.pool_id,
+          });
+          if (pool && pool.amounts && pool.amounts.length >= 2) {
+            const iMeme = Math.max(0, pool.token_account_ids.indexOf(tok.token_id));
+            const currMeme = BigInt(pool.amounts[iMeme]);
+            const currLin = BigInt(pool.amounts[1 - iMeme]);
+            const prev = prevPoolReserves.get(tok.pool_id);
+
+            if (prev) {
+              const deltaMeme = currMeme - prev.rMeme;
+              const deltaLin = currLin - prev.rLin;
+
+              // If pool reserves shifted, a swap occurred
+              if (deltaMeme !== 0n) {
+                const isBuy = deltaMeme < 0n; // tokens left pool to buyer
+                const absMeme = deltaMeme < 0n ? -deltaMeme : deltaMeme;
+                const absLin = deltaLin < 0n ? -deltaLin : deltaLin;
+                const linPrice = BigInt(
+                  await cached("linear-price", 60_000, () => view<string>(LINEAR, "ft_price").catch(() => YOCTO.toString())),
+                );
+                const nearYocto = (absLin * linPrice) / YOCTO;
+                const price =
+                  absMeme > 0n
+                    ? Number((nearYocto * 10n ** 18n) / absMeme) / 1e18 / 1e6
+                    : 0;
+
+                const nextId = (store.lastTradeIndex(tok.token_id) || 0) + 1;
+                const stored: StoredTrade = {
+                  token_id: tok.token_id,
+                  id: nextId,
+                  ts: now(),
+                  account: "ref-finance.near",
+                  is_buy: isBuy ? 1 : 0,
+                  near: nearYocto.toString(),
+                  tokens: absMeme.toString(),
+                  price,
+                  v_near: currLin.toString(),
+                  v_tokens: currMeme.toString(),
+                };
+                store.addTrade(stored);
+                publish(`token:${tok.token_id}`, "trade", stored);
+                publish("global", "trade", stored);
+              }
+            }
+            prevPoolReserves.set(tok.pool_id, { rMeme: currMeme, rLin: currLin });
+          }
+        } catch {
+          // ignore transient rpc errors
+        }
       }
     }
   } finally {

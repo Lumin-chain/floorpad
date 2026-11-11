@@ -18,6 +18,7 @@ import {
   type TradingAccount,
 } from "@/lib/near";
 import { storageCallIfNeeded, useView, useWallet, type Tx } from "@/lib/wallet";
+import { postTrade } from "@/lib/social";
 import { Kv } from "./ui";
 import type { TokenCtx } from "@/app/token/[id]/page";
 import { MojiLabel, SlabIcon } from "./Brand";
@@ -437,45 +438,113 @@ function RefTrade({ t, balance, linearPrice, reload, initialSide, onDone }: Trad
   const { send, busy, accountId, nearBalance } = useWallet();
   const [side, setSide] = useState<"buy" | "sell">(initialSide ?? "buy");
   const [amt, setAmt] = useState("");
-  const { data: pool } = useView(() => view<RefPool>(REF, "get_pool", { pool_id: t.pool_id }), [t.pool_id], 8000);
+  const { data: pool } = useView(() => view<RefPool>(REF, "get_pool", { pool_id: t.pool_id }), [t.pool_id], 6000);
   const { data: linBal } = useView(
     accountId ? () => view<string>(LINEAR, "ft_balance_of", { account_id: accountId }) : null,
-    [accountId],
-    10000,
+    [accountId, busy],
+    8000,
   );
 
-  const iMeme = pool ? pool.token_account_ids.indexOf(t.token_id) : 0;
-  const rMeme = pool ? BigInt(pool.amounts[iMeme]) : 0n;
-  const rLin = pool ? BigInt(pool.amounts[1 - iMeme]) : 0n;
+  const iMeme = pool && pool.token_account_ids ? Math.max(0, pool.token_account_ids.indexOf(t.token_id)) : 0;
+  const rMeme = pool && pool.amounts && pool.amounts[iMeme] ? BigInt(pool.amounts[iMeme]) : 0n;
+  const rLin = pool && pool.amounts && pool.amounts[1 - iMeme] ? BigInt(pool.amounts[1 - iMeme]) : 0n;
   const fee = pool?.total_fee ?? 30;
 
+  const linP = linearPrice && linearPrice > 0n ? linearPrice : BigInt(t.last_linear_price || YOCTO.toString());
   const base = side === "buy" ? parseUnits(amt, 24) : parseUnits(amt, 18);
-  const shares = side === "buy" ? ((base * YOCTO) / linearPrice) * 999_999n / 1_000_000n : 0n;
-  const out = !pool || base === 0n ? 0n : side === "buy" ? refOut(shares, rLin, rMeme, fee) : refOut(base, rMeme, rLin, fee);
+  // Staking buffer (0.5%) to ensure deposit_and_stake always mints >= shares
+  const shares = side === "buy" && linP > 0n ? (((base * YOCTO) / linP) * 995n) / 1000n : 0n;
+  const out = !pool || base === 0n || rMeme === 0n || rLin === 0n ? 0n : side === "buy" ? refOut(shares, rLin, rMeme, fee) : refOut(base, rMeme, rLin, fee);
   const min = (out * (10000n - SLIPPAGE_BPS)) / 10000n;
-  const spot = rMeme > 0n ? Number((rLin * linearPrice * 10n ** 12n) / rMeme / YOCTO) / 1e18 / 1e6 : 0;
+  const spot = rMeme > 0n && linP > 0n ? Number((rLin * linP * 10n ** 12n) / rMeme / YOCTO) / 1e18 / 1e6 : 0;
 
   async function submit() {
     if (!accountId || out === 0n) return;
     const txs: Tx[] = [];
-    
+
     // Ensure account has storage registered on Ref Finance exchange
     const regRef = await storageCallIfNeeded(REF, accountId);
     if (regRef) txs.push(regRef);
 
     if (side === "buy") {
-      txs.push({ receiverId: LINEAR, calls: [{ method: "deposit_and_stake", args: {}, gas: 50, deposit: base }] });
-      const reg = await storageCallIfNeeded(t.token_id, accountId);
-      if (reg) txs.push(reg);
-      const msg = JSON.stringify({ actions: [{ pool_id: t.pool_id, token_in: LINEAR, token_out: t.token_id, amount_in: shares.toString(), min_amount_out: min.toString() }] });
-      txs.push({ receiverId: LINEAR, calls: [{ method: "ft_transfer_call", args: { receiver_id: REF, amount: shares.toString(), msg }, gas: 180, deposit: "1" }] });
+      // 1. Storage deposit on target token if receiver needs registration
+      const regMeme = await storageCallIfNeeded(t.token_id, accountId);
+      if (regMeme) txs.push(regMeme);
+
+      // 2. Batch deposit_and_stake on LINEAR + ft_transfer_call to REF into a single atomic Tx
+      const msg = JSON.stringify({
+        actions: [
+          {
+            pool_id: t.pool_id,
+            token_in: LINEAR,
+            token_out: t.token_id,
+            amount_in: shares.toString(),
+            min_amount_out: min.toString(),
+          },
+        ],
+        swap_out_recipient: accountId,
+      });
+
+      txs.push({
+        receiverId: LINEAR,
+        calls: [
+          { method: "deposit_and_stake", args: {}, gas: 50, deposit: base },
+          {
+            method: "ft_transfer_call",
+            args: { receiver_id: REF, amount: shares.toString(), msg },
+            gas: 220,
+            deposit: "1",
+          },
+        ],
+      });
     } else {
-      const reg = await storageCallIfNeeded(LINEAR, accountId);
-      if (reg) txs.push(reg);
-      const msg = JSON.stringify({ actions: [{ pool_id: t.pool_id, token_in: t.token_id, token_out: LINEAR, amount_in: base.toString(), min_amount_out: min.toString() }] });
-      txs.push({ receiverId: t.token_id, calls: [{ method: "ft_transfer_call", args: { receiver_id: REF, amount: base.toString(), msg }, gas: 180, deposit: "1" }] });
+      // 1. Storage deposit on LINEAR if user isn't registered to receive LiNEAR
+      const regLinear = await storageCallIfNeeded(LINEAR, accountId);
+      if (regLinear) txs.push(regLinear);
+
+      // 2. Transfer meme tokens to Ref with swap_out_recipient
+      const msg = JSON.stringify({
+        actions: [
+          {
+            pool_id: t.pool_id,
+            token_in: t.token_id,
+            token_out: LINEAR,
+            amount_in: base.toString(),
+            min_amount_out: min.toString(),
+          },
+        ],
+        swap_out_recipient: accountId,
+      });
+
+      txs.push({
+        receiverId: t.token_id,
+        calls: [
+          {
+            method: "ft_transfer_call",
+            args: { receiver_id: REF, amount: base.toString(), msg },
+            gas: 220,
+            deposit: "1",
+          },
+        ],
+      });
     }
+
     if (await send(txs)) {
+      // Immediately index and broadcast trade to social API for real-time chart & tape update
+      const nearSpent = side === "buy" ? base.toString() : ((out * linP) / YOCTO).toString();
+      const tokensTransferred = side === "buy" ? out.toString() : base.toString();
+      const tradePrice = spot > 0 ? spot : (Number(base / 10n ** 18n) / 1e6) / Math.max(1, Number(out / 10n ** 18n));
+
+      postTrade(t.token_id, {
+        account: accountId,
+        is_buy: side === "buy",
+        near: nearSpent,
+        tokens: tokensTransferred,
+        price: tradePrice,
+        v_near: rLin.toString(),
+        v_tokens: rMeme.toString(),
+      }).catch(() => {});
+
       setAmt("");
       reload();
       onDone?.();
