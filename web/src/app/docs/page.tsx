@@ -23,6 +23,13 @@ type SectionId = (typeof SECTIONS)[number]["id"];
 
 export default function DocsPage() {
   const [activeSection, setActiveSection] = useState<SectionId>("overview");
+  const [viewMode, setViewMode] = useState<"focus" | "all">("focus");
+
+  const curIdx = SECTIONS.findIndex((s) => s.id === activeSection);
+  const prevSec = curIdx > 0 ? SECTIONS[curIdx - 1] : null;
+  const nextSec = curIdx < SECTIONS.length - 1 ? SECTIONS[curIdx + 1] : null;
+
+  const showSec = (id: SectionId) => viewMode === "all" || activeSection === id;
 
   return (
     <div className="section stack" style={{ gap: 24 }}>
@@ -37,12 +44,33 @@ export default function DocsPage() {
             </div>
           </div>
           <div className="row wrap" style={{ gap: 8 }}>
+            <div className="seg">
+              <button className={viewMode === "focus" ? "active" : ""} onClick={() => setViewMode("focus")}>
+                Chapter Focus
+              </button>
+              <button className={viewMode === "all" ? "active" : ""} onClick={() => setViewMode("all")}>
+                All Chapters
+              </button>
+            </div>
             <Link href="/mechanics" className="btn sm">
               <SlabIcon name="ops" size={14} /> Interactive Simulator
             </Link>
             <span className="badge green">{NETWORK}</span>
           </div>
         </div>
+      </div>
+
+      {/* Mobile Chapter Selector */}
+      <div className="scroll-x mobile-only" style={{ paddingBottom: 4 }}>
+        {SECTIONS.map((sec) => (
+          <button
+            key={sec.id}
+            className={`btn sm ${activeSection === sec.id ? "primary" : "ghost"}`}
+            onClick={() => setActiveSection(sec.id)}
+          >
+            {sec.title}
+          </button>
+        ))}
       </div>
 
       <div className="grid two" style={{ gridTemplateColumns: "240px 1fr", alignItems: "start", gap: 20 }}>
@@ -75,8 +103,9 @@ export default function DocsPage() {
         </div>
 
         {/* Content Area */}
-        <div className="stack" style={{ gap: 28 }}>
+        <div className="stack" style={{ gap: 20 }}>
           {/* Section 1: Overview */}
+          {showSec("overview") && (
           <div id="overview" className="panel stack">
             <h2><MojiLabel face="cool">1. What is Floorpad?</MojiLabel></h2>
             <p>
@@ -108,8 +137,10 @@ export default function DocsPage() {
               </div>
             </div>
           </div>
+          )}
 
           {/* Section 2: Launch & Anti-Snipe */}
+          {showSec("launch") && (
           <div id="launch" className="panel stack">
             <h2><MojiLabel face="wink">2. Token Launch &amp; Fair-Launch Protection</MojiLabel></h2>
             <p>
@@ -127,8 +158,10 @@ export default function DocsPage() {
               To prevent sniper bots from dominating the launch block, a strict <strong>20,000,000 token cap (2% of supply)</strong> is enforced per wallet during the first 120 seconds. Any buy attempt exceeding this cap is automatically rejected by the smart contract.
             </p>
           </div>
+          )}
 
           {/* Section 3: Curve & Ref Graduation */}
+          {showSec("curve") && (
           <div id="curve" className="panel stack">
             <h2><MojiLabel face="hero">3. The Bonding Curve &amp; Graduation to Ref Finance</MojiLabel></h2>
             <p>
@@ -151,8 +184,10 @@ export default function DocsPage() {
               <li><strong>Unused LP Burn:</strong> Any unused LP tokens from the 240M reserve are permanently burned on-chain.</li>
             </ol>
           </div>
+          )}
 
           {/* Section 4: The Rising Floor Vault */}
+          {showSec("floor") && (
           <div id="floor" className="panel stack">
             <h2><MojiLabel face="cool">4. The Redeemable Floor Vault</MojiLabel></h2>
             <p>
@@ -175,8 +210,10 @@ export default function DocsPage() {
               <li><strong>Token Redemptions:</strong> Holders can redeem their tokens for their exact pro-rata share of the vault at any time. When tokens are redeemed, <strong>they are burned permanently</strong>. This removes circulating supply and mathematically raises the floor price per token for all remaining holders!</li>
             </ul>
           </div>
+          )}
 
           {/* Section 5: Taxes & Exit Fees */}
+          {showSec("fees") && (
           <div id="fees" className="panel stack">
             <h2><MojiLabel face="flag">5. Taxes &amp; Decaying Exit Fees</MojiLabel></h2>
             <p>
@@ -206,8 +243,10 @@ export default function DocsPage() {
               100% of all exit fees collected are deposited directly into the Floor Vault to benefit remaining holders.
             </p>
           </div>
+          )}
 
           {/* Section 6: ve-Locks & Sputnik DAO */}
+          {showSec("dao") && (
           <div id="dao" className="panel stack">
             <h2><MojiLabel face="cool">6. ve-Locks &amp; Sputnik DAO v2.3.1 Governance</MojiLabel></h2>
             <p>
@@ -245,8 +284,10 @@ export default function DocsPage() {
               To protect against flash-loan governance attacks and hostile takeovers, proposals require a strict <strong>&gt; 70% delegated vote weight</strong> to pass (&gt; 80% for policy changes). Non-lockers cannot propose or vote.
             </p>
           </div>
+          )}
 
           {/* Section 7: Epoch Yield & 5-Way Split */}
+          {showSec("epochs") && (
           <div id="epochs" className="panel stack">
             <h2><MojiLabel face="hero">7. Epoch Staking Yield &amp; The 5-Way Split</MojiLabel></h2>
             <p>
@@ -275,8 +316,10 @@ export default function DocsPage() {
               </div>
             </div>
           </div>
+          )}
 
           {/* Section 8: Instant Trading Console */}
+          {showSec("trading") && (
           <div id="trading" className="panel stack">
             <h2><MojiLabel face="wink">8. High-Speed Instant Trading Console</MojiLabel></h2>
             <p>
@@ -289,8 +332,10 @@ export default function DocsPage() {
               <li><strong>Withdraw Anytime:</strong> Withdraw your NEAR or move custody tokens to your wallet with 1 yocto deposit at any time.</li>
             </ul>
           </div>
+          )}
 
           {/* Section 9: Referrals Program */}
+          {showSec("referrals") && (
           <div id="referrals" className="panel stack">
             <h2><MojiLabel face="cool">9. 20% Referrals Program</MojiLabel></h2>
             <p>
@@ -300,8 +345,10 @@ export default function DocsPage() {
               Whenever someone trades through your referral link, <strong>20% of the platform trading fee</strong> is credited instantly and directly to your claimable balance on-chain. Referrals are tracked on a 30-day first-touch attribution window.
             </p>
           </div>
+          )}
 
           {/* Section 10: Zero Admin */}
+          {showSec("security") && (
           <div id="security" className="panel stack">
             <h2><MojiLabel face="cool">10. Cryptographic Zero-Admin &amp; Security</MojiLabel></h2>
             <p>
@@ -314,8 +361,10 @@ export default function DocsPage() {
               <li><strong>Auditable Proof:</strong> The contract provides a public view method <code>get_admin_powers()</code> that returns cryptographic statements of these guarantees for auditability.</li>
             </ul>
           </div>
+          )}
 
           {/* Section 11: FAQ */}
+          {showSec("faq") && (
           <div id="faq" className="panel stack">
             <h2><MojiLabel face="flag">11. Frequently Asked Questions (FAQ)</MojiLabel></h2>
             <div className="stack" style={{ gap: 12 }}>
@@ -345,6 +394,39 @@ export default function DocsPage() {
               </div>
             </div>
           </div>
+          )}
+
+          {/* Chapter Next / Previous Navigator */}
+          {viewMode === "focus" && (
+            <div className="row between wrap" style={{ marginTop: 12 }}>
+              {prevSec ? (
+                <button
+                  className="btn ghost row"
+                  onClick={() => {
+                    setActiveSection(prevSec.id);
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
+                  style={{ gap: 6 }}
+                >
+                  <SlabIcon name="chevron" size={14} style={{ transform: "rotate(180deg)" }} />
+                  <span>{prevSec.title}</span>
+                </button>
+              ) : <div />}
+              {nextSec && (
+                <button
+                  className="btn primary row"
+                  onClick={() => {
+                    setActiveSection(nextSec.id);
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
+                  style={{ gap: 6 }}
+                >
+                  <span>{nextSec.title}</span>
+                  <SlabIcon name="chevron" size={14} />
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

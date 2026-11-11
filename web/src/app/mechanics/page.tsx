@@ -20,6 +20,7 @@ import { useView } from "@/lib/wallet";
 import { Moji, MojiLabel, SlabIcon } from "@/components/Brand";
 
 export default function MechanicsPage() {
+  const [tab, setTab] = useState<"simulator" | "security" | "events">("simulator");
   const { data: config } = useView(() => lp<LaunchConfig>("get_config"), [], 0);
   const { data: adminPowers } = useView(() => lp<string[]>("get_admin_powers"), [], 0);
   const { data: tokens } = useView(() => lp<TokenView[]>("get_tokens", { from_index: 0, limit: 20 }), [], 15000);
@@ -190,34 +191,23 @@ export default function MechanicsPage() {
         </div>
       </div>
 
-      {/* Section 1: Zero Admin Proof */}
-      <div className="panel stack">
-        <div className="row between">
-          <h2><MojiLabel face="cool">Cryptographic Zero-Admin Proof</MojiLabel></h2>
-          <span className="badge mono">{LAUNCHPAD}</span>
-        </div>
-        <p className="small muted">
-          Verified live from <code className="mono">get_admin_powers()</code> on the launchpad contract. Config cannot be updated, and no keys exist that can withdraw funds or alter mechanics.
-        </p>
-        <div className="grid half" style={{ gap: 12 }}>
-          {(adminPowers ?? [
-            "owner: none (no admin methods; config is immutable after init)",
-            "platform fees: accrue in-contract; anyone can sweep them, only to treasury",
-            "platform yield cut: claimable LiNEAR credited to treasury",
-            "price: read on-chain from Ref; nobody can set it",
-            "upgrades: only possible if full-access keys exist (deleted on deploy with LOCK=1)",
-          ]).map((power, i) => (
-            <div key={i} className="panel tight row" style={{ background: "var(--panel-2)", gap: 10 }}>
-              <span className="green" style={{ fontSize: "1.1rem" }}>✓</span>
-              <span className="small mono" style={{ wordBreak: "break-word" }}>{power}</span>
-            </div>
-          ))}
-        </div>
+      {/* Mechanics Sub-Navigation */}
+      <div className="tabs" style={{ margin: "4px 0 16px" }}>
+        <button className={tab === "simulator" ? "active" : ""} onClick={() => setTab("simulator")}>
+          <span className="row" style={{ gap: 6 }}><Moji face="hero" size={18} /> 60-Day Simulator</span>
+        </button>
+        <button className={tab === "security" ? "active" : ""} onClick={() => setTab("security")}>
+          <span className="row" style={{ gap: 6 }}><Moji face="cool" size={18} /> Zero-Admin & Parameters</span>
+        </button>
+        <button className={tab === "events" ? "active" : ""} onClick={() => setTab("events")}>
+          <span className="row" style={{ gap: 6 }}><Moji face="wink" size={18} /> On-Chain Audit Log</span>
+        </button>
       </div>
 
-      {/* Section 2: Interactive 60-Day Floor Growth Simulator */}
-      <div className="panel stack">
-        <div className="row between wrap">
+      {/* Tab 1: Interactive 60-Day Floor Growth Simulator */}
+      {tab === "simulator" && (
+        <div className="panel stack">
+          <div className="row between wrap">
           <div>
             <h2><MojiLabel face="hero">Interactive 60-Day Mechanics Simulator</MojiLabel></h2>
             <span className="small muted">
@@ -375,6 +365,35 @@ export default function MechanicsPage() {
           })}
         </div>
       </div>
+      )}
+
+      {/* Tab 2: Zero-Admin Proof & Immutable Parameter Sheet */}
+      {tab === "security" && (
+        <div className="stack" style={{ gap: 20 }}>
+          {/* Zero Admin Proof */}
+          <div className="panel stack">
+            <div className="row between wrap">
+              <h2><MojiLabel face="cool">Cryptographic Zero-Admin Proof</MojiLabel></h2>
+              <span className="badge mono">{LAUNCHPAD}</span>
+            </div>
+            <p className="small muted">
+              Verified live from <code className="mono">get_admin_powers()</code> on the launchpad contract. Config cannot be updated, and no keys exist that can withdraw funds or alter mechanics.
+            </p>
+            <div className="grid half" style={{ gap: 12 }}>
+              {(adminPowers ?? [
+                "owner: none (no admin methods; config is immutable after init)",
+                "platform fees: accrue in-contract; anyone can sweep them, only to treasury",
+                "platform yield cut: claimable LiNEAR credited to treasury",
+                "price: read on-chain from Ref; nobody can set it",
+                "upgrades: only possible if full-access keys exist (deleted on deploy with LOCK=1)",
+              ]).map((power, i) => (
+                <div key={i} className="panel tight row" style={{ background: "var(--panel-2)", gap: 10 }}>
+                  <span className="green" style={{ fontSize: "1.1rem" }}>✓</span>
+                  <span className="small mono" style={{ wordBreak: "break-word" }}>{power}</span>
+                </div>
+              ))}
+            </div>
+          </div>
 
       {/* Section 3: Immutable Parameter Sheet */}
       <div className="panel stack">
@@ -468,8 +487,11 @@ export default function MechanicsPage() {
           </div>
         </div>
       </div>
+      </div>
+      )}
 
-      {/* Section 4: Live On-Chain Mechanics Event Log */}
+      {/* Tab 3: Live On-Chain Mechanics Event Log */}
+      {tab === "events" && (
       <div className="panel stack">
         <div className="row between wrap">
           <h2><MojiLabel face="wink">Live Mechanics Audit Log</MojiLabel></h2>
@@ -532,6 +554,7 @@ export default function MechanicsPage() {
           </table>
         </div>
       </div>
+      )}
 
       {/* Footer link to contracts */}
       <div className="row between wrap muted small">

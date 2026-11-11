@@ -393,18 +393,22 @@ function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: T
         </div>
       )}
 
-      {/* Quote display */}
-      {q && (
-        <div className="stack" style={{ gap: 4 }}>
-          <Kv k="You receive" v={side === "buy" ? `${fmtTok(q.amount_out)} $${t.meta.symbol}` : `${fmtNear(q.amount_out)} NEAR`} />
-          <Kv
-            k={`${side === "buy" ? "Buy" : "Sell"} fee (${((side === "buy" ? cfg?.buy_fee_bps ?? 125 : cfg?.sell_fee_bps ?? 250) / 100).toFixed(1)}%, 70% to floor)`}
-            v={`${fmtNear(q.fee)} N`}
-          />
-          {side === "sell" && <Kv k={`Exit fee (${exitPct.toFixed(1)}%, to floor)`} v={`${fmtNear(q.exit_fee)} N`} />}
-          {BigInt(q.refund) > 0n && <Kv k="Refund (curve sold out)" v={`${fmtNear(q.refund)} N`} />}
-        </div>
-      )}
+      {/* Quote display with stable height container */}
+      <div style={{ minHeight: base > 0n ? 70 : 0, transition: "min-height 0.15s ease" }}>
+        {q ? (
+          <div className="stack" style={{ gap: 4 }}>
+            <Kv k="You receive" v={side === "buy" ? `${fmtTok(q.amount_out)} $${t.meta.symbol}` : `${fmtNear(q.amount_out)} NEAR`} />
+            <Kv
+              k={`${side === "buy" ? "Buy" : "Sell"} fee (${((side === "buy" ? cfg?.buy_fee_bps ?? 125 : cfg?.sell_fee_bps ?? 250) / 100).toFixed(1)}%, 70% to floor)`}
+              v={`${fmtNear(q.fee)} N`}
+            />
+            {side === "sell" && <Kv k={`Exit fee (${exitPct.toFixed(1)}%, to floor)`} v={`${fmtNear(q.exit_fee)} N`} />}
+            {BigInt(q.refund) > 0n && <Kv k="Refund (curve sold out)" v={`${fmtNear(q.refund)} N`} />}
+          </div>
+        ) : base > 0n ? (
+          <div className="small muted" style={{ padding: "8px 0" }}>Fetching optimal quote…</div>
+        ) : null}
+      </div>
 
       {side === "buy" && inSnipe && cfg && (
         <div className="notice">Fair-launch window: max {fmtTok(cfg.snipe_max_tokens, 0)} tokens per wallet for the first minutes.</div>

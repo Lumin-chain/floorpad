@@ -159,17 +159,21 @@ export function PriceChart({ t, linearPrice }: TokenCtx) {
         </div>
       </div>
 
-      {/* OHLC Bar Info */}
-      {activeCandle && (
-        <div className="row wrap small mono" style={{ gap: 14, color: "var(--muted)", background: "var(--panel-2)", padding: "4px 10px", borderRadius: 8 }}>
-          <span>O: <strong style={{ color: "var(--text)" }}>{fmtPrice(activeCandle.open)}</strong></span>
-          <span>H: <strong style={{ color: "var(--text)" }}>{fmtPrice(activeCandle.high)}</strong></span>
-          <span>L: <strong style={{ color: "var(--text)" }}>{fmtPrice(activeCandle.low)}</strong></span>
-          <span>C: <strong style={{ color: activeCandle.close >= activeCandle.open ? "#7cf29a" : "#ff6b6b" }}>{fmtPrice(activeCandle.close)}</strong></span>
-          <span>Vol: <strong style={{ color: "var(--text)" }}>{activeCandle.volume.toFixed(2)} N</strong></span>
-          <span className="muted nowrap">{ago(activeCandle.time)}</span>
-        </div>
-      )}
+      {/* OHLC Bar Info with fixed minHeight to eliminate layout shift */}
+      <div className="row wrap small mono" style={{ gap: 14, minHeight: 28, color: "var(--muted)", background: "var(--panel-2)", padding: "4px 10px", borderRadius: 8, alignItems: "center" }}>
+        {activeCandle ? (
+          <>
+            <span>O: <strong style={{ color: "var(--text)" }}>{fmtPrice(activeCandle.open)}</strong></span>
+            <span>H: <strong style={{ color: "var(--text)" }}>{fmtPrice(activeCandle.high)}</strong></span>
+            <span>L: <strong style={{ color: "var(--text)" }}>{fmtPrice(activeCandle.low)}</strong></span>
+            <span>C: <strong style={{ color: activeCandle.close >= activeCandle.open ? "#7cf29a" : "#ff6b6b" }}>{fmtPrice(activeCandle.close)}</strong></span>
+            <span>Vol: <strong style={{ color: "var(--text)" }}>{activeCandle.volume.toFixed(2)} N</strong></span>
+            <span className="muted nowrap">{ago(activeCandle.time)}</span>
+          </>
+        ) : (
+          <span>Loading candle metrics…</span>
+        )}
+      </div>
 
       {/* SVG Canvas */}
       <div style={{ position: "relative", width: "100%" }}>

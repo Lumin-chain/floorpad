@@ -24,6 +24,7 @@ export default function Explore() {
   const [view, setView] = useState<"grid" | "table">("grid");
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "mcap", dir: -1 });
   const [q, setQ] = useState("");
+  const [showGuide, setShowGuide] = useState(false);
 
   useEffect(() => {
     api<{ token_id: string; n: number }[]>("/trending/chat")
@@ -129,9 +130,61 @@ export default function Explore() {
             <div>
               <h1>Meme launches with a floor that only goes up.</h1>
               <p className="muted">Fair launch, graduate to Ref at ~$15k. Every token gets a redeemable floor, yield-earning LP, a holder DAO, chat, callouts and an AI agent.</p>
+              <div className="row" style={{ marginTop: 8 }}>
+                <button className="btn sm ghost row" onClick={() => setShowGuide(!showGuide)} style={{ gap: 6, border: "1px solid var(--line)" }}>
+                  <SlabIcon name="ops" size={14} />
+                  <span>{showGuide ? "Hide Beginner Guide" : "New Here? How Floorpad Works (30s)"}</span>
+                </button>
+                <Link href="/docs" className="btn sm ghost row" style={{ gap: 6, color: "var(--muted)" }}>
+                  <SlabIcon name="rows" size={14} />
+                  <span>Read Full Docs</span>
+                </Link>
+              </div>
             </div>
-            <Mascot pose="hero" size={150} blink alt="" />
+            <Mascot pose="hero" size={140} blink alt="" />
           </div>
+
+          {/* Interactive Beginner Explainer */}
+          {showGuide && (
+            <div className="panel stack" style={{ background: "linear-gradient(180deg, #162219 0%, #111a14 100%)", border: "1px solid var(--accent)", gap: 12 }}>
+              <div className="row between">
+                <strong className="green row" style={{ gap: 8 }}>
+                  <Moji face="hero" size={24} />
+                  How Floorpad Works (The 30-Second Guide)
+                </strong>
+                <button className="btn sm ghost" onClick={() => setShowGuide(false)}>✕ Close</button>
+              </div>
+              <div className="grid three" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
+                <div className="panel tight stack" style={{ background: "var(--panel-2)", gap: 6 }}>
+                  <div className="row" style={{ gap: 6 }}>
+                    <span className="badge green">Step 1</span>
+                    <strong>Fair Launch Curve</strong>
+                  </div>
+                  <span className="small muted">
+                    100% fair bonding curve with no team allocation and no presale. Buy early with NEAR. Instant Trading allows 0-popup speed.
+                  </span>
+                </div>
+                <div className="panel tight stack" style={{ background: "var(--panel-2)", gap: 6 }}>
+                  <div className="row" style={{ gap: 6 }}>
+                    <span className="badge green">Step 2</span>
+                    <strong>The Vault Floor</strong>
+                  </div>
+                  <span className="small muted">
+                    70% of all fees + exit fees go into the vault. The floor price can only rise. You can ALWAYS burn your tokens to cash out at the floor.
+                  </span>
+                </div>
+                <div className="panel tight stack" style={{ background: "var(--panel-2)", gap: 6 }}>
+                  <div className="row" style={{ gap: 6 }}>
+                    <span className="badge green">Step 3</span>
+                    <strong>Ref Finance DEX</strong>
+                  </div>
+                  <span className="small muted">
+                    At $15k mcap, liquidity migrates to Ref Finance. LP is locked forever and earns LiNEAR staking yield, split by holder DAO votes!
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
           {featured && <Featured t={featured} mcapUsd={mcap(featured)} floorUsd={floorUsd(featured)} />}
           <div className="grid stats-4">
             <div className="stat"><div className="k">Tokens launched</div><div className="v">{stats.count}</div></div>

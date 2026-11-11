@@ -236,24 +236,27 @@ export function useWallet() {
   return c;
 }
 
-/** Poll a view method. `key` changes trigger a refetch. */
+/** Poll a view method. Uses stale-while-revalidate to prevent layout shift and screen jumping. */
 export function useView<T>(fetcher: (() => Promise<T>) | null, key: unknown[], intervalMs = 8000) {
   const [data, setData] = useState<T | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const f = useRef(fetcher);
   f.current = fetcher;
   const k = JSON.stringify(key);
+
   const load = useCallback(async () => {
     if (!f.current) return;
     try {
-      setData(await f.current());
+      const res = await f.current();
+      setData(res);
       setError(null);
     } catch (e) {
       setError((e as Error).message);
     }
   }, []);
+
   useEffect(() => {
-    setData(undefined);
+    // Stale-while-revalidate: keep previous data in place so UI doesn't collapse/jump
     load();
     if (!intervalMs) return;
     const t = setInterval(load, intervalMs);
