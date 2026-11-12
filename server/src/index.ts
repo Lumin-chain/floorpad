@@ -24,6 +24,7 @@ import {
   view,
 } from "./chain.ts";
 import { verifySignedMessage } from "./nep413.ts";
+import { defaultTxApi, fetchRefSwaps, swapValue } from "./ref-swaps.ts";
 import { openStore, type Call, type Message, type StoredTrade } from "./store.ts";
 
 try {
@@ -325,7 +326,7 @@ route("POST", "/tokens/:id/trades", async (req, _res, p) => {
   const last = lastNudgeByToken.get(p.id) ?? 0;
   if (Date.now() - last >= 1500) {
     lastNudgeByToken.set(p.id, Date.now());
-    await indexTokenTrades(tok).catch(() => {});
+    await indexTokenTrades(tok, true).catch(() => {});
   }
   return { ok: true };
 });
@@ -386,10 +387,9 @@ const server = http.createServer(async (req, res) => {
 
 // ---------------- on-chain trade indexer ----------------
 let indexingBusy = false;
-const prevPoolReserves = new Map<number, { rMeme: bigint; rLin: bigint }>();
 const YOCTO = 10n ** 24n;
 
-async function indexTokenTrades(tok: Awaited<ReturnType<typeof getTokens>>[number]) {
+async function indexTokenTrades(tok: Awaited<ReturnType<typeof getTokens>>[number], force = false) {
   // Always catch up any unindexed on-curve trades (including pre-graduation history on fresh DBs)
   const lastCurve = store.lastCurveTradeIndex(tok.token_id);
   const tradeCount = (tok as unknown as { trade_count?: number }).trade_count;
@@ -423,64 +423,58 @@ async function indexTokenTrades(tok: Awaited<ReturnType<typeof getTokens>>[numbe
     }
   }
   if (tok.grad_stage === "Graduated" && tok.pool_id !== null) {
-    try {
-      const pool = await view<{ token_account_ids: string[]; amounts: string[] }>(REF, "get_pool", {
-        pool_id: tok.pool_id,
-      });
-      if (pool && pool.amounts && pool.amounts.length >= 2) {
-        const iMeme = Math.max(0, pool.token_account_ids.indexOf(tok.token_id));
-        const currMeme = BigInt(pool.amounts[iMeme]);
-        const currLin = BigInt(pool.amounts[1 - iMeme]);
-        const prev = prevPoolReserves.get(tok.pool_id);
+    await indexRefSwaps(tok, force).catch((e) => console.warn("ref swaps:", (e as Error).message));
+  }
+}
 
-        if (prev) {
-          const deltaMeme = currMeme - prev.rMeme;
-          const deltaLin = currLin - prev.rLin;
-
-          if (deltaMeme !== 0n) {
-            const isBuy = deltaMeme < 0n;
-            const absMeme = deltaMeme < 0n ? -deltaMeme : deltaMeme;
-            const absLin = deltaLin < 0n ? -deltaLin : deltaLin;
-            const isBuyInt = isBuy ? 1 : 0;
-            if (!store.hasRecentSimilarTrade(tok.token_id, isBuyInt, absMeme.toString(), 25)) {
-              const linPrice = BigInt(
-                await cached("linear-price", 60_000, () => view<string>(LINEAR, "ft_price").catch(() => YOCTO.toString())),
-              );
-              const nearYocto = (absLin * linPrice) / YOCTO;
-              const price =
-                absMeme > 0n
-                  ? Number((nearYocto * 10n ** 18n) / absMeme) / 1e18 / 1e6
-                  : 0;
-
-              const nextId = Math.max(1_000_000_000, (store.lastTradeIndex(tok.token_id) || 0) + 1);
-              const stored: StoredTrade = {
-                token_id: tok.token_id,
-                id: nextId,
-                ts: now(),
-                account: "ref-finance.near",
-                is_buy: isBuyInt,
-                near: nearYocto.toString(),
-                tokens: absMeme.toString(),
-                price,
-                v_near: currLin.toString(),
-                v_tokens: currMeme.toString(),
-              };
-              const payload = {
-                ...stored,
-                symbol: tok.meta.symbol,
-                icon: tok.meta.icon,
-              };
-              store.addTrade(stored);
-              publish(`token:${tok.token_id}`, "trade", payload);
-              publish("global", "trade", payload);
-            }
-          }
-        }
-        prevPoolReserves.set(tok.pool_id, { rMeme: currMeme, rLin: currLin });
+/**
+ * Post-graduation trades read from the chain (ref-swaps.ts): each swap on the token's locked
+ * Ref pool with its real trader, amounts and block time. The cursor is stored, so restarts
+ * resume and the first run backfills the pool's whole history.
+ */
+const lastRefScan = new Map<string, number>();
+const refBusy = new Set<string>();
+async function indexRefSwaps(tok: Awaited<ReturnType<typeof getTokens>>[number], force: boolean) {
+  if (tok.pool_id === null || refBusy.has(tok.token_id)) return;
+  if (!force && Date.now() - (lastRefScan.get(tok.token_id) ?? 0) < 12_000) return;
+  refBusy.add(tok.token_id);
+  lastRefScan.set(tok.token_id, Date.now());
+  try {
+    const since = store.refCursor(tok.token_id);
+    const { swaps, cursor } = await fetchRefSwaps({
+      txApi: defaultTxApi(env("NEAR_NETWORK", "testnet")),
+      tokenId: tok.token_id,
+      poolId: tok.pool_id,
+      ref: REF,
+      linear: LINEAR,
+      sinceHeight: since,
+    });
+    if (swaps.length) {
+      const linPrice = BigInt(await cached("linear-price", 60_000, () => view<string>(LINEAR, "ft_price").catch(() => YOCTO.toString())));
+      for (const sw of swaps) {
+        if (!store.claimSwapKey(sw.key)) continue;
+        const { nearYocto, price } = swapValue(sw, linPrice, YOCTO);
+        const stored: StoredTrade = {
+          token_id: tok.token_id,
+          id: Math.max(1_000_000_000, store.lastTradeIndex(tok.token_id) + 1),
+          ts: sw.ts,
+          account: sw.account,
+          is_buy: sw.isBuy ? 1 : 0,
+          near: nearYocto.toString(),
+          tokens: sw.memeAmount.toString(),
+          price,
+          v_near: "0",
+          v_tokens: "0",
+        };
+        store.addTrade(stored);
+        const payload = { ...stored, symbol: tok.meta.symbol, icon: tok.meta.icon };
+        publish(`token:${tok.token_id}`, "trade", payload);
+        publish("global", "trade", payload);
       }
-    } catch {
-      // ignore transient rpc errors
     }
+    if (cursor > since) store.setRefCursor(tok.token_id, cursor);
+  } finally {
+    refBusy.delete(tok.token_id);
   }
 }
 

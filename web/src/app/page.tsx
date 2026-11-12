@@ -412,7 +412,7 @@ export default function Explore() {
         <ol className="signal-path">
           <Step n="01" title="Fair curve" body="One transaction deploys token, curve and DAO. No premint, no dev bag; launch-window wallet caps slow snipers." />
           <Step n="02" title="Floor vault" body="40% of trade fees, 100% of quick-flip exit fees and 15% of the graduation raise flow into a NEAR vault. Burn tokens for your share anytime." />
-          <Step n="03" title="Sell tax > buy tax" body="1.25% to buy, 2.5% to sell, plus up to 10% for flipping inside 7 days. Dumping pays holders." />
+          <Step n="03" title="Sell tax > buy tax" body="On the curve: 1.25% to buy, 2.5% to sell, plus up to 10% for selling within 7 days (also on vault redemptions). Dumping pays holders. After graduation, Ref charges its 0.3% pool fee." />
           <Step n="04" title="Locked yield LP" body="At graduation liquidity moves to Ref Finance, locks forever and earns LiNEAR yield. Lockers vote where it goes (>70% to pass)." />
         </ol>
       </section>

@@ -1,6 +1,7 @@
 import { createHash, createPublicKey, randomBytes, verify } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { defaultTxApi, fetchRefSwaps, swapValue } from "./ref-swaps";
 
 const NETWORK = (process.env.NEXT_PUBLIC_NETWORK ?? "testnet") as "testnet" | "mainnet";
 const RPC = process.env.NEXT_PUBLIC_RPC ?? `https://rpc.${NETWORK}.fastnear.com`;
@@ -49,6 +50,8 @@ export interface SocialTrade {
   price: number;
   v_near: string;
   v_tokens: string;
+  /** set for post-graduation Ref swaps: tx hash + receipt + action index (dedupe key) */
+  tx?: string;
 }
 
 interface PersistedState {
@@ -59,6 +62,8 @@ interface PersistedState {
   trades: SocialTrade[];
   sessions: Record<string, { account: string; expires: number }>;
   challenges: Record<string, number>;
+  /** per graduated token: highest block height already scanned for Ref swaps */
+  refCursors: Record<string, number>;
 }
 
 const now = () => Math.floor(Date.now() / 1000);
@@ -290,10 +295,12 @@ class SocialBackend {
     trades: [],
     sessions: {},
     challenges: {},
+    refCursors: {},
   };
   private dbFile: string | null = null;
   private listeners = new Map<string, Set<Listener>>();
-  private prevPoolReserves = new Map<number, { rMeme: bigint; rLin: bigint }>();
+  private lastRefScan = new Map<string, number>();
+  private refBusy = new Set<string>();
   private indexingBusy = false;
   private lastIndexAt = 0;
 
@@ -335,9 +342,12 @@ class SocialBackend {
         nextCallId: parsed.nextCallId ?? 1,
         messages: parsed.messages ?? [],
         calls: parsed.calls ?? [],
-        trades: parsed.trades ?? [],
+        // drop trades the old reserve-diff indexer guessed ("ref-finance.near", poll-time stamps);
+        // the Ref swap backfill re-reads them exactly from the chain
+        trades: (parsed.trades ?? []).filter((t) => !(t.account === "ref-finance.near" && !t.tx)),
         sessions: parsed.sessions ?? {},
         challenges: parsed.challenges ?? {},
+        refCursors: parsed.refCursors ?? {},
       };
     } catch {
       // start fresh
@@ -508,7 +518,7 @@ class SocialBackend {
   }
 
   addTrade(t: SocialTrade): boolean {
-    const exists = this.state.trades.some((x) => x.token_id === t.token_id && x.id === t.id);
+    const exists = this.state.trades.some((x) => x.token_id === t.token_id && (x.id === t.id || (!!t.tx && x.tx === t.tx)));
     if (exists) return false;
     this.state.trades.push(t);
     if (this.state.trades.length > 5000) this.state.trades.splice(0, 500);
@@ -554,9 +564,9 @@ class SocialBackend {
 
   candles(tokenId: string, tfSecs: number, limit: number) {
     const tf = Math.max(10, tfSecs);
-    const cutoff = now() - tf * limit * 2;
+    // every trade counts; slice(-limit) below keeps the most recent buckets
     const rows = this.state.trades
-      .filter((t) => t.token_id === tokenId && t.ts >= cutoff)
+      .filter((t) => t.token_id === tokenId && t.price > 0)
       .sort((a, b) => a.ts - b.ts || a.id - b.id);
     if (rows.length === 0) return [];
     const map = new Map<number, { open: number; high: number; low: number; close: number; volume: number; trades: number }>();
@@ -621,55 +631,64 @@ class SocialBackend {
       }
     }
     if (tok.grad_stage === "Graduated" && tok.pool_id !== null) {
-      try {
-        const pool = await view<{ token_account_ids: string[]; amounts: string[] }>(REF, "get_pool", {
-          pool_id: tok.pool_id,
-        });
-        if (pool && pool.amounts && pool.amounts.length >= 2) {
-          const iMeme = Math.max(0, pool.token_account_ids.indexOf(tok.token_id));
-          const currMeme = BigInt(pool.amounts[iMeme]);
-          const currLin = BigInt(pool.amounts[1 - iMeme]);
-          const prev = this.prevPoolReserves.get(tok.pool_id);
-          if (prev) {
-            const deltaMeme = currMeme - prev.rMeme;
-            const deltaLin = currLin - prev.rLin;
-            if (deltaMeme !== 0n) {
-              const isBuy = deltaMeme < 0n;
-              const absMeme = deltaMeme < 0n ? -deltaMeme : deltaMeme;
-              const absLin = deltaLin < 0n ? -deltaLin : deltaLin;
-              const isBuyInt = isBuy ? 1 : 0;
-              if (!this.hasRecentSimilarTrade(tok.token_id, isBuyInt, absMeme.toString(), 25)) {
-                const linPrice = BigInt(
-                  await cached("linear-price", 60_000, () => view<string>(LINEAR, "ft_price").catch(() => YOCTO.toString())),
-                );
-                const nearYocto = (absLin * linPrice) / YOCTO;
-                const price = absMeme > 0n ? Number((nearYocto * 10n ** 18n) / absMeme) / 1e18 / 1e6 : 0;
-                const nextId = Math.max(1_000_000_000, this.lastTradeIndex(tok.token_id) + 1);
-                const stored: SocialTrade = {
-                  token_id: tok.token_id,
-                  id: nextId,
-                  ts: now(),
-                  account: "ref-finance.near",
-                  is_buy: isBuyInt,
-                  near: nearYocto.toString(),
-                  tokens: absMeme.toString(),
-                  price,
-                  v_near: currLin.toString(),
-                  v_tokens: currMeme.toString(),
-                };
-                if (this.addTrade(stored)) {
-                  const payload = { ...stored, symbol: tok.meta.symbol, icon: tok.meta.icon };
-                  this.publish(`token:${tok.token_id}`, "trade", payload);
-                  this.publish("global", "trade", payload);
-                }
-              }
-            }
+      // background loop (bypassDebounce) stays on the 12s throttle; a post-trade nudge scans now
+      await this.indexRefSwaps(tok, !bypassDebounce).catch(() => {});
+    }
+  }
+
+  /**
+   * Post-graduation trades, read from the chain (see ref-swaps.ts): every swap on the token's
+   * locked Ref pool with its real trader, amounts and block time. Cursor is persisted, so a
+   * restart resumes where it left off and the first run backfills the whole pool history.
+   */
+  async indexRefSwaps(tok: TokenInfo, force = false) {
+    if (tok.pool_id === null || this.refBusy.has(tok.token_id)) return;
+    const last = this.lastRefScan.get(tok.token_id) ?? 0;
+    if (!force && Date.now() - last < 12_000) return;
+    this.refBusy.add(tok.token_id);
+    this.lastRefScan.set(tok.token_id, Date.now());
+    try {
+      const since = this.state.refCursors[tok.token_id] ?? 0;
+      const { swaps, cursor } = await fetchRefSwaps({
+        txApi: defaultTxApi(NETWORK),
+        tokenId: tok.token_id,
+        poolId: tok.pool_id,
+        ref: REF,
+        linear: LINEAR,
+        sinceHeight: since,
+      });
+      if (swaps.length) {
+        const linPrice = BigInt(
+          await cached("linear-price", 60_000, () => view<string>(LINEAR, "ft_price").catch(() => YOCTO.toString())),
+        );
+        for (const sw of swaps) {
+          const { nearYocto, price } = swapValue(sw, linPrice, YOCTO);
+          const stored: SocialTrade = {
+            token_id: tok.token_id,
+            id: Math.max(1_000_000_000, this.lastTradeIndex(tok.token_id) + 1),
+            ts: sw.ts,
+            account: sw.account,
+            is_buy: sw.isBuy ? 1 : 0,
+            near: nearYocto.toString(),
+            tokens: sw.memeAmount.toString(),
+            price,
+            v_near: "0",
+            v_tokens: "0",
+            tx: sw.key,
+          };
+          if (this.addTrade(stored)) {
+            const payload = { ...stored, symbol: tok.meta.symbol, icon: tok.meta.icon };
+            this.publish(`token:${tok.token_id}`, "trade", payload);
+            this.publish("global", "trade", payload);
           }
-          this.prevPoolReserves.set(tok.pool_id, { rMeme: currMeme, rLin: currLin });
         }
-      } catch {
-        // ignore transient RPC errors
       }
+      if (cursor > since) {
+        this.state.refCursors[tok.token_id] = cursor;
+        this.persist();
+      }
+    } finally {
+      this.refBusy.delete(tok.token_id);
     }
   }
 

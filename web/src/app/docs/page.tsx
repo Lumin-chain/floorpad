@@ -158,7 +158,7 @@ export default function DocsPage() {
 
             <h3>Anti-Snipe Protection</h3>
             <p className="muted small">
-              To prevent sniper bots from dominating the launch block, a strict <strong>20,000,000 token cap (2% of supply)</strong> is enforced per wallet during the first 120 seconds. Any buy attempt exceeding this cap is automatically rejected by the smart contract.
+              To prevent sniper bots from dominating the launch block, a strict <strong>20,000,000 token cap (2% of supply)</strong> is enforced per wallet during the launch window (set in the contract config; 20 seconds on this testnet deployment). Any buy attempt exceeding this cap is automatically rejected by the smart contract.
             </p>
           </div>
           )}
@@ -294,7 +294,7 @@ export default function DocsPage() {
           <div id="epochs" className="panel stack">
             <h2><MojiLabel face="hero">7. Epoch Staking Yield &amp; The 5-Way Split</MojiLabel></h2>
             <p>
-              After graduation, the locked Ref LP continuously generates LiNEAR staking rewards. Every epoch (30 days on mainnet, 1 hour on testnet), holders vote on how to distribute the yield:
+              After graduation, the locked Ref LP continuously generates LiNEAR staking rewards. Every epoch (length set in the contract config; 30 seconds on this testnet deployment so votes can be tested quickly), holders vote on how to distribute the yield:
             </p>
             <div className="grid cards" style={{ marginTop: 8 }}>
               <div className="panel tight" style={{ background: "var(--panel-2)" }}>

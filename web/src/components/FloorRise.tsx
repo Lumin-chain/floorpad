@@ -8,12 +8,14 @@ import { Mascot } from "@/components/Mascot";
  * reads out the current floor, and the mascot stands on the top floor. On load the slabs
  * rise into place one after another (transform + opacity only).
  */
+// Figures are the live launchpad config: fee_vault_bps 4000, exit fee 100% to vault,
+// grad_vault_bps 1500; yield is split by holder vote. Each slab reads "source | share to floor".
 const SLABS = [
-  { label: "BUY FEES", value: "40%" },
-  { label: "SELL FEES", value: "40%" },
-  { label: "EXIT FEES", value: "100%" },
-  { label: "GRADUATION", value: "15%" },
-  { label: "LiNEAR YIELD", value: "VOTED" },
+  { label: "BUY FEE 1.25%", value: "40% → FLOOR" },
+  { label: "SELL FEE 2.5%", value: "40% → FLOOR" },
+  { label: "EXIT FEE ≤10%", value: "ALL → FLOOR" },
+  { label: "GRADUATION", value: "15% → FLOOR" },
+  { label: "LiNEAR YIELD", value: "BY VOTE" },
 ];
 
 const X0 = 96;

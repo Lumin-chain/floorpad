@@ -601,15 +601,20 @@ function RefTrade({ t, balance, linearPrice, reload, initialSide, onDone }: Trad
       );
 
       if (isSocialConfigured()) {
-        postTrade(t.token_id, {
-          account: accountId,
-          is_buy: side === "buy",
-          near: nearSpent.toString(),
-          tokens: tokensTransferred.toString(),
-          price: tradePrice,
-          v_near: rLin.toString(),
-          v_tokens: rMeme.toString(),
-        }).catch(() => {});
+        // The server reads the swap from the chain itself; this only asks it to look now, and
+        // again shortly after, since the transactions index can trail the chain by a few seconds.
+        const nudge = () =>
+          postTrade(t.token_id, {
+            account: accountId,
+            is_buy: side === "buy",
+            near: nearSpent.toString(),
+            tokens: tokensTransferred.toString(),
+            price: tradePrice,
+            v_near: rLin.toString(),
+            v_tokens: rMeme.toString(),
+          }).catch(() => {});
+        nudge();
+        setTimeout(nudge, 7000);
       }
 
       setAmt("");
