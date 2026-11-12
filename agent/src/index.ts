@@ -16,6 +16,7 @@
 import os from "node:os";
 import path from "node:path";
 import { connect, KeyPair, keyStores, type Account } from "near-api-js";
+import { pollTelegramCommands, postToTelegram, postToX, type AgentTokenInfo } from "./social.js";
 
 try {
   process.loadEnvFile?.(".env");
@@ -49,7 +50,7 @@ const POST_DEPOSIT = 10n ** 22n; // 0.01 NEAR
 type U128 = string;
 interface TokenView {
   token_id: string;
-  meta: { name: string; symbol: string; description: string };
+  meta: { name: string; symbol: string; description: string; twitter?: string | null; telegram?: string | null };
   dao_stage: "Creating" | "Created" | "Finalizing" | "Ready" | "Failed";
   grad_stage: "Curve" | "CreatePool" | "Stake" | "Deposit" | "AddLiquidity" | "Graduated";
   grad_busy: boolean;
@@ -265,10 +266,46 @@ async function agent(t: TokenView) {
   if (!text) return;
   lastPost.set(t.token_id, now);
   try {
-    await call("agent_post", { token_id: t.token_id, text }, 30n, POST_DEPOSIT);
+    const ok = await call("agent_post", { token_id: t.token_id, text }, 30n, POST_DEPOSIT);
+    if (ok) {
+      const info: AgentTokenInfo = { token_id: t.token_id, meta: t.meta, agent_persona: t.agent_persona, stats: stats(t) };
+      await Promise.allSettled([postToTelegram(info, text), postToX(info, text)]);
+    }
   } catch (e) {
     console.warn(`agent_post ${t.token_id}:`, (e as Error).message);
   }
+}
+
+async function replyToQuestion(info: AgentTokenInfo, question: string): Promise<string> {
+  if (!AI_KEY) {
+    return `$${info.meta.symbol}: ${JSON.stringify(info.stats)}`;
+  }
+  const res = await fetch(`${AI_BASE}/chat/completions`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${AI_KEY}` },
+    body: JSON.stringify({
+      model: AI_MODEL,
+      messages: [
+        {
+          role: "system",
+          content: [
+            info.agent_persona,
+            `You are the community AI agent of $${info.meta.symbol} ("${info.meta.name}") on Floorpad.`,
+            "Answer concisely (max 400 chars) using ONLY the provided live stats. Never promise profits or give financial advice.",
+          ].join("\n"),
+        },
+        {
+          role: "user",
+          content: `Live stats: ${JSON.stringify(info.stats)}\nUser message: ${question}`,
+        },
+      ],
+      max_tokens: 220,
+      temperature: 0.7,
+    }),
+  }).catch(() => null);
+  if (!res?.ok) return `$${info.meta.symbol} stats: ${JSON.stringify(info.stats)}`;
+  const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+  return data.choices?.[0]?.message?.content?.trim() || `$${info.meta.symbol} stats: ${JSON.stringify(info.stats)}`;
 }
 
 // ---------------- NEAR/USD price feed ----------------
@@ -321,6 +358,12 @@ async function tick() {
   for (const t of tokens) {
     await keep(t);
     await agent(t);
+  }
+  if (!ONCE) {
+    const agentTokens: AgentTokenInfo[] = tokens
+      .filter((t) => t.agent_account === OPERATOR)
+      .map((t) => ({ token_id: t.token_id, meta: t.meta, agent_persona: t.agent_persona, stats: stats(t) }));
+    await pollTelegramCommands(agentTokens, replyToQuestion);
   }
 }
 
