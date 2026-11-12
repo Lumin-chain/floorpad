@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { ImageResponse } from "next/og";
 import type { NextRequest } from "next/server";
-import { boardTracesSvg, loadMonoFonts, MONO_STACK, PCB } from "@/lib/og-theme";
+import { FLOOR_SLAB, floorTilesSvg, FP, loadMonoFonts, MONO_STACK } from "@/lib/og-theme";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -124,20 +124,17 @@ export async function GET(req: NextRequest) {
   const pnlGainUsd = pnlNum === 0 ? 0 : usdNum - costBasisUsd;
   const absUsdGain = Math.abs(pnlGainUsd);
 
-  const themeColor = isProfit ? PCB.good : PCB.bad;
-  const themeTint = isProfit ? PCB.goodTint : PCB.badTint;
+  const themeColor = isProfit ? FP.good : FP.bad;
+  const themeTint = isProfit ? FP.goodTint : FP.badTint;
   const pnlFormatted = `${isProfit ? "+" : ""}${pnlNum.toFixed(2)}%`;
 
-  const mascotData = loadBrandPng(isProfit ? "pnl-mascot-profit.png" : "pnl-mascot-loss.png");
+  const mascotData = loadBrandPng(isProfit ? "graded/pnl-mascot-profit.png" : "graded/pnl-mascot-loss.png");
   const logoData = loadBrandPng("symbol.png");
 
   const fonts = await loadMonoFonts();
-  const pad = (pos: Record<string, number>) => (
-    <div style={{ position: "absolute", width: 12, height: 12, borderRadius: 6, backgroundColor: PCB.copper, ...pos }} />
-  );
-  const statLabel = { display: "flex", fontSize: 14, color: PCB.secondary, fontWeight: 800, letterSpacing: "0.08em" } as const;
+  const statLabel = { display: "flex", fontSize: 14, color: FP.secondary, fontWeight: 800, letterSpacing: "0.08em" } as const;
   const stats: [string, string, string][] = [
-    [entry ? "ENTRY PRICE" : "TRADER", entry ? `$${entry}` : account, PCB.text],
+    [entry ? "ENTRY PRICE" : "TRADER", entry ? `$${entry}` : account, FP.text],
     [
       !hideNetworth ? "NETWORTH" : "CURRENT PRICE",
       !hideNetworth
@@ -145,15 +142,15 @@ export async function GET(req: NextRequest) {
         : price
           ? `$${price}`
           : pnlFormatted,
-      PCB.text,
+      FP.text,
     ],
-    ["VAULT FLOOR", !hideNetworth ? `${floor} NEAR` : "Floor-backed", PCB.gold],
+    ["VAULT FLOOR", !hideNetworth ? `${floor} NEAR` : "Floor-backed", FP.gold],
   ];
 
   return new ImageResponse(
     (
-      <div style={{ width: "100%", height: "100%", display: "flex", position: "relative", backgroundColor: PCB.board, color: PCB.text, fontFamily: MONO_STACK }}>
-        <img src={boardTracesSvg(1200, 630)} width={1200} height={630} alt="" style={{ position: "absolute", top: 0, left: 0 }} />
+      <div style={{ width: "100%", height: "100%", display: "flex", position: "relative", backgroundColor: FP.board, color: FP.text, fontFamily: MONO_STACK }}>
+        <img src={floorTilesSvg(1200, 630)} width={1200} height={630} alt="" style={{ position: "absolute", top: 0, left: 0 }} />
 
         <div
           style={{
@@ -165,15 +162,14 @@ export async function GET(req: NextRequest) {
             display: "flex",
             flexDirection: "column",
             justifyContent: "space-between",
-            border: `2px solid ${PCB.copper}`,
+            border: `2px solid ${FP.copper}`,
             borderRadius: 12,
-            padding: "30px 44px",
+            overflow: "hidden",
+            padding: "30px 44px 58px",
           }}
         >
-          {pad({ top: 8, left: 8 })}
-          {pad({ top: 8, right: 8 })}
-          {pad({ bottom: 8, left: 8 })}
-          {pad({ bottom: 8, right: 8 })}
+          {/* the floor the stats strip stands on */}
+          <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 34, backgroundImage: FLOOR_SLAB }} />
 
           {/* header */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
@@ -181,7 +177,7 @@ export async function GET(req: NextRequest) {
               {logoData ? <img src={logoData} alt="" width={56} height={28} /> : null}
               <div style={{ display: "flex", flexDirection: "column" }}>
                 <div style={{ display: "flex", fontSize: 32, fontWeight: 800, letterSpacing: "-0.02em", lineHeight: 1.05 }}>Floorpad</div>
-                <div style={{ display: "flex", fontSize: 15, color: PCB.muted }}>Every meme gets a floor.</div>
+                <div style={{ display: "flex", fontSize: 15, color: FP.muted }}>Every meme gets a floor.</div>
               </div>
             </div>
             <div
@@ -206,15 +202,15 @@ export async function GET(req: NextRequest) {
             <div style={{ display: "flex", flexDirection: "column" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "14px", marginBottom: "12px" }}>
                 {tokenIcon ? (
-                  <img src={tokenIcon} alt="" width={54} height={54} style={{ borderRadius: 8, border: `2px solid ${PCB.copper}` }} />
+                  <img src={tokenIcon} alt="" width={54} height={54} style={{ borderRadius: 8, border: `2px solid ${FP.copper}` }} />
                 ) : (
                   <div
                     style={{
                       width: "54px",
                       height: "54px",
                       borderRadius: "8px",
-                      backgroundColor: PCB.boardDeep,
-                      border: `2px solid ${PCB.copper}`,
+                      backgroundColor: FP.boardDeep,
+                      border: `2px solid ${FP.copper}`,
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
@@ -227,19 +223,19 @@ export async function GET(req: NextRequest) {
                 )}
                 <div style={{ display: "flex", flexDirection: "column" }}>
                   <div style={{ display: "flex", fontSize: 38, fontWeight: 800, letterSpacing: "-0.02em", lineHeight: 1.05 }}>{`$${symbol}`}</div>
-                  <div style={{ display: "flex", fontSize: 16, color: PCB.muted }}>{name}</div>
+                  <div style={{ display: "flex", fontSize: 16, color: FP.muted }}>{name}</div>
                 </div>
               </div>
 
-              {/* multimeter-style PNL readout */}
+              {/* PNL readout */}
               <div
                 style={{
                   display: "flex",
                   flexDirection: "column",
                   alignSelf: "flex-start",
                   padding: "14px 24px 18px",
-                  backgroundColor: PCB.boardDeep,
-                  border: `2px solid ${PCB.copperDim}`,
+                  backgroundColor: FP.boardDeep,
+                  border: `2px solid ${FP.copperDim}`,
                   borderRadius: 10,
                 }}
               >
@@ -272,8 +268,8 @@ export async function GET(req: NextRequest) {
                   flexDirection: "column",
                   flex: 1,
                   padding: "12px 20px",
-                  backgroundColor: PCB.boardDeep,
-                  border: `1.5px solid ${PCB.copperDim}`,
+                  backgroundColor: FP.boardDeep,
+                  border: `1.5px solid ${FP.copperDim}`,
                   borderRadius: 8,
                 }}
               >

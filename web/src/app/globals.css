@@ -1,5 +1,5 @@
 :root {
-  /* PCB Schematic palette: green solder-mask board, cream silkscreen, copper traces, gold pads.
+  /* Floorpad palette: deep green, cream text, copper accents, gold highlights.
      Saturation stays under 80%; no pure black. */
   --bg: #0F3B2C;
   --bg-deep: #0A2B20;
@@ -61,15 +61,9 @@
   --card-gap: 10px;
   --touch: 44px;
   --card-shadow: 0 2px 12px rgba(6, 26, 19, .35);
-  /* four copper solder pads in the card corners */
-  --pads:
-    radial-gradient(circle at 7px 7px, var(--copper) 1.6px, transparent 2.2px),
-    radial-gradient(circle at calc(100% - 7px) 7px, var(--copper) 1.6px, transparent 2.2px),
-    radial-gradient(circle at 7px calc(100% - 7px), var(--copper) 1.6px, transparent 2.2px),
-    radial-gradient(circle at calc(100% - 7px) calc(100% - 7px), var(--copper) 1.6px, transparent 2.2px);
-  /* faint copper routing tiled across the board */
-  --board-traces: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='320' fill='none' stroke='%23B87333' stroke-opacity='.13' stroke-width='1.5'%3E%3Cpath d='M0 40h90l30 30h80l20-20h100'/%3E%3Cpath d='M40 0v60l40 40v90l-30 30v100'/%3E%3Cpath d='M320 180h-70l-30 30h-90l-40 40H0'/%3E%3Cpath d='M250 320v-60l-30-30v-70l30-30V0'/%3E%3Cg fill='%23B87333' fill-opacity='.22' stroke='none'%3E%3Ccircle cx='120' cy='70' r='3'/%3E%3Ccircle cx='80' cy='100' r='3'/%3E%3Ccircle cx='220' cy='210' r='3'/%3E%3Ccircle cx='250' cy='130' r='3'/%3E%3C/g%3E%3C/svg%3E");
-  /* Courier New for display and labels (the schematic voice); JetBrains Mono for body and numbers,
+  /* a floor slab: copper planks with dark joints */
+  --floor-slab: repeating-linear-gradient(90deg, transparent 0 46px, rgba(10, 43, 32, .55) 46px 48px), linear-gradient(var(--copper-bright), var(--copper));
+  /* Courier New for display and labels (the display voice); JetBrains Mono for body and numbers,
      which reads better at small sizes and is already self-hosted. */
   --display: "Courier New", Courier, var(--font-mono), monospace;
   --sans: var(--font-mono), "JetBrains Mono", ui-monospace, monospace;
@@ -90,10 +84,12 @@ html {
 html,
 body {
   margin: 0;
-  /* green FR-4 board with faint copper routing and a via grid */
+  /* a tiled floor: faint copper grout lines on the green */
   background-color: var(--bg);
-  background-image: var(--board-traces), radial-gradient(rgba(184, 115, 51, .10) 1px, transparent 1.5px);
-  background-size: 320px 320px, 24px 24px;
+  background-image:
+    linear-gradient(rgba(184, 115, 51, .07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(184, 115, 51, .07) 1px, transparent 1px);
+  background-size: 64px 64px;
   color: var(--text);
   max-width: 100%;
   overflow-x: clip;
@@ -539,7 +535,7 @@ input[type=range] {
 
 /* uniform crisp flat cards — consistent padding (--card-pad) & radius (--radius), zero heavy shadows */
 .panel {
-  background: var(--pads), var(--panel);
+  background: var(--panel);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
   padding: var(--card-pad);
@@ -699,7 +695,7 @@ input[type=range] {
 /* token / feed cards — uniform padding & radius, zero shadows */
 .card {
   display: block;
-  background: var(--pads), var(--panel);
+  background: var(--panel);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
   padding: var(--card-pad);
@@ -1212,6 +1208,11 @@ button.link:hover {
 }
 
 .toolbar .seg {
+  flex: none;
+}
+
+.toolbar .btn {
+  white-space: nowrap;
   flex: none;
 }
 
@@ -2077,6 +2078,11 @@ tr.click-row:hover td {
   line-height: 0;
 }
 
+.mascot {
+  padding-bottom: 6px;
+}
+
+/* graded art + a crisp offset shadow so the mascot reads as a part mounted on the board */
 .mascot img {
   width: 100%;
   height: auto;
@@ -2084,10 +2090,24 @@ tr.click-row:hover td {
   position: relative;
   z-index: 1;
   user-select: none;
+  filter: drop-shadow(0 3px 0 rgba(6, 26, 19, .55));
 }
 
+/* the mascot always stands on a slab of floor */
 .mascot-shadow {
-  display: none;
+  position: absolute;
+  z-index: 0;
+  left: 4%;
+  right: 4%;
+  bottom: 0;
+  height: 8px;
+  border-radius: 2px;
+  border-top: 2px solid var(--copper);
+  background: var(--floor-slab);
+}
+
+.mascot-idle .mascot-shadow {
+  animation: none;
 }
 
 .mascot-idle img {
@@ -2095,9 +2115,7 @@ tr.click-row:hover td {
   transform-origin: 50% 90%;
 }
 
-.mascot-idle .mascot-shadow {
-  animation: fp-shadow 3.2s ease-in-out infinite;
-}
+
 
 .mascot-wave img {
   animation: fp-wave 2.4s ease-in-out infinite;
@@ -2512,7 +2530,7 @@ tr.click-row:hover td {
   }
 }
 
-/* ===================== PCB schematic layer ===================== */
+/* ===================== floor theme layer ===================== */
 .copper {
   color: var(--copper-bright);
 }
@@ -2526,8 +2544,9 @@ tr.click-row:hover td {
   margin-bottom: var(--sp-2);
 }
 
-/* split hero: copy left, schematic right */
+/* split hero: copy left, the rising floor right */
 .hero-board {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr);
   gap: var(--sp-6);
@@ -2569,7 +2588,7 @@ tr.click-row:hover td {
   gap: var(--sp-2);
 }
 
-/* multimeter-style readouts */
+/* live readouts */
 .readout {
   display: flex;
   flex-direction: column;
@@ -2618,103 +2637,139 @@ tr.click-row:hover td {
   color: var(--gold);
 }
 
-/* hero schematic */
-.floor-circuit {
+/* hero visual: the rising floor */
+.floor-rise {
   position: relative;
-  max-width: 560px;
+  max-width: 540px;
   margin-left: auto;
 }
 
-.fc-svg {
+.fr-svg {
   display: block;
   width: 100%;
   height: auto;
   overflow: visible;
 }
 
-.fc-trace {
-  fill: none;
+.fr-slab {
+  animation: fr-rise .5s ease-out both;
+}
+
+@keyframes fr-rise {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.fr-slab-body {
+  fill: var(--panel-2);
+  stroke: var(--line-strong);
+  stroke-width: 1;
+}
+
+.fr-slab-top {
+  fill: var(--copper-bright);
+}
+
+.fr-slab-edge {
+  fill: var(--copper);
+}
+
+.fr-text,
+.fr-value,
+.fr-tag-k {
+  font-family: var(--display);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  fill: var(--text);
+}
+
+.fr-value {
+  fill: var(--gold);
+}
+
+.fr-text.ink {
+  fill: var(--primary-ink);
+}
+
+.fr-ground {
+  fill: var(--bg-deep);
+}
+
+.fr-ground-edge {
   stroke: var(--copper);
   stroke-width: 3;
+}
+
+.fr-gauge {
+  fill: none;
+  stroke: var(--line-strong);
+  stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
-.fc-trace.gold {
+.fr-gauge.arrow {
   stroke: var(--gold);
+  stroke-width: 3;
 }
 
-.fc-pad {
-  fill: var(--copper);
+.fr-marker {
+  animation: fr-bob 2.8s ease-in-out .8s infinite;
 }
 
-.fc-drill {
+@keyframes fr-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+.fr-level {
+  stroke: var(--gold);
+  stroke-width: 2;
+  stroke-dasharray: 6 5;
+}
+
+.fr-tag {
   fill: var(--bg-deep);
-}
-
-.fc-gold-pad {
-  fill: var(--gold);
-}
-
-.fc-pin {
-  fill: var(--silver);
-}
-
-.fc-chip {
-  fill: var(--bg-deep);
-  stroke: var(--copper);
+  stroke: var(--gold);
   stroke-width: 1.5;
 }
 
-.fc-dot {
-  fill: var(--copper);
-}
-
-.fc-label,
-.fc-ref {
-  font-family: var(--display);
+.fr-tag-k {
   font-size: 11px;
-  font-weight: 700;
-  letter-spacing: .06em;
-  fill: var(--muted);
-}
-
-.fc-ref {
   fill: var(--secondary);
 }
 
-.fc-chip-title {
-  font-family: var(--display);
-  font-size: 20px;
-  font-weight: 700;
-  fill: var(--text);
-}
-
-.fc-chip-value {
+.fr-tag-v {
   font-family: var(--mono);
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 700;
   fill: var(--accent-bright);
 }
 
-.fc-pulse {
-  fill: var(--gold);
-  opacity: 0;
-  animation: fc-blink 1.9s ease-out infinite;
-}
-
-@keyframes fc-blink {
-  0%, 100% { opacity: 0; }
-  12% { opacity: 1; }
-  40% { opacity: 0; }
-}
-
-.fc-mascot {
+/* the mascot stands on the top floor (its top edge is set inline from the slab count) */
+.fr-mascot {
   position: absolute;
   left: 50%;
-  top: 0;
-  transform: translate(-2%, -62%);
+  width: 19%;
+  transform: translate(-50%, -97%);
   pointer-events: none;
+}
+
+.fr-mascot .mascot {
+  width: 100% !important;
+  padding-bottom: 0;
+}
+
+.fr-mascot .mascot-shadow {
+  display: none;
 }
 
 /* quick buy sizes: equal columns so the mono labels never wrap */
@@ -2748,15 +2803,23 @@ tr.click-row:hover td {
   position: relative;
 }
 
-/* the copper trace that connects every node */
-.signal-path::before {
+/* each step stands a floor higher than the last */
+.signal-path {
+  align-items: start;
+}
+
+/* the tread sits on top; later steps sit higher, so the row climbs left to right */
+.sp-step {
+  margin-top: calc((4 - var(--lvl, 1)) * 22px);
+}
+
+.sp-step::before {
   content: "";
-  position: absolute;
-  top: 18px;
-  left: 18px;
-  right: 18px;
-  height: 2px;
-  background: var(--copper);
+  display: block;
+  height: 8px;
+  margin-bottom: var(--sp-3);
+  border-radius: 2px;
+  background: var(--floor-slab);
 }
 
 .sp-step {
@@ -2833,14 +2896,13 @@ tr.click-row:hover td {
   .hero-copy > *,
   .token-list > *,
   .sp-step,
-  .fc-pulse,
+  .fr-slab,
+  .fr-marker,
   .skeleton::after {
     animation: none;
   }
 
-  .fc-pulse {
-    opacity: .6;
-  }
+
 }
 
 @media (max-width: 1024px) {
@@ -2848,7 +2910,7 @@ tr.click-row:hover td {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  /* the schematic is a desktop flourish; below 1024px the token list comes first */
+  /* the rising-floor visual is a desktop flourish; below 1024px the token list comes first */
   .hero-visual {
     display: none !important;
   }
@@ -2884,13 +2946,12 @@ tr.click-row:hover td {
     gap: var(--sp-4);
   }
 
-  .signal-path::before {
-    top: 18px;
-    bottom: 18px;
-    left: 18px;
-    right: auto;
-    width: 2px;
-    height: auto;
+  .sp-step {
+    margin-top: 0;
+  }
+
+  .sp-step::before {
+    display: none;
   }
 
   .sp-step {
@@ -2902,4 +2963,33 @@ tr.click-row:hover td {
   .sp-card {
     margin-top: 6px;
   }
+}
+
+/* sections rest on the floor: a floor-slab band under the hero and above the footer */
+.hero-board::after,
+.footer::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 8px;
+  border-top: 2px solid var(--copper);
+  background: var(--floor-slab);
+}
+
+.hero-board::after {
+  bottom: 0;
+}
+
+.hero-board {
+  padding-bottom: calc(var(--sp-6) + 8px);
+  margin-bottom: var(--sp-2);
+}
+
+.footer {
+  position: relative;
+}
+
+.footer::before {
+  top: 0;
 }

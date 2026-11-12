@@ -24,7 +24,7 @@ import { useView } from "@/lib/wallet";
 import { Avatar, StageBadges } from "@/components/ui";
 import { Mascot } from "@/components/Mascot";
 import { Moji, SlabIcon } from "@/components/Brand";
-import { FloorCircuit } from "@/components/FloorCircuit";
+import { FloorRise } from "@/components/FloorRise";
 
 type Filter = "trending" | "new" | "bonding" | "graduated";
 type SortKey = "mcap" | "floor" | "progress" | "holders" | "volume" | "age";
@@ -178,7 +178,7 @@ export default function Explore() {
 
   return (
     <>
-      {/* ---------- split hero: copy left, live floor-vault schematic right ---------- */}
+      {/* ---------- split hero: copy left, the rising floor right ---------- */}
       <section className="hero-board">
         <div className="hero-copy">
           <div className="row wrap" style={{ gap: 8 }}>
@@ -235,7 +235,7 @@ export default function Explore() {
         </div>
 
         <div className="hero-visual">
-          <FloorCircuit vault={tokens && usd ? fmtUsd(stats.vault) : "--"} network={NETWORK} />
+          <FloorRise vault={tokens && usd ? fmtUsd(stats.vault) : "--"} />
         </div>
       </section>
 
@@ -405,9 +405,9 @@ export default function Explore() {
         )}
       </section>
 
-      {/* ---------- signal path: how value flows through a launch ---------- */}
+      {/* ---------- how the floor rises: four steps, each a level higher ---------- */}
       <section className="section">
-        <h2 className="section-title">Signal path</h2>
+        <h2 className="section-title">How the floor rises</h2>
         <p className="muted small" style={{ marginTop: -4 }}>Where every trade&apos;s fees go, from first buy to locked liquidity.</p>
         <ol className="signal-path">
           <Step n="01" title="Fair curve" body="One transaction deploys token, curve and DAO. No premint, no dev bag; launch-window wallet caps slow snipers." />
@@ -422,7 +422,7 @@ export default function Explore() {
 
 function Step({ n, title, body }: { n: string; title: string; body: string }) {
   return (
-    <li className="sp-step">
+    <li className="sp-step" style={{ "--lvl": Number(n) } as React.CSSProperties}>
       <span className="sp-node">{n}</span>
       <div className="sp-card">
         <b>{title}</b>

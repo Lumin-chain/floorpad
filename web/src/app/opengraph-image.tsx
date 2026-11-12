@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { ImageResponse } from "next/og";
-import { boardTracesSvg, loadMonoFonts, MONO_STACK, PCB } from "@/lib/og-theme";
+import { FLOOR_SLAB, floorTilesSvg, FP, loadMonoFonts, MONO_STACK } from "@/lib/og-theme";
 
 export const runtime = "nodejs";
 export const alt = "Floorpad · Every meme gets a floor. Late buyers stop being exit liquidity.";
@@ -17,39 +17,32 @@ function brandPng(name: string): string | null {
   }
 }
 
-const pad = (pos: Record<string, number>) => (
-  <div style={{ position: "absolute", width: 12, height: 12, borderRadius: 6, backgroundColor: PCB.copper, ...pos }} />
-);
-
-function Pins({ side }: { side: "left" | "right" }) {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 18, position: "absolute", top: 34, [side]: -14 }}>
-      {[0, 1, 2, 3, 4].map((i) => (
-        <div key={i} style={{ width: 14, height: 9, backgroundColor: PCB.silver }} />
-      ))}
-    </div>
-  );
-}
+// the rising floor: each source lays one more slab; same story as the site hero
+const SLABS = [
+  ["BUY FEES", "40%"],
+  ["SELL FEES", "40%"],
+  ["EXIT FEES", "100%"],
+  ["GRADUATION", "15%"],
+  ["LiNEAR YIELD", "VOTED"],
+];
+// frame interior is 1164 x 594
+const GROUND_H = 34;
+const SLAB_H = 46;
+const STACK_W = 340;
+const STACK_LEFT = 770;
+const STEP = 12;
 
 export default async function OpengraphImage() {
   const symbol = brandPng("symbol.png");
-  const mascot = brandPng("mascot-cool.png");
+  const mascot = brandPng("graded/mascot-cool.png");
   const fonts = await loadMonoFonts();
+  const stackTop = 594 - GROUND_H - SLABS.length * SLAB_H;
+  const levelLeft = STACK_LEFT + STACK_W - (SLABS.length - 1) * STEP + 8;
 
   return new ImageResponse(
     (
-      <div
-        style={{
-          width: "100%",
-          height: "100%",
-          display: "flex",
-          position: "relative",
-          backgroundColor: PCB.board,
-          color: PCB.text,
-          fontFamily: MONO_STACK,
-        }}
-      >
-        <img src={boardTracesSvg(1200, 630)} width={1200} height={630} alt="" style={{ position: "absolute", top: 0, left: 0 }} />
+      <div style={{ width: "100%", height: "100%", display: "flex", position: "relative", backgroundColor: FP.board, color: FP.text, fontFamily: MONO_STACK }}>
+        <img src={floorTilesSvg(1200, 630)} width={1200} height={630} alt="" style={{ position: "absolute", top: 0, left: 0 }} />
 
         <div
           style={{
@@ -59,107 +52,129 @@ export default async function OpengraphImage() {
             right: 18,
             bottom: 18,
             display: "flex",
-            flexDirection: "column",
-            justifyContent: "space-between",
-            border: `2px solid ${PCB.copper}`,
+            border: `2px solid ${FP.copper}`,
             borderRadius: 12,
-            padding: "38px 46px",
+            overflow: "hidden",
           }}
         >
-          {pad({ top: 8, left: 8 })}
-          {pad({ top: 8, right: 8 })}
-          {pad({ bottom: 8, left: 8 })}
-          {pad({ bottom: 8, right: 8 })}
+          {/* ground floor */}
+          <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: GROUND_H, backgroundImage: FLOOR_SLAB }} />
 
-          {/* header */}
-          {/* logo + badge on the left; the top-right corner belongs to the mascot */}
-          <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-              {symbol && <img src={symbol} width={56} height={28} alt="" />}
-              <span style={{ fontSize: 36, fontWeight: 800, letterSpacing: "-0.02em" }}>Floorpad</span>
-            </div>
-            <div
-              style={{
-                display: "flex",
-                border: `2px solid ${PCB.gold}`,
-                color: PCB.gold,
-                backgroundColor: PCB.boardDeep,
-                padding: "6px 16px",
-                borderRadius: 6,
-                fontSize: 18,
-                fontWeight: 800,
-                letterSpacing: "0.06em",
-              }}
-            >
-              NEAR · MEME LAUNCHPAD
-            </div>
-          </div>
-
-          {/* headline + vault chip */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ display: "flex", flexDirection: "column", width: 720 }}>
-              <div style={{ display: "flex", flexWrap: "wrap", fontSize: 60, fontWeight: 800, lineHeight: 1.08, letterSpacing: "-0.03em" }}>
-                <span>Every meme gets a&nbsp;</span>
-                <span style={{ color: PCB.copperBright }}>floor.</span>
-              </div>
-              <div style={{ display: "flex", fontSize: 28, color: PCB.muted, marginTop: 20, lineHeight: 1.4 }}>
-                Late buyers stop being exit liquidity: fees and quick-flip penalties back a redeemable NEAR vault.
-              </div>
-            </div>
-
-            <div style={{ display: "flex", position: "relative", width: 230, height: 250, marginTop: 60 }}>
-              <Pins side="left" />
-              <Pins side="right" />
+          {/* rising slabs, lowest first; each floor set in a little so the stack climbs */}
+          {SLABS.map(([label, value], i) => {
+            const inset = i * STEP;
+            const top = i === SLABS.length - 1;
+            return (
               <div
+                key={label}
                 style={{
+                  position: "absolute",
+                  left: STACK_LEFT + inset,
+                  width: STACK_W - inset * 2,
+                  top: 594 - GROUND_H - (i + 1) * SLAB_H,
+                  height: SLAB_H - 4,
                   display: "flex",
-                  flexDirection: "column",
                   alignItems: "center",
-                  justifyContent: "center",
-                  width: 230,
-                  height: 190,
-                  marginTop: 0,
-                  backgroundColor: PCB.boardDeep,
-                  border: `2px solid ${PCB.copper}`,
-                  borderRadius: 8,
+                  justifyContent: "space-between",
+                  padding: "0 16px",
+                  borderRadius: 6,
+                  borderTop: `5px solid ${FP.copper}`,
+                  backgroundColor: top ? FP.copperBright : FP.panel2,
+                  color: top ? FP.board : FP.text,
+                  fontSize: 17,
+                  fontWeight: 800,
+                  letterSpacing: "0.05em",
                 }}
               >
-                <span style={{ fontSize: 16, color: PCB.secondary, fontWeight: 800 }}>U1</span>
-                <span style={{ fontSize: 34, fontWeight: 800, lineHeight: 1.1 }}>FLOOR</span>
-                <span style={{ fontSize: 34, fontWeight: 800, lineHeight: 1.1 }}>VAULT</span>
-                <span style={{ fontSize: 16, color: PCB.good, fontWeight: 800, marginTop: 10 }}>REDEEMABLE</span>
+                <span>{label}</span>
+                <span style={{ color: top ? FP.board : FP.gold }}>{value}</span>
               </div>
-              {mascot && (
-                <img src={mascot} width={130} height={130} alt="" style={{ position: "absolute", top: -112, left: 70 }} />
-              )}
+            );
+          })}
+
+          {/* the mascot stands on the top floor */}
+          {mascot && (
+            <img src={mascot} width={128} height={123} alt="" style={{ position: "absolute", left: STACK_LEFT + STACK_W / 2 - 64, top: stackTop - 122 }} />
+          )}
+
+          {/* floor level marker */}
+          <div style={{ position: "absolute", left: levelLeft, top: stackTop - 2, width: 1164 - levelLeft - 24, height: 0, borderTop: `3px dashed ${FP.gold}` }} />
+          <div
+            style={{
+              position: "absolute",
+              right: 24,
+              top: stackTop - 70,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              padding: "6px 14px",
+              backgroundColor: FP.boardDeep,
+              border: `2px solid ${FP.gold}`,
+              borderRadius: 8,
+            }}
+          >
+            <span style={{ fontSize: 13, color: FP.secondary, fontWeight: 800, letterSpacing: "0.1em" }}>FLOOR</span>
+            <span style={{ fontSize: 20, color: FP.gold, fontWeight: 800 }}>RISING</span>
+          </div>
+
+          {/* copy column */}
+          <div style={{ position: "absolute", left: 46, top: 36, width: 690, display: "flex", flexDirection: "column" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 22 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                {symbol && <img src={symbol} width={56} height={28} alt="" />}
+                <span style={{ fontSize: 36, fontWeight: 800, letterSpacing: "-0.02em" }}>Floorpad</span>
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  border: `2px solid ${FP.gold}`,
+                  color: FP.gold,
+                  backgroundColor: FP.boardDeep,
+                  padding: "5px 14px",
+                  borderRadius: 6,
+                  fontSize: 17,
+                  fontWeight: 800,
+                  letterSpacing: "0.06em",
+                }}
+              >
+                NEAR · MEME LAUNCHPAD
+              </div>
+            </div>
+
+            <div style={{ display: "flex", flexWrap: "wrap", fontSize: 60, fontWeight: 800, lineHeight: 1.08, letterSpacing: "-0.03em", marginTop: 56 }}>
+              <span>Every meme gets a&nbsp;</span>
+              <span style={{ color: FP.copperBright }}>floor.</span>
+            </div>
+            <div style={{ display: "flex", fontSize: 26, color: FP.muted, marginTop: 18, lineHeight: 1.4 }}>
+              Late buyers stop being exit liquidity: every trade lays another layer under a redeemable NEAR vault.
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 34 }}>
+              {[
+                ["BUY", "1.25%"],
+                ["SELL", "2.5%"],
+                ["EXIT FEE", "<=10%"],
+                ["PREMINT", "ZERO"],
+              ].map(([k, v]) => (
+                <div
+                  key={k}
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    padding: "9px 16px",
+                    backgroundColor: FP.boardDeep,
+                    border: `1.5px solid ${FP.copperDim}`,
+                    borderRadius: 8,
+                  }}
+                >
+                  <span style={{ fontSize: 13, color: FP.secondary, fontWeight: 800, letterSpacing: "0.08em" }}>{k}</span>
+                  <span style={{ fontSize: 24, fontWeight: 800 }}>{v}</span>
+                </div>
+              ))}
             </div>
           </div>
 
-          {/* readouts */}
-          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-            {[
-              ["BUY", "1.25%"],
-              ["SELL", "2.5%"],
-              ["EXIT FEE", "<=10%"],
-              ["PREMINT", "ZERO"],
-            ].map(([k, v]) => (
-              <div
-                key={k}
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  padding: "10px 18px",
-                  backgroundColor: PCB.boardDeep,
-                  border: `1.5px solid ${PCB.copperDim}`,
-                  borderRadius: 8,
-                }}
-              >
-                <span style={{ fontSize: 14, color: PCB.secondary, fontWeight: 800, letterSpacing: "0.08em" }}>{k}</span>
-                <span style={{ fontSize: 26, fontWeight: 800 }}>{v}</span>
-              </div>
-            ))}
-            <div style={{ display: "flex", marginLeft: "auto", fontSize: 22, color: PCB.muted, fontWeight: 800 }}>@usefloorpad_</div>
-          </div>
+          <div style={{ position: "absolute", right: 34, top: 40, display: "flex", fontSize: 20, color: FP.muted, fontWeight: 800 }}>@usefloorpad_</div>
         </div>
       </div>
     ),
