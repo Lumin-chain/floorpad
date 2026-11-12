@@ -283,7 +283,7 @@ export function PriceChart({ t, linearPrice }: TokenCtx) {
             strokeWidth="1.5"
             vectorEffect="non-scaling-stroke"
           />
-          <text x={W - P - 6} y={Math.max(PAD_TOP + 12, yFloor - 4)} textAnchor="end" fill="#22C55E" fontSize="10" className="mono">
+          <text x={W - P - 6} y={Math.max(PAD_TOP + 12, yFloor - 4)} textAnchor="end" fill="#22C55E" fontSize="12" className="mono">
             Vault Floor: {fmtPrice(floor)} N
           </text>
 

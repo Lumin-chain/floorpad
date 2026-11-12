@@ -42,7 +42,7 @@ export default function DocsPage() {
           <div className="row" style={{ gap: 12 }}>
             <Moji face="hero" size={38} />
             <div>
-              <h1 style={{ margin: 0, fontSize: "1.6rem" }}>Floorpad Documentation</h1>
+              <h1 className="page-title">Floorpad Documentation</h1>
               <span className="small muted">Complete A-Z guide to mechanics, tokenomics, and governance</span>
             </div>
           </div>

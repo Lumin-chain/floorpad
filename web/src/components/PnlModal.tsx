@@ -486,7 +486,7 @@ export function PnlModal({
           <div className="row" style={{ gap: 10 }}>
             <Moji face={isProfit ? "hero" : "cool"} size={28} />
             <div>
-              <h2 style={{ margin: 0, fontSize: "1.2rem" }}>
+              <h2 style={{ margin: 0 }}>
                 Your {isProfit ? "Profit" : "Loss"} Card
               </h2>
               <span className="small muted">
@@ -524,7 +524,7 @@ export function PnlModal({
           }}
         >
           <div>
-            <strong style={{ fontSize: "0.9rem" }}>Display Networth Amount</strong>
+            <strong className="small">Display Networth Amount</strong>
             <div className="small muted">
               Show dollar value ($) or hide networth to display percentage only (%)
             </div>

@@ -25,7 +25,7 @@ export default function CallsPage() {
   return (
     <div className="section">
       <div className="row between wrap" style={{ marginBottom: 12 }}>
-        <h1>Callouts</h1>
+        <h1 className="page-title">Callouts</h1>
         <div className="seg mobile-only">
           <button className={tab === "feed" ? "active" : ""} onClick={() => setTab("feed")}>Live feed</button>
           <button className={tab === "leaders" ? "active" : ""} onClick={() => setTab("leaders")}>Top callers</button>

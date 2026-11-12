@@ -82,7 +82,7 @@ export default function Create() {
     <div className="grid two section">
       <div className="panel">
         <div className="row between wrap" style={{ marginBottom: 6 }}>
-          <h1 style={{ margin: 0 }}>Launch a token</h1>
+          <h1 className="page-title">Launch a token</h1>
           <span className="badge primary mono">Fee: {creationFeeStr} NEAR</span>
         </div>
         <p className="muted">
@@ -96,7 +96,7 @@ export default function Create() {
         </div>
         <label className="field"><span>Description</span><textarea className="textarea" value={f.description} onChange={set("description")} maxLength={600} placeholder="What is the meme?" /></label>
         <div className="field">
-          <span style={{ display: "block", fontSize: ".875rem", fontWeight: 600, color: "var(--muted)", marginBottom: 5 }}>Token Image (automatically resized on-chain)</span>
+          <span className="field-label">Token Image (automatically resized on-chain)</span>
           <label className="dropzone">
             {icon ? (
               // eslint-disable-next-line @next/next/no-img-element
