@@ -2,7 +2,7 @@
 
 export const NETWORK = (process.env.NEXT_PUBLIC_NETWORK ?? "testnet") as "testnet" | "mainnet";
 export const RPC = process.env.NEXT_PUBLIC_RPC ?? `https://rpc.${NETWORK}.fastnear.com`;
-export const LAUNCHPAD = process.env.NEXT_PUBLIC_LAUNCHPAD ?? "fplpmwbbcg00.testnet";
+export const LAUNCHPAD = process.env.NEXT_PUBLIC_LAUNCHPAD ?? "lpv45w4s.fpbankmwbbc95z.testnet";
 export const LINEAR =
   process.env.NEXT_PUBLIC_LINEAR ?? (NETWORK === "mainnet" ? "linear-protocol.near" : "linear-protocol.testnet");
 export const REF =
