@@ -989,6 +989,11 @@ table.t td {
   color: var(--text);
 }
 
+table.t td.green { color: var(--accent-bright); }
+table.t td.blue { color: var(--sky-bright); }
+table.t td.warn { color: var(--warn-bright); }
+table.t td.bad { color: var(--bad-bright); }
+
 table.t tr:last-child td {
   border-bottom: none;
 }
