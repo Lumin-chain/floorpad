@@ -21,7 +21,7 @@ export function Moji({ face, size = 20, label, style }: { face: MojiFace; size?:
   return (
     <img
       className="moji"
-      src={`/brand/moji/face-${face}.png`}
+      src={`/brand/graded/moji/face-${face}.png`}
       width={size}
       height={size}
       alt={label ?? ""}

@@ -7,14 +7,14 @@ export type Pose = "hero" | "cool" | "wink" | "flag";
 export type Motion = "idle" | "wave" | "celebrate" | "peek" | "none";
 
 const SRC: Record<Pose, string> = {
-  hero: "/brand/mascot-hero.png",
-  cool: "/brand/mascot-cool.png",
-  wink: "/brand/mascot-wink.png",
-  flag: "/brand/mascot-flag.png",
+  hero: "/brand/graded/mascot-hero.png",
+  cool: "/brand/graded/mascot-cool.png",
+  wink: "/brand/graded/mascot-wink.png",
+  flag: "/brand/graded/mascot-flag.png",
 };
 
 /**
- * The Floorpad brick, extracted as-is from the brand board and animated with CSS:
+ * The Floorpad brick, colour-graded into the Floorpad palette (scripts/grade-mascots.mjs) and animated with CSS:
  * idle = float + sway, wave = rock side to side, celebrate = hop + pop, peek = rise in.
  * `blink` swaps to the wink pose for a moment every few seconds. Hover makes it hop.
  * All motion is disabled under prefers-reduced-motion.
