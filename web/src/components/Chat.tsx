@@ -119,7 +119,7 @@ export function Chat({ t, compact }: { t: TokenView; compact?: boolean }) {
           <div className="row">
             <input
               className="input"
-              placeholder={`Message $${t.meta.symbol}…`}
+              placeholder={`Message $${t.meta.symbol} or tag @agent…`}
               value={text}
               maxLength={500}
               onChange={(e) => setText(e.target.value)}

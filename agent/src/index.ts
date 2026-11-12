@@ -41,6 +41,8 @@ const KEEPER_SECS = Number(env("KEEPER_INTERVAL_SECS", "60"));
 const POST_SECS = Number(env("POST_INTERVAL_SECS", "1800"));
 const TAX_HARVEST_MIN_NEAR = Number(env("TAX_HARVEST_MIN_NEAR", "2"));
 const TAX_HARVEST_MIN_YOCTO = BigInt(Math.round(TAX_HARVEST_MIN_NEAR * 1e6)) * 10n ** 18n;
+const SOCIAL_API_URL = (process.env.SOCIAL_API_URL ?? "").replace(/\/+$/, "");
+const AGENT_SECRET = process.env.AGENT_SECRET ?? "";
 const ONCE = process.argv.includes("--once");
 
 const TGAS = 10n ** 12n;
@@ -163,7 +165,7 @@ async function keep(t: TokenView) {
         .catch(() => null) as { pairs: string[]; pending_platform: string; pending_tax: string } | null;
       if (tax) {
         if (!tax.pairs.includes(launchCfg.ref_exchange)) {
-          await call("ensure_dex_tax_pair", { token_id: t.token_id }, 30n).catch(() => {});
+          await call("ensure_dex_tax_pair", { token_id: t.token_id }, 30n).catch(() => { });
         }
         const pending = BigInt(tax.pending_platform || "0") + BigInt(tax.pending_tax || "0");
         if (pending > 0n) {
@@ -416,17 +418,50 @@ async function tick() {
   milestonesPrimed = true;
 }
 
+const lastChatId = new Map<string, number>();
+
+async function pollChatMentions(tokens: AgentTokenInfo[]) {
+  if (!SOCIAL_API_URL || !AGENT_SECRET || tokens.length === 0) return;
+  for (const info of tokens) {
+    try {
+      const r = await fetch(`${SOCIAL_API_URL}/tokens/${info.token_id}/messages?limit=15`, {
+        signal: AbortSignal.timeout(6000),
+      });
+      if (!r.ok) continue;
+      const msgs = (await r.json()) as { id: number; account: string; text: string }[];
+      if (!msgs.length) continue;
+      const maxId = Math.max(...msgs.map((m) => m.id));
+      const prev = lastChatId.get(info.token_id);
+      lastChatId.set(info.token_id, maxId);
+      if (prev === undefined) continue; // prime without replying to historical messages
+      for (const m of msgs.filter((x) => x.id > prev).sort((a, b) => a.id - b.id)) {
+        if (m.account === OPERATOR || !/(^|\s)@agent\b/i.test(m.text)) continue;
+        const reply = await replyToQuestion(info, m.text.replace(/@agent/gi, "").trim() || "Give a quick status update.");
+        await fetch(`${SOCIAL_API_URL}/tokens/${info.token_id}/agent-reply`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-agent-secret": AGENT_SECRET },
+          body: JSON.stringify({ text: reply.slice(0, 500), replyTo: m.id }),
+          signal: AbortSignal.timeout(8000),
+        }).catch(() => {});
+      }
+    } catch {
+      /* ignore transient social API errors */
+    }
+  }
+}
+
 console.log(`floorpad operator ${OPERATOR} on ${NETWORK}, launchpad ${LAUNCHPAD}`);
 if (!ONCE) {
-  // Fast 3s Telegram command/reply loop independent of the 60s on-chain keeper tick
+  // Fast 3s Telegram & in-app @agent chat loop independent of the 60s on-chain keeper tick
   (async () => {
     while (true) {
       try {
         if (cachedAgentTokens.length > 0) {
           await pollTelegramCommands(cachedAgentTokens, replyToQuestion);
+          await pollChatMentions(cachedAgentTokens);
         }
       } catch (e) {
-        console.warn("telegram poll:", (e as Error).message);
+        console.warn("social poll:", (e as Error).message);
       }
       await new Promise((r) => setTimeout(r, 3000));
     }
