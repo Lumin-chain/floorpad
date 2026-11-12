@@ -16,7 +16,7 @@
 import os from "node:os";
 import path from "node:path";
 import { connect, KeyPair, keyStores, type Account } from "near-api-js";
-import { pollTelegramCommands, postToTelegram, postToX, sendBuyAlert, type AgentTokenInfo, type TradeInfo } from "./social.js";
+import { pollTelegramCommands, postMilestone, postToTelegram, postToX, sendBuyAlert, type AgentTokenInfo, type TradeInfo } from "./social.js";
 
 try {
   process.loadEnvFile?.(".env");
@@ -145,7 +145,14 @@ async function keep(t: TokenView) {
     }
     const harvestDue = t.next_harvest_at !== undefined && (t.harvest_pending || now >= t.next_harvest_at);
     if (t.grad_stage === "Graduated" && !t.harvest_busy && harvestDue) {
-      await call("harvest_lp", { token_id: t.token_id }, 300n).catch((e) => console.warn(`harvest ${t.token_id}:`, (e as Error).message));
+      const ok = await call("harvest_lp", { token_id: t.token_id }, 300n).catch((e) => {
+        console.warn(`harvest ${t.token_id}:`, (e as Error).message);
+        return false;
+      });
+      if (ok) {
+        const info: AgentTokenInfo = { token_id: t.token_id, meta: t.meta, agent_persona: t.agent_persona, stats: stats(t) };
+        await postMilestone(info, `🔥 LP growth harvested for $${t.meta.symbol} — meme tokens burned & LiNEAR yield added to epoch.`);
+      }
     }
     if (t.grad_stage === "Graduated" && !t.epoch_busy && now >= t.next_epoch_at) {
       await call("settle_epoch", { token_id: t.token_id }, 300n);
@@ -171,9 +178,14 @@ async function keep(t: TokenView) {
           const linPrice = BigInt(t.last_linear_price || YOCTO.toString());
           const nearVal = (linOut * linPrice) / YOCTO;
           if (nearVal >= TAX_HARVEST_MIN_YOCTO) {
-            await call("harvest_token_tax", { token_id: t.token_id }, 250n).catch((e) =>
-              console.warn(`harvest_token_tax ${t.token_id}:`, (e as Error).message),
-            );
+            const ok = await call("harvest_token_tax", { token_id: t.token_id }, 250n).catch((e) => {
+              console.warn(`harvest_token_tax ${t.token_id}:`, (e as Error).message);
+              return false;
+            });
+            if (ok) {
+              const info: AgentTokenInfo = { token_id: t.token_id, meta: t.meta, agent_persona: t.agent_persona, stats: stats(t) };
+              await postMilestone(info, `🔥 DEX tax harvested for $${t.meta.symbol} — burn slice destroyed & Floor Vault topped up.`);
+            }
           }
         }
       }
@@ -354,6 +366,25 @@ async function pushPrice() {
 // ---------------- main loop ----------------
 
 const lastTradeCount = new Map<string, number>();
+const knownTokens = new Set<string>();
+const knownGrad = new Map<string, string>();
+let milestonesPrimed = false;
+let cachedAgentTokens: AgentTokenInfo[] = [];
+
+async function checkMilestones(t: TokenView) {
+  const prevGrad = knownGrad.get(t.token_id);
+  const isNew = !knownTokens.has(t.token_id);
+  knownTokens.add(t.token_id);
+  knownGrad.set(t.token_id, t.grad_stage);
+  if (!milestonesPrimed) return;
+
+  const info: AgentTokenInfo = { token_id: t.token_id, meta: t.meta, agent_persona: t.agent_persona, stats: stats(t) };
+  if (isNew) {
+    await postMilestone(info, `🚀 New launch on Floorpad: $${t.meta.symbol} ("${t.meta.name}") — redeemable floor active.`);
+  } else if (prevGrad !== "Graduated" && t.grad_stage === "Graduated") {
+    await postMilestone(info, `🎓 $${t.meta.symbol} graduated to Ref Finance! 100% LP locked & Floor Vault earning staking yield.`);
+  }
+}
 
 async function checkBuyAlerts(t: TokenView) {
   const prev = lastTradeCount.get(t.token_id);
@@ -370,23 +401,37 @@ async function checkBuyAlerts(t: TokenView) {
 async function tick() {
   await pushPrice().catch((e) => console.warn("price push failed:", (e as Error).message));
   const tokens = await allTokens();
+  cachedAgentTokens = tokens.map((t) => ({
+    token_id: t.token_id,
+    meta: t.meta,
+    agent_persona: t.agent_persona,
+    stats: stats(t),
+  }));
   for (const t of tokens) {
+    await checkMilestones(t);
     await keep(t);
     await checkBuyAlerts(t);
     await agent(t);
   }
-  if (!ONCE) {
-    const agentTokens: AgentTokenInfo[] = tokens.map((t) => ({
-      token_id: t.token_id,
-      meta: t.meta,
-      agent_persona: t.agent_persona,
-      stats: stats(t),
-    }));
-    await pollTelegramCommands(agentTokens, replyToQuestion);
-  }
+  milestonesPrimed = true;
 }
 
 console.log(`floorpad operator ${OPERATOR} on ${NETWORK}, launchpad ${LAUNCHPAD}`);
+if (!ONCE) {
+  // Fast 3s Telegram command/reply loop independent of the 60s on-chain keeper tick
+  (async () => {
+    while (true) {
+      try {
+        if (cachedAgentTokens.length > 0) {
+          await pollTelegramCommands(cachedAgentTokens, replyToQuestion);
+        }
+      } catch (e) {
+        console.warn("telegram poll:", (e as Error).message);
+      }
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+  })();
+}
 do {
   try {
     await tick();

@@ -10,6 +10,7 @@
  * Zero runtime dependencies: uses Node's built-in fetch + node:crypto + node:fs.
  */
 import fs from "node:fs";
+import path from "node:path";
 import { createHmac, randomBytes } from "node:crypto";
 
 export interface AgentTokenInfo {
@@ -70,6 +71,7 @@ function loadGroups(): Record<string, GroupConfig> {
 
 function saveGroups(groups: Record<string, GroupConfig>) {
   try {
+    fs.mkdirSync(path.dirname(path.resolve(TG_STATE_PATH)), { recursive: true });
     fs.writeFileSync(TG_STATE_PATH, JSON.stringify(groups, null, 2));
   } catch (e) {
     console.warn("telegram groups save:", (e as Error).message);
@@ -140,6 +142,10 @@ export async function postToTelegram(t: AgentTokenInfo, text: string) {
       disable_web_page_preview: true,
     });
   }
+}
+
+export async function postMilestone(t: AgentTokenInfo, headline: string) {
+  await Promise.allSettled([postToTelegram(t, headline), postToX(t, headline)]);
 }
 
 export async function sendBuyAlert(t: AgentTokenInfo, trade: TradeInfo) {
