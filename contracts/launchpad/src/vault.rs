@@ -28,8 +28,12 @@ impl Contract {
             .flatten()
             .map(|s| now_secs().saturating_sub(s.0))
             .unwrap_or(0);
+        let (max_exit, decay_secs) = {
+            let t = self.tok(idx);
+            (t.max_exit_fee_bps, t.exit_decay_secs)
+        };
         let fee_bps = cfg.redeem_fee_bps as u128
-            + math::exit_fee_bps(cfg.max_exit_fee_bps as u128, cfg.exit_decay_secs, age);
+            + math::exit_fee_bps(max_exit as u128, decay_secs, age);
         let total_supply = cfg.total_supply.0;
         let tok = self.tok_mut(idx);
         match tok.grad_stage {

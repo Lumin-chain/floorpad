@@ -17,15 +17,21 @@ impl Contract {
     /// contract, creates its Sputnik DAO and opens the bonding curve.
     /// Attach `creation_fee` and 300 Tgas.
     #[payable]
-    pub fn create_token(&mut self, meta: TokenMeta, agent_persona: Option<String>) -> PromiseOrValue<Option<AccountId>> {
+    pub fn create_token(
+        &mut self,
+        meta: TokenMeta,
+        agent_persona: Option<String>,
+        tax_policy: Option<TokenTaxInput>,
+    ) -> PromiseOrValue<Option<AccountId>> {
         let deposit = env::attached_deposit().as_yoctonear();
         require!(deposit >= self.config.creation_fee.as_yoctonear(), "ERR_CREATION_FEE");
         let persona = self.validate_launch(&meta, &agent_persona);
+        let _ = self.resolve_tax_policy(tax_policy.clone());
         let creator = env::predecessor_account_id();
         match self.config.price_pool.clone() {
             None => {
                 let v0 = self.launch_virtual_near();
-                PromiseOrValue::Value(Some(self.internal_launch(creator, deposit, meta, persona, v0)))
+                PromiseOrValue::Value(Some(self.internal_launch(creator, deposit, meta, persona, tax_policy, v0)))
             }
             Some(p) => ext_ref::ext(self.config.ref_exchange.clone())
                 .with_static_gas(tgas(10))
@@ -33,7 +39,7 @@ impl Contract {
                 .then(
                     Self::ext(env::current_account_id())
                         .with_static_gas(tgas(200))
-                        .on_launch_price(creator, U128(deposit), meta, persona),
+                        .on_launch_price(creator, U128(deposit), meta, persona, tax_policy),
                 )
                 .into(),
         }
@@ -61,6 +67,7 @@ impl Contract {
         deposit: U128,
         meta: TokenMeta,
         persona: String,
+        tax_policy: Option<TokenTaxInput>,
         #[callback_result] r: Result<U128, PromiseError>,
     ) -> Option<AccountId> {
         let token_id = self.token_account_for(&meta.symbol);
@@ -72,7 +79,7 @@ impl Contract {
         }
         self.accept_price(self.quote_to_micro_usd(r.unwrap().0));
         let v0 = self.launch_virtual_near();
-        Some(self.internal_launch(creator, deposit.0, meta, persona, v0))
+        Some(self.internal_launch(creator, deposit.0, meta, persona, tax_policy, v0))
     }
 }
 
@@ -140,10 +147,14 @@ impl Contract {
         deposit: u128,
         meta: TokenMeta,
         persona: String,
+        tax_policy: Option<TokenTaxInput>,
         v0: u128,
     ) -> AccountId {
         let cfg = self.config.clone();
+        let (buy_tax_bps, sell_tax_bps, max_exit_fee_bps, exit_decay_secs, tax_vault_bps, tax_creator_bps, tax_burn_bps) =
+            self.resolve_tax_policy(tax_policy);
         let me = env::current_account_id();
+        let now = now_secs();
         let sub = meta.symbol.to_lowercase();
         let token_id = self.token_account_for(&meta.symbol);
         let dao_id: AccountId = format!("{}-dao.{}", sub, me).parse().expect("ERR_DAO_ID");
@@ -152,7 +163,7 @@ impl Contract {
             token_id: token_id.clone(),
             creator,
             meta: meta.clone(),
-            created_at: now_secs(),
+            created_at: now,
             deployed: false,
             dao_id,
             dao_stage: DaoStage::Creating,
@@ -206,6 +217,13 @@ impl Contract {
             agent_persona: persona,
             agent_budget_shares: 0,
             post_count: 0,
+            buy_tax_bps,
+            sell_tax_bps,
+            max_exit_fee_bps,
+            exit_decay_secs,
+            tax_vault_bps,
+            tax_creator_bps,
+            tax_burn_bps,
         });
         self.token_index.insert(token_id.clone(), idx);
 
@@ -223,6 +241,14 @@ impl Contract {
                 "reference": null,
                 "reference_hash": null,
                 "decimals": 18
+            },
+            "tax": {
+                "platform_fee_bps": PLATFORM_FEE_BPS,
+                "buy_tax_bps": buy_tax_bps,
+                "sell_tax_bps": sell_tax_bps,
+                "max_exit_fee_bps": max_exit_fee_bps,
+                "decay_secs": exit_decay_secs,
+                "tax_start_at": now
             }
         });
         Promise::new(token_id.clone())

@@ -8,7 +8,7 @@ Researched 10–11 Nov 2026; updated for v3 economics. Most competitor figures c
 |---|---|---|---|---|---|---|---|
 | Launch model | Bonding curve | Bonding curve | Bonding curve | Bonding curve | Direct Uniswap pool | Fair auction, single price | **Bonding curve, sized in USD** |
 | Moves to a DEX at | ~$69k mcap (~85 SOL) [1][2] | ~85 SOL raised [3] | ~$50–80k mcap (sources differ) [4][5] | 42,000 VIRTUAL raised [6] | Trades on a DEX from the start | ≥4k NEAR deposited [7] | **~$15k mcap**, recalculated from the live NEAR price at each launch |
-| Curve fee | 1.25% both ways (0.95% protocol, 0.30% creator) [8] | ~1% [3] | 1%, plus optional creator tax of 1–10% [4] | not verified | 1% LP fee [9] | n/a | **1.25% buy, 2.5% sell**, plus an exit fee of 10% → 0 over 7 days |
+| Curve fee | 1.25% both ways (0.95% protocol, 0.30% creator) [8] | ~1% [3] | 1%, plus optional creator tax of 1–10% [4] | not verified | 1% LP fee [9] | n/a | **1.25% buy, 2.5% sell**, plus an exit fee of 3% → 0 over 7 days |
 | Creator reward | 0.30% on the curve; tiered after graduation [8][10] | ~0.1% [3] | Optional tax | not verified | 40% (v3) / 80% (v4) of the LP fee [9] | not stated | **25% of fees** (0.31% buy, 0.63% sell). Half claimable any time, half unlocked by holder vote and can be clawed back |
 | Liquidity after graduation | PumpSwap | Raydium | PancakeSwap | Locked 10 years [6] | Locked forever [9] | LP locked [7] | **Locked forever, paired with LiNEAR so it earns staking yield** |
 | Redeemable floor price | – | – | – | – | – | – | **Yes.** Funded by fees, exit fees, 15% of the graduation raise and staking yield. Redeemed tokens are burned |

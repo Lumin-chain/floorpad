@@ -180,6 +180,122 @@ impl Contract {
             env::log_str("harvest burn failed; tokens remain held by launchpad");
         }
     }
+
+    /// Permissionless: claims accrued DEX pair taxes (`pending_platform` + `pending_tax`)
+    /// from the graduated token, burns the buyback-and-burn share, and swaps the rest to LiNEAR.
+    pub fn harvest_token_tax(&mut self, token_id: AccountId) -> Promise {
+        let idx = self.idx_of(&token_id);
+        let tok = self.tok(idx);
+        require!(tok.grad_stage == GradStage::Graduated, "ERR_NOT_GRADUATED");
+        let me = env::current_account_id();
+        ext_ft::ext(token_id)
+            .with_static_gas(tgas(10))
+            .tax_take()
+            .and(ext_ft::ext(self.config.linear.clone()).with_static_gas(tgas(5)).ft_balance_of(me.clone()))
+            .then(
+                Self::ext(me)
+                    .with_static_gas(tgas(130))
+                    .on_tax_taken(idx),
+            )
+    }
+
+    #[private]
+    pub fn on_tax_taken(
+        &mut self,
+        idx: u32,
+        #[callback_result] r: Result<(U128, U128), PromiseError>,
+        #[callback_result] pre_lin: Result<U128, PromiseError>,
+    ) -> PromiseOrValue<()> {
+        let Ok((plat, tax)) = r else {
+            return PromiseOrValue::Value(());
+        };
+        let total = plat.0 + tax.0;
+        if total == 0 {
+            return PromiseOrValue::Value(());
+        }
+        let (token_id, pool_id, burn_bps, vault_bps, creator_bps) = {
+            let t = self.tok(idx);
+            (t.token_id.clone(), t.pool_id, t.tax_burn_bps, t.tax_vault_bps, t.tax_creator_bps)
+        };
+        let burn_amt = math::bps(tax.0, burn_bps as u128);
+        let swap_amt = total - burn_amt;
+        if burn_amt > 0 {
+            self.tok_mut(idx).tokens_in_flight += burn_amt;
+            self.log_mech(idx, "tax_burn", burn_amt, None);
+            ext_ft::ext(token_id.clone())
+                .with_static_gas(tgas(10))
+                .burn(U128(burn_amt))
+                .then(
+                    Self::ext(env::current_account_id())
+                        .with_static_gas(tgas(5))
+                        .on_harvest_burned(idx, U128(burn_amt)),
+                )
+                .detach();
+        }
+        let Some(pid) = pool_id else {
+            return PromiseOrValue::Value(());
+        };
+        if swap_amt == 0 {
+            return PromiseOrValue::Value(());
+        }
+        let cfg = self.config.clone();
+        let me = env::current_account_id();
+        let pre_bal = pre_lin.map(|v| v.0).unwrap_or(0);
+        let msg = near_sdk::serde_json::json!({
+            "force": 0,
+            "actions": [{
+                "pool_id": pid,
+                "token_in": token_id,
+                "token_out": cfg.linear,
+                "min_amount_out": "1"
+            }]
+        })
+        .to_string();
+        ext_ft::ext(token_id)
+            .with_attached_deposit(ONE_YOCTO)
+            .with_static_gas(tgas(50))
+            .ft_transfer_call(cfg.ref_exchange, U128(swap_amt), None, msg)
+            .then(ext_ft::ext(cfg.linear).with_static_gas(tgas(5)).ft_balance_of(me.clone()))
+            .then(
+                Self::ext(me)
+                    .with_static_gas(tgas(25))
+                    .on_tax_swapped(idx, plat, U128(tax.0 - burn_amt), vault_bps, creator_bps, U128(pre_bal)),
+            )
+            .into()
+    }
+
+    #[private]
+    pub fn on_tax_swapped(
+        &mut self,
+        idx: u32,
+        plat_tokens: U128,
+        tax_tokens: U128,
+        _vault_bps: u16,
+        creator_bps: u16,
+        pre_lin: U128,
+        #[callback_result] post_lin: Result<U128, PromiseError>,
+    ) {
+        let Ok(post) = post_lin else {
+            return;
+        };
+        let lin_out = post.0.saturating_sub(pre_lin.0);
+        if lin_out == 0 {
+            return;
+        }
+        let denom = plat_tokens.0 + tax_tokens.0;
+        if denom == 0 {
+            return;
+        }
+        let plat_lin = math::mul_div(lin_out, plat_tokens.0, denom);
+        let tax_lin = lin_out - plat_lin;
+        self.credit_linear(&self.config.treasury_id.clone(), plat_lin);
+        let creator_lin = math::bps(tax_lin, creator_bps as u128);
+        let vault_lin = tax_lin - creator_lin;
+        let creator = self.tok(idx).creator.clone();
+        self.credit_linear(&creator, creator_lin);
+        self.tok_mut(idx).linear_shares += vault_lin;
+        self.log_mech(idx, "tax_harvest", vault_lin, None);
+    }
 }
 
 impl Contract {

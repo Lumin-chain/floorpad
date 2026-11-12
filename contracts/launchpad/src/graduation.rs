@@ -186,7 +186,19 @@ impl Contract {
             tok.last_harvest_at = tok.graduated_at;
             // Baseline depth of the locked LP; harvests only take growth above it.
             tok.lp_k0 = math::lp_depth(tok.lp_shares, tok.lp_tokens, tok.last_linear_price);
+            let token_id = tok.token_id.clone();
+            let ref_id = self.config.ref_exchange.clone();
+            ext_ft::ext(token_id).with_static_gas(tgas(10)).tax_add_pair(ref_id).detach();
         }
+    }
+
+    /// Permissionless retry: ensures the graduated token has `ref_exchange` registered in `pairs`.
+    pub fn ensure_dex_tax_pair(&mut self, token_id: AccountId) -> Promise {
+        let idx = self.idx_of(&token_id);
+        require!(self.tok(idx).grad_stage == GradStage::Graduated, "ERR_NOT_GRADUATED");
+        ext_ft::ext(token_id)
+            .with_static_gas(tgas(10))
+            .tax_add_pair(self.config.ref_exchange.clone())
     }
 }
 

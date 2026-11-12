@@ -66,17 +66,19 @@ export default function MechanicsPage() {
       circulatingSupply: number;
     }> = [];
 
-    // Exit fee decay: 10% on day 0 -> 0% after 7 days
-    const exitFeeBps = Math.max(0, Math.round(1000 * (1 - Math.min(avgHoldingDays, 7) / 7)));
+    // Exit fee decay: 3% (or config.max_exit_fee_bps) on day 0 -> 0% after 30 days
+    const maxExitBps = Number(config?.max_exit_fee_bps ?? 300);
+    const decayDays = Math.max(1, Math.round(Number(config?.exit_decay_secs ?? 2592000) / 86400));
+    const exitFeeBps = Math.max(0, Math.round(maxExitBps * (1 - Math.min(avgHoldingDays, decayDays) / decayDays)));
 
     for (let d = 1; d <= days; d++) {
       cumulativeVolNear += dailyVolNear;
       const buyVol = dailyVolNear * 0.5;
       const sellVol = dailyVolNear * 0.5;
 
-      // Fees: 1.25% buy fee + (2.50% sell fee + decayed exit fee)
-      const buyFee = buyVol * 0.0125;
-      const sellFee = sellVol * (0.025 + exitFeeBps / 10000);
+      // Token taxes: 0.50% buy + 1.00% sell (+ decayed exit fee); 1% platform fee goes to treasury
+      const buyFee = buyVol * 0.005;
+      const sellFee = sellVol * (0.01 + exitFeeBps / 10000);
       const totalFees = buyFee + sellFee;
 
       // 40% of curve fees go to the floor vault (matches config.fee_vault_bps = 4000)
@@ -162,7 +164,7 @@ export default function MechanicsPage() {
         </div>
 
         <p className="muted" style={{ marginTop: 8, maxWidth: 860 }}>
-          Floorpad pairs a bonding curve with an on-chain <strong className="green">Redeemable Floor Vault</strong> (denominated in NEAR/LiNEAR), an asymmetric fee model (1.25% buy / 2.5% sell + decaying 10% quick-flip exit fee), permanent Ref Finance LP locking, and Sputnik DAO lock-weighted yield governance.
+          Floorpad pairs a bonding curve with an on-chain <strong className="green">Redeemable Floor Vault</strong> (denominated in NEAR/LiNEAR), a 1% platform fee plus creator/DAO-governed token taxes (default 0.5% buy / 1.0% sell + decaying 3% exit fee over 30 days, enforced on-curve and on graduated DEX pairs), permanent Ref Finance LP locking, and Sputnik DAO lock-weighted yield governance.
         </p>
 
         <div className="grid four stats" style={{ marginTop: 6 }}>
@@ -415,11 +417,11 @@ export default function MechanicsPage() {
             </div>
             <div className="row between">
               <span className="small">Max Exit Fee:</span>
-              <strong>{(Number(config?.max_exit_fee_bps ?? 1000) / 100).toFixed(2)}%</strong>
+              <strong>{(Number(config?.max_exit_fee_bps ?? 300) / 100).toFixed(2)}%</strong>
             </div>
             <div className="row between">
               <span className="small">Exit Fee Decay:</span>
-              <span className="muted">7 days (linear to 0%)</span>
+              <span className="muted">{Math.round(Number(config?.exit_decay_secs ?? 2592000) / 86400)} days (linear to 0%)</span>
             </div>
           </div>
 

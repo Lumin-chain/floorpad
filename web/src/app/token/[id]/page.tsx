@@ -10,6 +10,7 @@ import {
   LINEAR,
   lp,
   nearUsd,
+  NETWORK,
   pricePerToken,
   progressPct,
   REF,
@@ -221,16 +222,28 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
             </div>
           </div>
           {t.pool_id !== null && (
-            <a
-              href={`https://testnet.ref.finance/#${t.token_id}|linear-protocol.testnet`}
-              target="_blank"
-              rel="noreferrer"
-              className="btn sm primary row"
-              style={{ gap: 6 }}
-            >
-              <span>View on Ref Pool #{t.pool_id}</span>
-              <SlabIcon name="external" size={12} />
-            </a>
+            <div className="row wrap" style={{ gap: 8 }}>
+              <a
+                href={`https://${NETWORK === "mainnet" ? "app.ref.finance" : "testnet.ref.finance"}/#${t.token_id}|${LINEAR}`}
+                target="_blank"
+                rel="noreferrer"
+                className="btn sm primary row"
+                style={{ gap: 6 }}
+              >
+                <span>View on Ref Pool #{t.pool_id}</span>
+                <SlabIcon name="external" size={12} />
+              </a>
+              <a
+                href={`https://dexscreener.com/near/${t.token_id}`}
+                target="_blank"
+                rel="noreferrer"
+                className="btn sm row"
+                style={{ gap: 6 }}
+              >
+                <span>Dexscreener</span>
+                <SlabIcon name="external" size={12} />
+              </a>
+            </div>
           )}
         </div>
       )}
@@ -254,6 +267,18 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
                 {x}
               </button>
             ))}
+            {graduated && (
+              <a
+                href={`https://dexscreener.com/near/${t.token_id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn sm row"
+                style={{ gap: 5, marginLeft: "auto" }}
+              >
+                <span>Dexscreener</span>
+                <SlabIcon name="external" size={11} />
+              </a>
+            )}
           </div>
           {tab === "Chat" && <div className="panel flush"><Chat t={t} /></div>}
           {tab === "Calls" && <TokenCallouts t={t} usdMcap={mcapUsd} />}

@@ -162,6 +162,13 @@ impl Contract {
                 agent_persona: ot.agent_persona,
                 agent_budget_shares: ot.agent_budget_shares,
                 post_count: ot.post_count,
+                buy_tax_bps: old.config.buy_fee_bps,
+                sell_tax_bps: old.config.sell_fee_bps,
+                max_exit_fee_bps: old.config.max_exit_fee_bps,
+                exit_decay_secs: old.config.exit_decay_secs,
+                tax_vault_bps: old.config.fee_vault_bps,
+                tax_creator_bps: old.config.fee_creator_bps,
+                tax_burn_bps: 10_000u16.saturating_sub(old.config.fee_vault_bps + old.config.fee_creator_bps),
             });
         }
 

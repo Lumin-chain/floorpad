@@ -11,8 +11,8 @@ import { Mascot } from "@/components/Mascot";
 // Figures are the live launchpad config: fee_vault_bps 4000, exit fee 100% to vault,
 // grad_vault_bps 1500; yield is split by holder vote. Each slab reads "source | share to floor".
 const SLABS = [
-  { label: "BUY FEE 1.25%", value: "40% → FLOOR" },
-  { label: "SELL FEE 2.5%", value: "40% → FLOOR" },
+  { label: "BUY FEE 1.5%", value: "1% + 0.5% TAX" },
+  { label: "SELL FEE 2.0%", value: "1% + 1.0% TAX" },
   { label: "EXIT FEE ≤10%", value: "ALL → FLOOR" },
   { label: "GRADUATION", value: "15% → FLOOR" },
   { label: "LiNEAR YIELD", value: "BY VOTE" },

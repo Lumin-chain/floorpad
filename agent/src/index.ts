@@ -38,6 +38,8 @@ const AI_KEY = process.env.AI_API_KEY ?? "";
 const AI_MODEL = env("AI_MODEL", "deepseek-ai/DeepSeek-V3.1");
 const KEEPER_SECS = Number(env("KEEPER_INTERVAL_SECS", "60"));
 const POST_SECS = Number(env("POST_INTERVAL_SECS", "1800"));
+const TAX_HARVEST_MIN_NEAR = Number(env("TAX_HARVEST_MIN_NEAR", "2"));
+const TAX_HARVEST_MIN_YOCTO = BigInt(Math.round(TAX_HARVEST_MIN_NEAR * 1e6)) * 10n ** 18n;
 const ONCE = process.argv.includes("--once");
 
 const TGAS = 10n ** 12n;
@@ -51,6 +53,7 @@ interface TokenView {
   dao_stage: "Creating" | "Created" | "Finalizing" | "Ready" | "Failed";
   grad_stage: "Curve" | "CreatePool" | "Stake" | "Deposit" | "AddLiquidity" | "Graduated";
   grad_busy: boolean;
+  pool_id: number | null;
   epoch_busy: boolean;
   next_epoch_at: number;
   harvest_busy?: boolean;
@@ -103,6 +106,8 @@ const operator: Account = await near.account(OPERATOR);
 const view = <T>(method: string, args: object = {}) =>
   operator.viewFunction({ contractId: LAUNCHPAD, methodName: method, args }) as Promise<T>;
 
+const launchCfg = await view<{ ref_exchange: string; linear: string }>("get_config");
+
 async function call(method: string, args: object, gasTgas: bigint, deposit = 0n) {
   const res = await operator.functionCall({
     contractId: LAUNCHPAD,
@@ -142,6 +147,34 @@ async function keep(t: TokenView) {
     }
     if (t.grad_stage === "Graduated" && !t.epoch_busy && now >= t.next_epoch_at) {
       await call("settle_epoch", { token_id: t.token_id }, 300n);
+    }
+    if (t.grad_stage === "Graduated" && t.pool_id !== null) {
+      const tax = await operator
+        .viewFunction({ contractId: t.token_id, methodName: "get_tax", args: {} })
+        .catch(() => null) as { pairs: string[]; pending_platform: string; pending_tax: string } | null;
+      if (tax) {
+        if (!tax.pairs.includes(launchCfg.ref_exchange)) {
+          await call("ensure_dex_tax_pair", { token_id: t.token_id }, 30n).catch(() => {});
+        }
+        const pending = BigInt(tax.pending_platform || "0") + BigInt(tax.pending_tax || "0");
+        if (pending > 0n) {
+          const linOutStr = await operator
+            .viewFunction({
+              contractId: launchCfg.ref_exchange,
+              methodName: "get_return",
+              args: { pool_id: t.pool_id, token_in: t.token_id, amount_in: pending.toString(), token_out: launchCfg.linear },
+            })
+            .catch(() => "0") as string;
+          const linOut = BigInt(linOutStr || "0");
+          const linPrice = BigInt(t.last_linear_price || YOCTO.toString());
+          const nearVal = (linOut * linPrice) / YOCTO;
+          if (nearVal >= TAX_HARVEST_MIN_YOCTO) {
+            await call("harvest_token_tax", { token_id: t.token_id }, 250n).catch((e) =>
+              console.warn(`harvest_token_tax ${t.token_id}:`, (e as Error).message),
+            );
+          }
+        }
+      }
     }
   } catch (e) {
     console.warn(`keeper ${t.token_id}:`, (e as Error).message);

@@ -14,5 +14,6 @@ codegen-units = 1
 opt-level = "z"
 lto = true
 debug = false
+strip = "symbols"
 panic = "abort"
 overflow-checks = true

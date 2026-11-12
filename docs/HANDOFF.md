@@ -13,7 +13,7 @@ A NEAR meme-coin launchpad where every token gets:
 
 - a **bonding curve** that graduates at **~$15k market cap**, sized from the live NEAR/USD price read on-chain;
 - a **redeemable floor vault** that only rises (redeem tokens for your share; redeemed tokens are burned);
-- **sell tax > buy tax** (1.25% / 2.5%) plus an **exit fee** decaying 10% → 0 over 7 days of holding;
+- **sell tax > buy tax** (1.25% / 2.5%) plus an **exit fee** decaying 3% → 0 over 7 days of holding;
 - at graduation, **LP locked forever** in a Ref Finance `MEME/LiNEAR` pool, so the liquidity earns staking yield and swap fees;
 - **LP harvest** (`harvest_lp`, permissionless, once per epoch): removes only the LP growth above the graduation depth, burns the meme side, and adds the LiNEAR side to the epoch yield;
 - **ve-locks**: lock weight (1× at 7 days → 4× at 180 days) is the vote weight in the token's **own Sputnik DAO**;

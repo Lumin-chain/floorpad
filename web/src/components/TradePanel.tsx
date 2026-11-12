@@ -293,7 +293,9 @@ function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: T
   }
 
   const inSnipe = Date.now() / 1000 < t.snipe_window_ends;
-  const exitPct = cfg ? Math.max(0, (cfg.max_exit_fee_bps * Math.max(0, cfg.exit_decay_secs - age)) / cfg.exit_decay_secs / 100) : 0;
+  const maxExitBps = t.max_exit_fee_bps ?? cfg?.max_exit_fee_bps ?? 0;
+  const decaySecs = t.exit_decay_secs ?? cfg?.exit_decay_secs ?? 0;
+  const exitPct = decaySecs > 0 ? Math.max(0, (maxExitBps * Math.max(0, decaySecs - age)) / decaySecs / 100) : 0;
 
   return (
     <div className="panel stack" style={{ gap: 14 }}>
@@ -460,7 +462,7 @@ function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: T
 
       {side === "sell" && age > 0 && (
         <div className="notice small">
-          Holding age: {Math.floor(age / 86400)}d {Math.floor((age % 86400) / 3600)}h. Exit fee falls to 0% after 7 days.
+          Holding age: {Math.floor(age / 86400)}d {Math.floor((age % 86400) / 3600)}h. Exit fee falls to 0% after {Math.round(decaySecs / 86400)} days.
         </div>
       )}
 
