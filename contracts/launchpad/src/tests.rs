@@ -961,6 +961,8 @@ fn creator_custom_tax_policy_and_dao_update() {
     assert_eq!((t.buy_tax_bps, t.sell_tax_bps, t.max_exit_fee_bps, t.exit_decay_secs), (200, 300, 400, 14 * DAY));
     assert_eq!((t.tax_vault_bps, t.tax_creator_bps, t.tax_burn_bps), (6000, 1500, 2500));
 
+    // Finalize DAO before DAO governance calls are allowed
+    c.tok_mut(0).dao_stage = DaoStage::Ready;
     // Only the token DAO can update tax policy
     ctx(&acc("moon-dao.floorpad.testnet"), 0, T0 + 10);
     c.set_token_tax_policy(
@@ -978,4 +980,16 @@ fn creator_custom_tax_policy_and_dao_update() {
     let t = c.tok(0);
     assert_eq!((t.buy_tax_bps, t.sell_tax_bps, t.max_exit_fee_bps, t.exit_decay_secs), (100, 150, 200, 7 * DAY));
     assert_eq!((t.tax_vault_bps, t.tax_creator_bps, t.tax_burn_bps), (5000, 1000, 4000));
+}
+
+#[test]
+fn mainnet_config_enforces_anti_capture_dao_quorum() {
+    let raw = include_str!("../../../deploy/config.mainnet.json")
+        .replace("TREASURY_ID", "treasury.near")
+        .replace("FEEDER_ID", "feeder.near")
+        .replace("LAUNCHPAD_ID", "floorpad.near")
+        .replace("TOKEN_CODE_HASH", "4reLvkAWfqk5fsqio1KLudk46cqRz9erQdaHkWZKMJDZ");
+    let c: Config = near_sdk::serde_json::from_str(&raw).expect("config.mainnet.json must match Config");
+    assert!(c.dao_quorum.0 > c.snipe_max_tokens.0 * 4);
+    assert_eq!(c.grad_mcap_usd, 25_000);
 }

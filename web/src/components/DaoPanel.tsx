@@ -112,6 +112,8 @@ export function DaoPanel({ t }: TokenCtx) {
   };
   const totalW = BigInt(total ?? "0");
   const mineW = BigInt(mine ?? "0");
+  const quorumW = BigInt(policy?.default_vote_policy?.quorum ?? "0");
+  const quorumMet = totalW >= quorumW && (quorumW === 0n || t.stakers >= 2);
   const list = [...(proposals ?? [])].reverse().filter((p) => p.id > 1 || p.proposer !== LAUNCHPAD);
 
   const thresholdFor = (k: Kind): [number, number] => {
@@ -139,7 +141,8 @@ export function DaoPanel({ t }: TokenCtx) {
           const yes = BigInt(counts[0]);
           const no = BigInt(counts[1]);
           const [n, d] = thresholdFor(p.kind);
-          const needed = totalW > 0n ? (totalW * BigInt(n)) / BigInt(d) : 0n;
+          const rawNeeded = totalW > 0n ? (totalW * BigInt(n)) / BigInt(d) : 0n;
+          const needed = quorumW > rawNeeded ? quorumW : rawNeeded;
           const pct = (v: bigint) => (totalW > 0n ? Number((v * 10000n) / totalW) / 100 : 0);
           const voted = accountId ? p.votes[accountId] : undefined;
           const expires = Number(BigInt(p.submission_time) / 1_000_000_000n) + Number(BigInt(policy?.proposal_period ?? "0") / 1_000_000_000n);
@@ -194,7 +197,13 @@ export function DaoPanel({ t }: TokenCtx) {
           <Stat k="Your vote weight" v={fmtTok(mineW.toString(), 0)} s={totalW > 0n ? `${(Number((mineW * 10000n) / totalW) / 100).toFixed(2)}% of total` : "–"} />
           <Stat k="Total delegated" v={fmtTok(totalW.toString(), 0)} s="ve-weight across lockers" />
         </div>
-        {mineW > 0n ? (
+        {!quorumMet ? (
+          <div className="notice">
+            DAO proposals unlock once at least <strong>{fmtTok(quorumW.toString(), 0)}</strong> total lock weight and{" "}
+            <strong>2 lockers</strong> participate (currently {fmtTok(totalW.toString(), 0)} weight across {t.stakers}{" "}
+            locker{t.stakers === 1 ? "" : "s"}). This prevents a single early holder from passing proposals alone.
+          </div>
+        ) : mineW > 0n ? (
           <NewProposal t={t} bond={policy?.proposal_bond ?? "100000000000000000000000"} onDone={reload} />
         ) : (
           <div className="notice">Only lockers can create proposals. Lock ${t.meta.symbol} in the Lock &amp; vote tab, then propose here.</div>
@@ -204,6 +213,7 @@ export function DaoPanel({ t }: TokenCtx) {
           <div className="panel tight small">
             <Kv k="Who can propose" v="Any locker (bond refunded unless voted spam)" />
             <Kv k="Proposal bond" v={`${fmtNear(policy.proposal_bond)} NEAR`} />
+            <Kv k="Min quorum" v={quorumW > 0n ? `${fmtTok(quorumW.toString(), 0)} weight (2+ lockers)` : "None (testnet)"} />
             <Kv k="Voting period" v={`${Number(BigInt(policy.proposal_period) / 3_600_000_000_000n)}h`} />
             <Kv k="To pass" v="> 70% of all lock weight votes yes" />
             <Kv k="Policy / upgrades" v="> 80% of all lock weight" />

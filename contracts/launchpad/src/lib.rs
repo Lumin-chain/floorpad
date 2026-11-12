@@ -569,8 +569,7 @@ impl Contract {
 
     /// Token DAO updates the token's tax rates, decay period, and split (within hard caps).
     pub fn set_token_tax_policy(&mut self, token_id: AccountId, policy: TokenTaxInput) -> near_sdk::Promise {
-        let idx = self.idx_of(&token_id);
-        require!(env::predecessor_account_id() == self.tok(idx).dao_id, "ERR_NOT_DAO");
+        let idx = self.assert_dao(&token_id);
         let (buy, sell, exit, decay, vault, creator, burn) = self.resolve_tax_policy(Some(policy));
         {
             let tok = self.tok_mut(idx);

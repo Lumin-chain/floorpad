@@ -42,7 +42,7 @@
   "epoch_secs": 604800,
   "dao_proposal_period_secs": 259200,
   "dao_proposal_bond": "100000000000000000000000",
-  "dao_quorum": "0",
+  "dao_quorum": "100000000000000000000000000",
   "ref_pool_fee": 30,
   "agent_post_cost": "10000000000000000000000",
   "referral_bps": 2000,
