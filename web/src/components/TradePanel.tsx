@@ -8,11 +8,13 @@ import {
   fmtTok,
   LAUNCHPAD,
   LINEAR,
+  LINEAR_WNEAR_POOL,
   lp,
   parseUnits,
   pricePerToken,
   REF,
   view,
+  WNEAR,
   YOCTO,
   type Custody,
   type LaunchConfig,
@@ -510,7 +512,20 @@ function RefTrade({ t, balance, linearPrice, reload, initialSide, onDone }: Trad
   const maxSellTaxBps = BigInt((t.platform_fee_bps ?? 100) + (t.sell_tax_bps ?? 100) + (t.max_exit_fee_bps ?? 300));
   const netSell = side === "sell" && maxSellTaxBps < 10000n ? (base * (10000n - maxSellTaxBps)) / 10000n : base;
   const out = !pool || base === 0n || rMeme === 0n || rLin === 0n ? 0n : side === "buy" ? refOut(shares, rLin, rMeme, fee) : refOut(netSell, rMeme, rLin, fee);
-  const min = (out * (10000n - SLIPPAGE_BPS)) / 10000n;
+  const { data: hop2NearStr } = useView(
+    side === "sell" && out > 0n
+      ? () =>
+          view<string>(REF, "get_return", {
+            pool_id: LINEAR_WNEAR_POOL,
+            token_in: LINEAR,
+            amount_in: out.toString(),
+            token_out: WNEAR,
+          })
+      : null,
+    [side, out.toString()],
+    8000,
+  );
+  const sellNearOut = side === "sell" ? (hop2NearStr ? BigInt(hop2NearStr) : (out * linP) / YOCTO) : out;
   const spot = rMeme > 0n && linP > 0n ? pricePerToken((rLin * linP) / YOCTO, rMeme) : 0;
 
   async function submit() {
@@ -559,21 +574,33 @@ function RefTrade({ t, balance, linearPrice, reload, initialSide, onDone }: Trad
         ],
       });
     } else {
-      // 1. Storage deposit on LINEAR if user isn't registered to receive LiNEAR
-      const regLinear = await storageCallIfNeeded(LINEAR, accountId);
-      if (regLinear) txs.push(regLinear);
+      // 1. Quote exact 2nd-hop wNEAR output so 1% slippage applies to the native NEAR received
+      const liveHop2 = await view<string>(REF, "get_return", {
+        pool_id: LINEAR_WNEAR_POOL,
+        token_in: LINEAR,
+        amount_in: out.toString(),
+        token_out: WNEAR,
+      }).catch(() => sellNearOut.toString());
+      const minWnearOut = (BigInt(liveHop2) * (10000n - SLIPPAGE_BPS)) / 10000n;
 
-      // 2. Transfer meme tokens to Ref with swap_out_recipient
+      // 2. Single-tx 2-hop swap (MEME -> LiNEAR -> wNEAR) + unwrap to native NEAR
       const msg = JSON.stringify({
         actions: [
           {
             pool_id: t.pool_id,
             token_in: t.token_id,
             token_out: LINEAR,
-            min_amount_out: min.toString(),
+            min_amount_out: "1",
+          },
+          {
+            pool_id: LINEAR_WNEAR_POOL,
+            token_in: LINEAR,
+            token_out: WNEAR,
+            min_amount_out: minWnearOut.toString(),
           },
         ],
         swap_out_recipient: accountId,
+        skip_unwrap_near: false,
       });
 
       txs.push({
@@ -582,7 +609,7 @@ function RefTrade({ t, balance, linearPrice, reload, initialSide, onDone }: Trad
           {
             method: "ft_transfer_call",
             args: { receiver_id: REF, amount: base.toString(), msg },
-            gas: 220,
+            gas: 250,
             deposit: "1",
           },
         ],
@@ -699,8 +726,8 @@ function RefTrade({ t, balance, linearPrice, reload, initialSide, onDone }: Trad
         </div>
       )}
 
-      <Kv k="You receive (est.)" v={side === "buy" ? `${fmtTok(out.toString())} $${t.meta.symbol}` : `${fmtNear(out.toString())} LiNEAR`} />
-      <Kv k="Route" v={side === "buy" ? "NEAR → LiNEAR (stake) → Ref swap" : "Ref swap → LiNEAR"} />
+      <Kv k="You receive (est.)" v={side === "buy" ? `${fmtTok(out.toString())} $${t.meta.symbol}` : `${fmtNear(sellNearOut.toString())} NEAR`} />
+      <Kv k="Route" v={side === "buy" ? "NEAR → LiNEAR (stake) → Ref swap" : "Ref 2-hop swap + unwrap → NEAR"} />
       <Kv k="Slippage limit" v="1%" />
       {side === "sell" && (
         <div className="notice small stack" style={{ gap: 4 }}>
@@ -708,7 +735,7 @@ function RefTrade({ t, balance, linearPrice, reload, initialSide, onDone }: Trad
             <strong>Two Ways to Sell Graduated Tokens:</strong>
           </div>
           <div>
-            1. <strong>Ref Finance Swap</strong> (above): Sells through Ref Pool #{t.pool_id} for LiNEAR.
+            1. <strong>Ref Finance Swap</strong> (above): Sells through Ref Pool #{t.pool_id} and unwraps to NEAR in 1 tx.
           </div>
           <div>
             2. <strong>Vault Floor Redemption</strong> (Floor tab): Burns tokens at the rising floor price with <strong>zero slippage</strong>.

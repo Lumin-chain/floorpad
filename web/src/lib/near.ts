@@ -5,8 +5,13 @@ export const RPC = process.env.NEXT_PUBLIC_RPC ?? `https://rpc.${NETWORK}.fastne
 export const LAUNCHPAD = process.env.NEXT_PUBLIC_LAUNCHPAD ?? "lpv45w4s.fpbankmwbbc95z.testnet";
 export const LINEAR =
   process.env.NEXT_PUBLIC_LINEAR ?? (NETWORK === "mainnet" ? "linear-protocol.near" : "linear-protocol.testnet");
+export const WNEAR =
+  process.env.NEXT_PUBLIC_WNEAR ?? (NETWORK === "mainnet" ? "wrap.near" : "wrap.testnet");
 export const REF =
   process.env.NEXT_PUBLIC_REF ?? (NETWORK === "mainnet" ? "v2.ref-finance.near" : "ref-finance-101.testnet");
+export const LINEAR_WNEAR_POOL = Number(
+  process.env.NEXT_PUBLIC_LINEAR_WNEAR_POOL ?? (NETWORK === "mainnet" ? "3515" : "428"),
+);
 
 export const YOCTO = 10n ** 24n;
 export const TOKEN_DECIMALS = 18;
