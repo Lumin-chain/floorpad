@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { fmtPrice, lp, pricePerToken, safeImageSrc, type TokenView, type Trade } from "@/lib/near";
+import { useEffect, useMemo, useState } from "react";
+import { lp, priceParam, pricePerToken, type TokenView, type Trade } from "@/lib/near";
 import { getIndexedTrades } from "@/lib/social";
 import { useWallet } from "@/lib/wallet";
 import { SlabIcon, Moji } from "./Brand";
@@ -26,7 +26,6 @@ export function PnlModal({
   onClose,
 }: PnlModalProps) {
   const { accountId, setToast } = useWallet();
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -108,331 +107,58 @@ export function PnlModal({
   const spotPriceUsd = spotPriceNear * usdPrice;
   const isProfit = pnlPct >= 0;
 
-  // Render high-res 1200x675 card on canvas
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+  // The preview, the download and the X card are all the same server-rendered image
+  // (/api/og/pnl), so what the trader sees is exactly what gets shared.
+  const cardUrl = useMemo(() => {
+    const q = new URLSearchParams({
+      token: t.token_id,
+      symbol: t.meta.symbol,
+      name: t.meta.name,
+      pnl: pnlPct.toFixed(2),
+      account: accountId || "",
+      floor: floorValNear.toFixed(2),
+      usd: currentValUsd.toFixed(2),
+      entry: priceParam(entryPriceUsd),
+      price: priceParam(spotPriceUsd),
+    });
+    if (!showNetworth) q.set("hideNetworth", "1");
+    return `/api/og/pnl?${q.toString()}`;
+  }, [t, pnlPct, accountId, floorValNear, currentValUsd, entryPriceUsd, spotPriceUsd, showNetworth]);
+  const [cardLoaded, setCardLoaded] = useState(false);
+  useEffect(() => setCardLoaded(false), [cardUrl]);
 
-    const width = 1200;
-    const height = 675;
-    canvas.width = width;
-    canvas.height = height;
-
-    // Load assets
-    const symbolImg = new Image();
-    symbolImg.src = "/brand/symbol.png";
-
-    const mascotImg = new Image();
-    mascotImg.src = isProfit ? "/brand/pnl-mascot-profit.png" : "/brand/pnl-mascot-loss.png";
-
-    let tokenIconImg: HTMLImageElement | null = null;
-    const safeIcon = safeImageSrc(t.meta.icon);
-    if (safeIcon) {
-      tokenIconImg = new Image();
-      if (safeIcon.startsWith("https://")) tokenIconImg.crossOrigin = "anonymous";
-      tokenIconImg.src = safeIcon;
-    }
-
-    const render = () => {
-      // Clear
-      ctx.clearRect(0, 0, width, height);
-
-      // Deep void background
-      ctx.fillStyle = "#060809";
-      ctx.fillRect(0, 0, width, height);
-
-      // Card bounding box
-      const cardX = 35;
-      const cardY = 35;
-      const cardW = width - 70;
-      const cardH = height - 70;
-      const cardR = 28;
-
-      // Card Background Gradient
-      const cardGrad = ctx.createLinearGradient(cardX, cardY, cardX + cardW, cardY + cardH);
-      if (isProfit) {
-        cardGrad.addColorStop(0, "#071710");
-        cardGrad.addColorStop(0.4, "#0b1c14");
-        cardGrad.addColorStop(1, "#040c07");
-      } else {
-        cardGrad.addColorStop(0, "#19080b");
-        cardGrad.addColorStop(0.4, "#1d0c10");
-        cardGrad.addColorStop(1, "#0d0406");
-      }
-
-      ctx.save();
-      ctx.beginPath();
-      ctx.roundRect(cardX, cardY, cardW, cardH, cardR);
-      ctx.fillStyle = cardGrad;
-      ctx.fill();
-
-      // Card Glowing Border
-      ctx.lineWidth = 2.5;
-      ctx.strokeStyle = isProfit ? "rgba(0, 255, 163, 0.45)" : "rgba(255, 59, 92, 0.45)";
-      ctx.shadowColor = isProfit ? "rgba(0, 255, 163, 0.35)" : "rgba(255, 59, 92, 0.35)";
-      ctx.shadowBlur = 20;
-      ctx.stroke();
-      ctx.restore();
-
-      // Decorative radial background glow behind mascot
-      const glowGrad = ctx.createRadialGradient(cardX + cardW - 220, cardY + 260, 20, cardX + cardW - 220, cardY + 260, 320);
-      if (isProfit) {
-        glowGrad.addColorStop(0, "rgba(0, 255, 163, 0.22)");
-        glowGrad.addColorStop(1, "rgba(0, 255, 163, 0)");
-      } else {
-        glowGrad.addColorStop(0, "rgba(255, 59, 92, 0.22)");
-        glowGrad.addColorStop(1, "rgba(255, 59, 92, 0)");
-      }
-      ctx.fillStyle = glowGrad;
-      ctx.fillRect(cardX, cardY, cardW, cardH);
-
-      // Top Left Header: Logo + Brand + Tagline
-      if (symbolImg.complete && symbolImg.naturalWidth > 0) {
-        ctx.drawImage(symbolImg, 75, 72, 48, 24);
-      }
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "900 36px 'Space Grotesk', system-ui, sans-serif";
-      ctx.fillText("Floorpad", 136, 94);
-
-      ctx.fillStyle = "rgba(255, 255, 255, 0.45)";
-      ctx.font = "600 17px system-ui, sans-serif";
-      ctx.fillText("The floor only goes up.", 138, 118);
-
-      // Top Right: Profit / Loss Badge Pill
-      const badgeW = 145;
-      const badgeH = 46;
-      const badgeX = cardX + cardW - badgeW - 40;
-      const badgeY = 70;
-
-      ctx.save();
-      ctx.beginPath();
-      ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 23);
-      ctx.fillStyle = isProfit ? "rgba(0, 255, 163, 0.12)" : "rgba(255, 59, 92, 0.12)";
-      ctx.fill();
-      ctx.lineWidth = 1.5;
-      ctx.strokeStyle = isProfit ? "rgba(0, 255, 163, 0.55)" : "rgba(255, 59, 92, 0.55)";
-      ctx.stroke();
-
-      ctx.fillStyle = isProfit ? "#00ffa3" : "#ff3b5c";
-      ctx.font = "bold 20px system-ui, sans-serif";
-      const badgeText = isProfit ? "↗  Profit" : "↘  Loss";
-      ctx.fillText(badgeText, badgeX + 26, badgeY + 30);
-      ctx.restore();
-
-      // Token Icon, Symbol & Name Header
-      const tokenY = 195;
-      if (tokenIconImg && tokenIconImg.complete && tokenIconImg.naturalWidth > 0) {
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(102, tokenY, 28, 0, Math.PI * 2);
-        ctx.clip();
-        ctx.drawImage(tokenIconImg, 74, tokenY - 28, 56, 56);
-        ctx.restore();
-
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.25)";
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(102, tokenY, 28, 0, Math.PI * 2);
-        ctx.stroke();
-      } else {
-        // Fallback token avatar circle
-        ctx.beginPath();
-        ctx.arc(102, tokenY, 28, 0, Math.PI * 2);
-        ctx.fillStyle = isProfit ? "rgba(0, 255, 163, 0.2)" : "rgba(255, 59, 92, 0.2)";
-        ctx.fill();
-        ctx.strokeStyle = isProfit ? "rgba(0, 255, 163, 0.45)" : "rgba(255, 59, 92, 0.45)";
-        ctx.lineWidth = 2;
-        ctx.stroke();
-        ctx.fillStyle = "#ffffff";
-        ctx.font = "bold 22px system-ui, sans-serif";
-        ctx.textAlign = "center";
-        ctx.fillText(t.meta.symbol.slice(0, 2).toUpperCase(), 102, tokenY + 8);
-        ctx.textAlign = "left";
-      }
-
-      const symbolLabel = `$${t.meta.symbol}`;
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "900 36px 'Space Grotesk', system-ui, sans-serif";
-      ctx.fillText(symbolLabel, 144, tokenY + 4);
-
-      const symW = ctx.measureText(symbolLabel).width;
-      ctx.fillStyle = "rgba(255, 255, 255, 0.45)";
-      ctx.font = "600 18px system-ui, sans-serif";
-      ctx.fillText(t.meta.name.slice(0, 26), 144, tokenY + 28);
-
-      // Chevron accent next to symbol
-      ctx.fillStyle = "rgba(255, 255, 255, 0.35)";
-      ctx.font = "22px system-ui, sans-serif";
-      ctx.fillText("⌄", 144 + symW + 10, tokenY + 2);
-
-      // Hero PNL Label
-      ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
-      ctx.font = "bold 22px system-ui, sans-serif";
-      ctx.fillText("PNL", 75, 268);
-
-      // Hero Huge Percentage
-      const sign = isProfit ? "+" : "";
-      const pnlDisplay = `${sign}${pnlPct.toFixed(2)}%`;
-      ctx.fillStyle = isProfit ? "#00ffa3" : "#ff3b5c";
-      ctx.font = "900 84px 'Space Grotesk', system-ui, sans-serif";
-      ctx.fillText(pnlDisplay, 75, 348);
-
-      // Networth Wallet Pill (Toggled by user)
-      if (showNetworth) {
-        const pnlUsdGain = tokensNum * (spotPriceNear - entryPriceNear) * usdPrice;
-        const absUsdGain = Math.abs(pnlUsdGain);
-        const gainText = `${pnlUsdGain >= 0 ? "+ $" : "- $"}${absUsdGain.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-        ctx.save();
-        ctx.font = "bold 20px monospace";
-        const pillText = `👛 ${gainText}`;
-        const pillW = Math.max(190, ctx.measureText(pillText).width + 38);
-        const pillH = 44;
-        const pillX = 75;
-        const pillY = 376;
-
-        ctx.beginPath();
-        ctx.roundRect(pillX, pillY, pillW, pillH, 22);
-        ctx.fillStyle = isProfit ? "rgba(0, 255, 163, 0.12)" : "rgba(255, 59, 92, 0.12)";
-        ctx.fill();
-        ctx.strokeStyle = isProfit ? "rgba(0, 255, 163, 0.35)" : "rgba(255, 59, 92, 0.35)";
-        ctx.lineWidth = 1;
-        ctx.stroke();
-
-        ctx.fillStyle = isProfit ? "#00ffa3" : "#ff5577";
-        ctx.fillText(pillText, pillX + 18, pillY + 29);
-        ctx.restore();
-      } else {
-        // Percentage Only indicator pill
-        ctx.save();
-        ctx.font = "bold 15px system-ui, sans-serif";
-        const pctLabel = "🔒 PNL % ONLY";
-        const pillW = Math.max(165, ctx.measureText(pctLabel).width + 34);
-        const pillH = 38;
-        const pillX = 75;
-        const pillY = 380;
-
-        ctx.beginPath();
-        ctx.roundRect(pillX, pillY, pillW, pillH, 19);
-        ctx.fillStyle = "rgba(255, 255, 255, 0.06)";
-        ctx.fill();
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
-        ctx.lineWidth = 1;
-        ctx.stroke();
-
-        ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
-        ctx.fillText(pctLabel, pillX + 16, pillY + 24);
-        ctx.restore();
-      }
-
-      // Draw Mascot Artwork (Right side)
-      if (mascotImg.complete && mascotImg.naturalWidth > 0) {
-        ctx.drawImage(mascotImg, cardX + cardW - 385, cardY + 115, 340, 340);
-      }
-
-      // Bottom Metrics Bar (Docked Container)
-      const barX = 65;
-      const barY = cardY + cardH - 120;
-      const barW = cardW - 60;
-      const barH = 92;
-      const barR = 18;
-
-      ctx.save();
-      ctx.beginPath();
-      ctx.roundRect(barX, barY, barW, barH, barR);
-      ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
-      ctx.fill();
-      ctx.lineWidth = 1.2;
-      ctx.strokeStyle = isProfit ? "rgba(0, 255, 163, 0.25)" : "rgba(255, 59, 92, 0.25)";
-      ctx.stroke();
-
-      // Divider lines
-      const colW = barW / 3;
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(barX + colW, barY + 14);
-      ctx.lineTo(barX + colW, barY + barH - 14);
-      ctx.moveTo(barX + colW * 2, barY + 14);
-      ctx.lineTo(barX + colW * 2, barY + barH - 14);
-      ctx.stroke();
-
-      // Col 1: Entry Price
-      ctx.fillStyle = "rgba(255, 255, 255, 0.45)";
-      ctx.font = "600 16px system-ui, sans-serif";
-      ctx.fillText("🪙  Entry Price", barX + 28, barY + 36);
-
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 25px monospace";
-      ctx.fillText(`$${entryPriceUsd.toFixed(4)}`, barX + 28, barY + 68);
-
-      // Col 2: Current Price (or Position Networth when shown)
-      ctx.fillStyle = "rgba(255, 255, 255, 0.45)";
-      ctx.font = "600 16px system-ui, sans-serif";
-      ctx.fillText(showNetworth ? "💼  Networth" : "🎯  Current Price", barX + colW + 28, barY + 36);
-
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 25px monospace";
-      ctx.fillText(
-        showNetworth
-          ? `$${currentValUsd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-          : `$${spotPriceUsd.toFixed(4)}`,
-        barX + colW + 28,
-        barY + 68,
-      );
-
-      // Col 3: Guaranteed Floor Backing (Floorpad USP)
-      ctx.fillStyle = "rgba(255, 255, 255, 0.45)";
-      ctx.font = "600 16px system-ui, sans-serif";
-      ctx.fillText("🛡️  Guaranteed Floor", barX + colW * 2 + 28, barY + 36);
-
-      ctx.fillStyle = isProfit ? "#00ffa3" : "#ff8888";
-      ctx.font = "bold 25px monospace";
-      ctx.fillText(
-        showNetworth ? `${floorValNear.toFixed(2)} N` : `${fmtPrice(floorPriceNear)} N`,
-        barX + colW * 2 + 28,
-        barY + 68,
-      );
-
-      ctx.restore();
-    };
-
-    symbolImg.onload = render;
-    mascotImg.onload = render;
-    if (tokenIconImg) tokenIconImg.onload = render;
-    render();
-  }, [t, balance, spotPriceNear, floorPriceNear, entryPriceNear, usdPrice, isProfit, pnlPct, showNetworth, tokensNum, currentValUsd, entryPriceUsd, spotPriceUsd, floorValNear]);
-
-  // Download image as PNG
-  const downloadPng = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    setDownloading(true);
-    const roundedPnl = pnlPct.toFixed(2);
-    const link = document.createElement("a");
-    link.download = `Floorpad-${t.meta.symbol}-${isProfit ? "Profit" : "Loss"}-${roundedPnl}pct.png`;
-    link.href = canvas.toDataURL("image/png");
-    link.click();
-    setDownloading(false);
-    setToast({ kind: "ok", text: "PNL card downloaded!" });
+  const fetchCard = async (): Promise<Blob> => {
+    const res = await fetch(cardUrl);
+    if (!res.ok) throw new Error(`card ${res.status}`);
+    return res.blob();
   };
 
-  // Copy image to clipboard
-  const copyImage = async () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+  // Download image as PNG
+  const downloadPng = async () => {
+    setDownloading(true);
     try {
-      canvas.toBlob(async (blob) => {
-        if (!blob) return;
-        await navigator.clipboard.write([
-          new ClipboardItem({ "image/png": blob }),
-        ]);
-        setCopied(true);
-        setToast({ kind: "ok", text: "PNL card copied! Paste directly on X or Telegram." });
-        setTimeout(() => setCopied(false), 3000);
-      });
+      const blob = await fetchCard();
+      const href = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.download = `Floorpad-${t.meta.symbol}-${isProfit ? "Profit" : "Loss"}-${pnlPct.toFixed(2)}pct.png`;
+      link.href = href;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(href), 5000);
+      setToast({ kind: "ok", text: "PNL card downloaded!" });
+    } catch {
+      setToast({ kind: "err", text: "Could not render the PNL card. Try again." });
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  // Copy image to clipboard (falls back to download where clipboard images are unsupported)
+  const copyImage = async () => {
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": fetchCard() })]);
+      setCopied(true);
+      setToast({ kind: "ok", text: "PNL card copied! Paste directly on X or Telegram." });
+      setTimeout(() => setCopied(false), 3000);
     } catch {
       downloadPng();
     }
@@ -445,7 +171,7 @@ export function PnlModal({
     const hideNetworthParam = !showNetworth ? "&hideNetworth=1" : "";
     const pnlParam = pnlPct.toFixed(2);
 
-    const shareUrl = `${origin}/pnl/${t.token_id}?symbol=${encodeURIComponent(t.meta.symbol)}&name=${encodeURIComponent(t.meta.name)}&pnl=${pnlParam}&account=${encodeURIComponent(accountId || "")}&floor=${floorValNear.toFixed(2)}&usd=${currentValUsd.toFixed(2)}&entry=${entryPriceUsd.toFixed(4)}&price=${spotPriceUsd.toFixed(4)}${hideNetworthParam}${refParam}`;
+    const shareUrl = `${origin}/pnl/${t.token_id}?symbol=${encodeURIComponent(t.meta.symbol)}&name=${encodeURIComponent(t.meta.name)}&pnl=${pnlParam}&account=${encodeURIComponent(accountId || "")}&floor=${floorValNear.toFixed(2)}&usd=${currentValUsd.toFixed(2)}&entry=${priceParam(entryPriceUsd)}&price=${priceParam(spotPriceUsd)}${hideNetworthParam}${refParam}`;
 
     const text = isProfit
       ? `🚀 Up +${pnlParam}% on $${t.meta.symbol} on @usefloorpad_! 📈\n\n🛡️ Floor vault only rises\n🔒 100% LP locked in Ref Finance earning staking yield\n🏛️ Holder DAO\n\nView my position:`
@@ -494,21 +220,30 @@ export function PnlModal({
               </span>
             </div>
           </div>
-          <button className="btn sm ghost" onClick={onClose}>✕</button>
+          <button className="btn sm ghost" onClick={onClose}>Close</button>
         </div>
 
-        {/* Live Canvas Card Preview */}
+        {/* Card preview: the exact image that is downloaded and shared */}
         <div
           style={{
             width: "100%",
+            aspectRatio: "1200 / 630",
             borderRadius: 10,
             overflow: "hidden",
             border: "1px solid var(--line-strong)",
-            background: "#060809",
+            background: "var(--bg)",
             marginTop: 12,
+            position: "relative",
           }}
         >
-          <canvas ref={canvasRef} style={{ width: "100%", height: "auto", display: "block" }} />
+          {!cardLoaded && <span className="skeleton" style={{ position: "absolute", inset: 0, borderRadius: 0 }} />}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={cardUrl}
+            alt={`${t.meta.symbol} PNL card`}
+            onLoad={() => setCardLoaded(true)}
+            style={{ width: "100%", height: "100%", display: "block", objectFit: "cover" }}
+          />
         </div>
 
         {/* Privacy Toggle: Show Networth vs Percentage Only */}
@@ -540,7 +275,7 @@ export function PnlModal({
               className={!showNetworth ? "active" : ""}
               onClick={() => setShowNetworth(false)}
             >
-              🔒 Percentage Only (%)
+              Percentage Only (%)
             </button>
           </div>
         </div>

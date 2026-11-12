@@ -193,7 +193,7 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
 
       {/* Graduation Status Banners */}
       {t.grad_stage !== "Curve" && !graduated && (
-        <div className="panel stack" style={{ background: "#221506", border: "1.5px solid var(--warn)", gap: 10 }}>
+        <div className="panel stack" style={{ background: "var(--warn-tint)", border: "1.5px solid var(--warn)", gap: 10 }}>
           <div className="row between wrap">
             <div className="row" style={{ gap: 10 }}>
               <Moji face="hero" size={28} />
@@ -210,7 +210,7 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
       )}
 
       {graduated && (
-        <div className="panel row between wrap" style={{ background: "#0B2616", border: "1.5px solid var(--accent)", gap: 12 }}>
+        <div className="panel row between wrap" style={{ background: "var(--good-tint)", border: "1.5px solid var(--accent)", gap: 12 }}>
           <div className="row" style={{ gap: 10 }}>
             <Moji face="flag" size={28} />
             <div>

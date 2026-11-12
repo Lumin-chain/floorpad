@@ -403,7 +403,7 @@ function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: T
 
       {/* Quick Size Presets */}
       {side === "buy" && (
-        <div className="row wrap">
+        <div className="amount-presets">
           {["0.5", "1", "5", "10", "25"].map((v) => (
             <button key={v} className="btn sm ghost" onClick={() => setAmt(v)}>
               {v} N
@@ -648,7 +648,7 @@ function RefTrade({ t, balance, linearPrice, reload, initialSide, onDone }: Trad
 
       {/* Quick Size Presets */}
       {side === "buy" && (
-        <div className="row wrap">
+        <div className="amount-presets">
           {["0.5", "1", "5", "10", "25"].map((v) => (
             <button key={v} className="btn sm ghost" onClick={() => setAmt(v)}>
               {v} N

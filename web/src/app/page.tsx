@@ -23,7 +23,8 @@ import { api, fmtUsd, fmtX, useStream, type Callout } from "@/lib/social";
 import { useView } from "@/lib/wallet";
 import { Avatar, StageBadges } from "@/components/ui";
 import { Mascot } from "@/components/Mascot";
-import { Moji, MojiLabel, SlabIcon } from "@/components/Brand";
+import { Moji, SlabIcon } from "@/components/Brand";
+import { FloorCircuit } from "@/components/FloorCircuit";
 
 type Filter = "trending" | "new" | "bonding" | "graduated";
 type SortKey = "mcap" | "floor" | "progress" | "holders" | "volume" | "age";
@@ -177,120 +178,128 @@ export default function Explore() {
 
   return (
     <>
-      {/* ---------- compact token-first top strip ---------- */}
-      <section className={`hero-strip ${hasCalls ? "with-calls" : ""}`}>
-        <div className="hero-strip-main">
-          <div className="hero-strip-top">
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <div className="row wrap" style={{ gap: 8, marginBottom: 4 }}>
-                <span className={`badge ${NETWORK === "testnet" ? "warn" : "green"}`}>
-                  {NETWORK === "testnet" ? "Testnet · $100 grad" : `Mainnet · $${gradTargetUsd.toLocaleString()} grad`}
-                </span>
-                <span className="xs muted">Zero premint · 40% fees to floor vault</span>
-              </div>
-              <h1 className="hero-title-compact">Meme launches where late buyers aren&apos;t exit liquidity.</h1>
-              <p className="hero-sub-compact">
-                Every token has a redeemable NEAR vault floor + locked yield LP.
-              </p>
-            </div>
-            <div className="row wrap hero-actions">
-              <Link href="/create" className="btn buy sm">+ Launch</Link>
-              <button className="btn sm ghost" onClick={() => setShowGuide(!showGuide)}>
-                <SlabIcon name="ops" size={14} />
-                <span>{showGuide ? "Hide guide" : "30s guide"}</span>
-              </button>
-            </div>
+      {/* ---------- split hero: copy left, live floor-vault schematic right ---------- */}
+      <section className="hero-board">
+        <div className="hero-copy">
+          <div className="row wrap" style={{ gap: 8 }}>
+            <span className={`badge ${NETWORK === "testnet" ? "warn" : "green"}`}>
+              {NETWORK === "testnet" ? "Testnet · $100 grad" : `Mainnet · $${gradTargetUsd.toLocaleString()} grad`}
+            </span>
+            <span className="badge">Zero premint</span>
+            <span className="badge desktop-only">No dev allocation</span>
+          </div>
+          <h1 className="hero-title">
+            Every meme gets a <span className="copper">floor</span>.<br />
+            Late buyers stop being exit liquidity.
+          </h1>
+          <p className="hero-sub">
+            Fees and quick-flip penalties route into an on-chain NEAR vault you can redeem against at any time.
+            Graduated liquidity is locked forever and earns staking yield.
+          </p>
+          <div className="row wrap hero-actions">
+            <Link href="/create" className="btn primary lg">Launch a token</Link>
+            <a href="#launches" className="btn ghost lg desktop-only">Browse launches</a>
+            <button className="btn ghost lg" onClick={() => setShowGuide(!showGuide)}>
+              {showGuide ? "Hide guide" : "How it works"}
+            </button>
           </div>
 
-          {/* Slim single-row live metrics ribbon + optional desktop featured pill */}
-          <div className="stats-ribbon">
-            <div className="sr-item">
-              <span className="xs muted">Tokens</span>
-              <b className="mono">{tokens ? `${stats.count} (${stats.graduated} grad)` : <span className="skeleton" style={{ minWidth: 42, minHeight: 16 }} />}</b>
+          {/* live board readouts */}
+          <div className="readouts">
+            <div className="readout">
+              <span>Tokens</span>
+              <b>{tokens ? `${stats.count}` : <span className="skeleton" style={{ minWidth: 32, minHeight: 18 }} />}</b>
+              <em>{tokens ? `${stats.graduated} graduated` : "loading"}</em>
             </div>
-            <div className="sr-item">
-              <span className="xs muted">Volume</span>
-              <b className="mono">{tokens && usd ? fmtUsd(stats.vol) : <span className="skeleton" style={{ minWidth: 48, minHeight: 16 }} />}</b>
+            <div className="readout">
+              <span>Volume</span>
+              <b>{tokens && usd ? fmtUsd(stats.vol) : <span className="skeleton" style={{ minWidth: 48, minHeight: 18 }} />}</b>
+              <em>all curves</em>
             </div>
-            <div className="sr-item">
-              <span className="xs muted">In floors</span>
-              <b className="mono green">{tokens && usd ? fmtUsd(stats.vault) : <span className="skeleton" style={{ minWidth: 48, minHeight: 16 }} />}</b>
+            <div className="readout">
+              <span>In floors</span>
+              <b className="green">{tokens && usd ? fmtUsd(stats.vault) : <span className="skeleton" style={{ minWidth: 48, minHeight: 18 }} />}</b>
+              <em>redeemable</em>
             </div>
             {featured && (
-              <Link href={`/token/${featured.token_id}`} className="sr-featured desktop-only">
-                <span className="xs green bold">{featured.grad_stage === "Curve" ? "HOT" : "TOP"}</span>
-                <span className="bold">${featured.meta.symbol}</span>
-                <span className="mono small">{usd && mcap(featured) ? fmtUsd(mcap(featured)) : "–"}</span>
-                <span className="xs muted">
-                  {featured.grad_stage === "Graduated" ? "Graduated" : `${progressPct(featured).toFixed(0)}%`}
-                </span>
+              <Link href={`/token/${featured.token_id}`} className="readout featured-readout">
+                <span>{featured.grad_stage === "Curve" ? "Hot" : "Top"}</span>
+                <b>${featured.meta.symbol}</b>
+                <em>
+                  {usd && mcap(featured) ? fmtUsd(mcap(featured)) : "–"} ·{" "}
+                  {featured.grad_stage === "Graduated" ? "graduated" : `${progressPct(featured).toFixed(0)}%`}
+                </em>
               </Link>
             )}
           </div>
-
-          {showGuide && (
-            <div className="panel stack" style={{ border: "1.5px solid var(--accent)", gap: 10 }}>
-              <div className="row between">
-                <strong className="green row" style={{ gap: 8 }}>
-                  <Moji face="hero" size={22} />
-                  How Floorpad Works (30s)
-                </strong>
-                <button className="btn sm ghost" onClick={() => setShowGuide(false)}>✕ Close</button>
-              </div>
-              <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 10 }}>
-                <div className="panel tight stack" style={{ background: "var(--tertiary)", gap: 4 }}>
-                  <div className="row" style={{ gap: 6 }}>
-                    <span className="badge primary">Step 1</span>
-                    <strong>Fair Curve Launch</strong>
-                  </div>
-                  <span className="small muted">
-                    Zero premint or team allocation. Buy with NEAR on the curve; early wallet caps slow snipers.
-                  </span>
-                </div>
-                <div className="panel tight stack" style={{ background: "var(--tertiary)", gap: 4 }}>
-                  <div className="row" style={{ gap: 6 }}>
-                    <span className="badge green">Step 2</span>
-                    <strong>Redeemable Floor</strong>
-                  </div>
-                  <span className="small muted">
-                    40% of trading fees + 100% of quick-flip exit penalties grow the NEAR vault. Burn tokens anytime for your share.
-                  </span>
-                </div>
-                <div className="panel tight stack" style={{ background: "var(--tertiary)", gap: 4 }}>
-                  <div className="row" style={{ gap: 6 }}>
-                    <span className="badge violet">Step 3</span>
-                    <strong>Locked Ref Pool</strong>
-                  </div>
-                  <span className="small muted">
-                    At ${gradTargetUsd.toLocaleString()} ({NETWORK}), liquidity locks permanently on Ref Finance and earns staking yield voted on by lockers.
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
 
-        {hasCalls && (
-          <aside className="panel rail desktop-only-grid" style={{ display: "flex" }}>
-            <div className="row between">
-              <h2 style={{ margin: 0 }}><MojiLabel face="cool">Live callouts</MojiLabel></h2>
-              <Link href="/calls" className="small muted link-chev">All <SlabIcon name="chevron" size={12} /></Link>
-            </div>
-            <div className="rail-list">
-              {calls.slice(0, 3).map((c) => (
-                <Link key={c.id} href={`/token/${c.token_id}`} className="rail-item">
-                  <div className="row between">
-                    <b>${c.symbol}</b>
-                    <span className={c.x_now >= 1 ? "green" : "bad"}>{fmtX(c.x_now)}</span>
-                  </div>
-                  <div className="small ellipsis">“{c.thesis}”</div>
-                  <div className="xs muted">{c.account} · {ago(c.ts)}</div>
-                </Link>
-              ))}
-            </div>
-          </aside>
-        )}
+        <div className="hero-visual">
+          <FloorCircuit vault={tokens && usd ? fmtUsd(stats.vault) : "--"} network={NETWORK} />
+        </div>
       </section>
+
+      {showGuide && (
+        <div className="panel stack" style={{ border: "1.5px solid var(--accent)", gap: 10 }}>
+          <div className="row between">
+            <strong className="green row" style={{ gap: 8 }}>
+              <Moji face="hero" size={22} />
+              How Floorpad Works (30s)
+            </strong>
+            <button className="btn sm ghost" onClick={() => setShowGuide(false)}>Close</button>
+          </div>
+          <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 10 }}>
+            <div className="panel tight stack" style={{ background: "var(--tertiary)", gap: 4 }}>
+              <div className="row" style={{ gap: 6 }}>
+                <span className="badge primary">Step 1</span>
+                <strong>Fair Curve Launch</strong>
+              </div>
+              <span className="small muted">
+                Zero premint or team allocation. Buy with NEAR on the curve; early wallet caps slow snipers.
+              </span>
+            </div>
+            <div className="panel tight stack" style={{ background: "var(--tertiary)", gap: 4 }}>
+              <div className="row" style={{ gap: 6 }}>
+                <span className="badge green">Step 2</span>
+                <strong>Redeemable Floor</strong>
+              </div>
+              <span className="small muted">
+                40% of trading fees + 100% of quick-flip exit penalties grow the NEAR vault. Burn tokens anytime for your share.
+              </span>
+            </div>
+            <div className="panel tight stack" style={{ background: "var(--tertiary)", gap: 4 }}>
+              <div className="row" style={{ gap: 6 }}>
+                <span className="badge violet">Step 3</span>
+                <strong>Locked Ref Pool</strong>
+              </div>
+              <span className="small muted">
+                At ${gradTargetUsd.toLocaleString()} ({NETWORK}), liquidity locks permanently on Ref Finance and earns staking yield voted on by lockers.
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {hasCalls && (
+        <section className="section">
+          <div className="row between" style={{ marginBottom: 8 }}>
+            <h2 style={{ margin: 0 }}>Live callouts</h2>
+            <Link href="/calls" className="small muted link-chev">All calls <SlabIcon name="chevron" size={12} /></Link>
+          </div>
+          <div className="scroll-x calls-strip">
+            {calls.slice(0, 8).map((c) => (
+              <Link key={c.id} href={`/token/${c.token_id}`} className="call-chip">
+                <div className="row between">
+                  <b>${c.symbol}</b>
+                  <span className={c.x_now >= 1 ? "green" : "bad"}>{fmtX(c.x_now)}</span>
+                </div>
+                <div className="small ellipsis">&ldquo;{c.thesis}&rdquo;</div>
+                <div className="xs muted">{c.account} · {ago(c.ts)}</div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* ---------- list (immediately visible above the fold) ---------- */}
       <section className="section" id="launches" style={{ marginTop: 10 }}>
@@ -396,24 +405,30 @@ export default function Explore() {
         )}
       </section>
 
-      {/* ---------- below-the-fold protocol summary pillars ---------- */}
+      {/* ---------- signal path: how value flows through a launch ---------- */}
       <section className="section">
-        <div className="pillars">
-          <Pillars />
-        </div>
+        <h2 className="section-title">Signal path</h2>
+        <p className="muted small" style={{ marginTop: -4 }}>Where every trade&apos;s fees go, from first buy to locked liquidity.</p>
+        <ol className="signal-path">
+          <Step n="01" title="Fair curve" body="One transaction deploys token, curve and DAO. No premint, no dev bag; launch-window wallet caps slow snipers." />
+          <Step n="02" title="Floor vault" body="40% of trade fees, 100% of quick-flip exit fees and 15% of the graduation raise flow into a NEAR vault. Burn tokens for your share anytime." />
+          <Step n="03" title="Sell tax > buy tax" body="1.25% to buy, 2.5% to sell, plus up to 10% for flipping inside 7 days. Dumping pays holders." />
+          <Step n="04" title="Locked yield LP" body="At graduation liquidity moves to Ref Finance, locks forever and earns LiNEAR yield. Lockers vote where it goes (>70% to pass)." />
+        </ol>
       </section>
     </>
   );
 }
 
-function Pillars() {
+function Step({ n, title, body }: { n: string; title: string; body: string }) {
   return (
-    <>
-      <div className="pillar"><b>Redeemable floor</b><span>40% of trade fees, 100% of exit fees, and 15% of graduation back the vault.</span></div>
-      <div className="pillar"><b>Sell tax &gt; buy tax</b><span>1.25% buy, 2.5% sell, plus up to 10% for quick flips (decays to 0% in 7d).</span></div>
-      <div className="pillar"><b>Locked yield LP</b><span>Graduated liquidity stays locked in Ref Finance earning LiNEAR staking rewards.</span></div>
-      <div className="pillar"><b>Holder DAO</b><span>Token lockers vote on yield splits and proposals (&gt;70% approval threshold).</span></div>
-    </>
+    <li className="sp-step">
+      <span className="sp-node">{n}</span>
+      <div className="sp-card">
+        <b>{title}</b>
+        <span>{body}</span>
+      </div>
+    </li>
   );
 }
 

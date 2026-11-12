@@ -435,3 +435,10 @@ export async function nearUsd(): Promise<number> {
 
 /** yoctoNEAR -> USD number */
 export const yoctoToUsd = (v: string | bigint, usd: number) => (Number(BigInt(v) / 10n ** 18n) / 1e6) * usd;
+
+/** USD price as a plain decimal for share-card URLs: 4 dp normally, enough digits for sub-cent meme prices. */
+export function priceParam(usd: number): string {
+  if (!Number.isFinite(usd) || usd <= 0) return "";
+  if (usd >= 0.01) return usd.toFixed(4);
+  return usd.toFixed(12).replace(/0+$/, "").slice(0, 14);
+}

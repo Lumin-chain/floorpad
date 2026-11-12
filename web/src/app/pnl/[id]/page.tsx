@@ -85,7 +85,7 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
 
   const isProfit = !pnl.startsWith("-");
   const title = isProfit ? `Up +${pnl}% on $${safeSymbol} | Floorpad` : `Holding $${safeSymbol} (${pnl}%) | Floorpad`;
-  const description = `The memecoin with a strictly rising floor vault and locked Ref LP. Guaranteed floor backing: ${floor} NEAR.`;
+  const description = `Every Floorpad meme has a redeemable NEAR vault floor and locked Ref LP. Vault floor: ${floor} NEAR.`;
 
   return {
     title,
