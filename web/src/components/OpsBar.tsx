@@ -23,6 +23,8 @@ export function OpsBar({ t, reload, menu = false }: { t: TokenView; reload: () =
     ops.push({ label: t.harvest_pending ? "Finish LP harvest" : "Harvest LP", method: "harvest_lp", gas: 300 });
   if (t.grad_stage === "Graduated" && !t.epoch_busy && now >= t.next_epoch_at)
     ops.push({ label: "Settle epoch", method: "settle_epoch", gas: 300 });
+  if (t.grad_stage === "Graduated")
+    ops.push({ label: "Harvest DEX tax", method: "harvest_token_tax", gas: 250 });
   if (!ops.length) return null;
 
   if (menu) {

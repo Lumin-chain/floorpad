@@ -408,25 +408,29 @@ export default function MechanicsPage() {
           <div className="panel tight stack" style={{ background: "var(--panel-2)" }}>
             <div className="k">Trading Taxes</div>
             <div className="row between">
-              <span className="small">Buy Fee:</span>
-              <strong>{(Number(config?.buy_fee_bps ?? 125) / 100).toFixed(2)}%</strong>
+              <span className="small">Platform Fee:</span>
+              <strong>1.00%</strong>
             </div>
             <div className="row between">
-              <span className="small">Sell Fee:</span>
-              <strong>{(Number(config?.sell_fee_bps ?? 250) / 100).toFixed(2)}%</strong>
+              <span className="small">Default Buy Tax:</span>
+              <strong>{(Number(config?.buy_fee_bps ?? 50) / 100).toFixed(2)}%</strong>
+            </div>
+            <div className="row between">
+              <span className="small">Default Sell Tax:</span>
+              <strong>{(Number(config?.sell_fee_bps ?? 100) / 100).toFixed(2)}%</strong>
             </div>
             <div className="row between">
               <span className="small">Max Exit Fee:</span>
               <strong>{(Number(config?.max_exit_fee_bps ?? 300) / 100).toFixed(2)}%</strong>
             </div>
             <div className="row between">
-              <span className="small">Exit Fee Decay:</span>
+              <span className="small">Exit &amp; Tax Decay:</span>
               <span className="muted">{Math.round(Number(config?.exit_decay_secs ?? 2592000) / 86400)} days (linear to 0%)</span>
             </div>
           </div>
 
           <div className="panel tight stack" style={{ background: "var(--panel-2)" }}>
-            <div className="k">Fee Distribution</div>
+            <div className="k">Token Tax Split (DAO-Adjustable)</div>
             <div className="row between">
               <span className="small">Floor Vault:</span>
               <strong className="green">{(Number(config?.fee_vault_bps ?? 4000) / 100).toFixed(0)}%</strong>
@@ -436,20 +440,20 @@ export default function MechanicsPage() {
               <strong>{(Number(config?.fee_creator_bps ?? 2500) / 100).toFixed(0)}%</strong>
             </div>
             <div className="row between">
-              <span className="small">Platform Cut:</span>
+              <span className="small">Buyback &amp; Burn:</span>
               <strong>{(100 - (Number(config?.fee_vault_bps ?? 4000) + Number(config?.fee_creator_bps ?? 2500)) / 100).toFixed(0)}%</strong>
             </div>
             <div className="row between">
               <span className="small">Referral Share:</span>
-              <span className="muted">20% of platform cut</span>
+              <span className="muted">20% of 1% platform fee</span>
             </div>
           </div>
 
           <div className="panel tight stack" style={{ background: "var(--panel-2)" }}>
-            <div className="k">Graduation & Ref LP</div>
+            <div className="k">Graduation &amp; Ref LP</div>
             <div className="row between">
               <span className="small">Target Market Cap:</span>
-              <strong className="green">~${Number(config?.grad_mcap_usd ?? 15000).toLocaleString()} USD</strong>
+              <strong className="green">~${Number(config?.grad_mcap_usd ?? 25000).toLocaleString()} USD</strong>
             </div>
             <div className="row between">
               <span className="small">Price Source:</span>

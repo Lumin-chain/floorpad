@@ -88,7 +88,7 @@ export default function Create() {
               tax_policy,
             },
             gas: 300,
-            deposit: cfg?.creation_fee ?? "1500000000000000000000000",
+            deposit: cfg?.creation_fee ?? "600000000000000000000000",
           },
         ],
       },
@@ -96,7 +96,7 @@ export default function Create() {
   }
 
   const gradTargetStr = cfg ? `$${cfg.grad_mcap_usd.toLocaleString()}` : "target market cap";
-  const creationFeeStr = cfg ? fmtNear(cfg.creation_fee, 2) : "1.5";
+  const creationFeeStr = cfg ? fmtNear(cfg.creation_fee, 2) : "0.60";
 
   return (
     <div className="grid two section">
@@ -202,7 +202,7 @@ export default function Create() {
             <li><b>Exit penalty on quick flips:</b> starts at {taxMode === "auto" ? (cfg ? cfg.max_exit_fee_bps / 100 : 3) : tax.exitPct}% right after buying and decays linearly to 0% over {taxMode === "auto" ? (cfg ? Math.round(cfg.exit_decay_secs / 86400) : 30) : tax.decayDays} days.</li>
             <li><b>Graduation:</b> at {gradTargetStr} ({NETWORK}), the curve closes and liquidity moves to a locked Ref pool at the same price, earning staking yield.</li>
             <li><b>Yield votes:</b> lockers split staking yield across vault floor, buyback &amp; burn, locker rewards, AI agent and DAO treasury.</li>
-            <li><b>Creator rewards:</b> 25% of curve fees (0.31% of buys, 0.63% of sells, above pump.fun&apos;s 0.30%). Half is claimable any time; half unlocks by holder vote (&gt;70%), and the DAO can claw it back.</li>
+            <li><b>Creator rewards:</b> 25% of token taxes by default (plus DAO-adjustable split). Half is claimable any time; half unlocks by holder vote (&gt;70%), and the DAO can claw it back.</li>
             <li><b>Referrals:</b> anyone who shares a ref link earns 20% of the platform fee on the trades they bring.</li>
           </ul>
         </div>

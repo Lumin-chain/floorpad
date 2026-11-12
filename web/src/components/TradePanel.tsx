@@ -444,10 +444,17 @@ function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: T
         {q ? (
           <div className="stack" style={{ gap: 4 }}>
             <Kv k="You receive" v={side === "buy" ? `${fmtTok(q.amount_out)} $${t.meta.symbol}` : `${fmtNear(q.amount_out)} NEAR`} />
-            <Kv
-              k={`${side === "buy" ? "Buy" : "Sell"} fee (${((side === "buy" ? cfg?.buy_fee_bps ?? 125 : cfg?.sell_fee_bps ?? 250) / 100).toFixed(1)}%, ${((cfg?.fee_vault_bps ?? 4000) / 100).toFixed(0)}% to floor)`}
-              v={`${fmtNear(q.fee)} N`}
-            />
+            {(() => {
+              const platBps = t.platform_fee_bps ?? 100;
+              const taxBps = side === "buy" ? (t.buy_tax_bps ?? cfg?.buy_fee_bps ?? 50) : (t.sell_tax_bps ?? cfg?.sell_fee_bps ?? 100);
+              const totalBps = platBps + taxBps;
+              return (
+                <Kv
+                  k={`${side === "buy" ? "Buy" : "Sell"} fee (${(totalBps / 100).toFixed(2).replace(/\.00$/, "")}% · ${(platBps / 100).toFixed(0)}% plat + ${(taxBps / 100).toFixed(2).replace(/\.00$/, "")}% token)`}
+                  v={`${fmtNear(q.fee)} N`}
+                />
+              );
+            })()}
             {side === "sell" && <Kv k={`Exit fee (${exitPct.toFixed(1)}%, to floor)`} v={`${fmtNear(q.exit_fee)} N`} />}
             {BigInt(q.refund) > 0n && <Kv k="Refund (curve sold out)" v={`${fmtNear(q.refund)} N`} />}
           </div>

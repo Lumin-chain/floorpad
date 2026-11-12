@@ -26,7 +26,7 @@ export default function DocsPage() {
   const [activeSection, setActiveSection] = useState<SectionId>("overview");
   const [viewMode, setViewMode] = useState<"focus" | "all">("focus");
   const { data: cfg } = useView(() => lp<LaunchConfig>("get_config"), [], 0);
-  const gradTargetUsd = cfg ? cfg.grad_mcap_usd : NETWORK === "testnet" ? 100 : 15000;
+  const gradTargetUsd = cfg ? cfg.grad_mcap_usd : NETWORK === "testnet" ? 100 : 25000;
 
   const curIdx = SECTIONS.findIndex((s) => s.id === activeSection);
   const prevSec = curIdx > 0 ? SECTIONS[curIdx - 1] : null;

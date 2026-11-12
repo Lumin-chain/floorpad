@@ -173,7 +173,7 @@ export default function Explore() {
     </th>
   );
 
-  const gradTargetUsd = cfg ? cfg.grad_mcap_usd : NETWORK === "testnet" ? 100 : 15000;
+  const gradTargetUsd = cfg ? cfg.grad_mcap_usd : NETWORK === "testnet" ? 100 : 25000;
   const hasCalls = calls.length > 0;
 
   return (
