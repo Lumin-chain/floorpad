@@ -20,7 +20,7 @@ Live demo:
 1. **Inspect On-Chain Mechanics & Live Simulation**:
    Navigate to [`/mechanics`](https://web-production-964c7668.up.railway.app/mechanics) to inspect the immutable contract config, cryptographic zero-admin proof, live mechanics audit log, and run the interactive 60-day floor growth simulator.
 2. **Explore Tokens & Bonding Curves**:
-   On the Home page, browse active bonding curves and graduated tokens. Spot prices dynamically size from live NEAR/USD on Ref pool #4512 to graduate at ~$15k FDV.
+   On the Home page, browse active bonding curves and graduated tokens. Spot prices dynamically size from live NEAR/USD on Ref pool #4512 to graduate at ~$25k FDV.
 3. **Trade on the Curve or Instant Trading Console**:
    Open any token page. Switch between **Wallet Mode** and **⚡ Instant Mode** (deposit once, trade synchronously via `quick_buy` and `quick_sell` with 0 wallet popups). Switch between **Candles (OHLCV)** and **Line** chart modes with live trade stream.
 4. **Inspect ve-Locks & Sputnik DAO**:
@@ -35,10 +35,10 @@ Live demo:
 | Parameter | Specification |
 |---|---|
 | **Supply** | 1B tokens (18 decimals): 760M sold on curve, up to 240M for LP. No premint and no dev allocation. |
-| **Curve** | Constant product on virtual reserves. Virtual NEAR sized from **NEAR/USD read on-chain from Ref pool #4512**, so every token graduates at **~$15k FDV**. |
-| **Taxes & Asymmetry** | **1.25% buy fee / 2.50% sell fee**, plus an **exit fee** that falls from 10% to 0% over 7 days of holding. |
-| **Fee Split** | **70% to floor vault** · 10% creator (half claimable, half locked until DAO releases) · 20% platform (of which **20% is credited to the trade's referrer**). |
-| **Graduation** | At ~$15k FDV: seeds floor vault, 100% of LP shares locked forever in Ref `MEME/LiNEAR` pool. Unused LP tokens are burned. |
+| **Curve** | Constant product on virtual reserves. Virtual NEAR sized from **NEAR/USD read on-chain from Ref pool #4512**, so every token graduates at **~$25k FDV**. |
+| **Taxes & Asymmetry** | **1.00% flat platform fee** (on-curve & post-graduation DEX) + creator/DAO token tax (default **0.50% buy / 1.00% sell** + **3% exit fee** decaying over **30 days**). |
+| **Fee Split** | **100% of the 1% platform fee** goes to treasury (with **20% credited to the trade's referrer**). Creator token taxes split by token policy (default **40% floor vault · 25% creator · 35% buyback & burn**), adjustable by Sputnik DAO vote. |
+| **Graduation** | At ~$25k FDV: seeds floor vault, 100% of LP shares locked forever in Ref `MEME/LiNEAR` pool, and registers Ref as a taxed DEX pair on the token. Unused LP tokens are burned. |
 | **LP Harvest** | The locked LP grows from 0.3% swap fees and LiNEAR staking appreciation. Once per epoch anyone can call `harvest_lp`: it removes only the growth above the graduation depth (`sqrt(LiNEAR side in NEAR × meme side)`, which trades can't lower), **burns the meme side** and adds the LiNEAR side to the epoch yield. Principal liquidity depth never falls. Example: a $45k pool at ~4.5% LiNEAR APY grows ~5.4 NEAR/week from staking, plus 0.3% of volume (~$420/week at $20k/day). |
 | **Floor Vault** | Redeem any time for your share of the vault. Redeemed tokens are permanently burned. Floor strictly rises monotonically. |
 | **Epoch Yield** | Vault staking yield + harvested LP growth + sponsor donations: split by ve-weighted holder vote across floor, buyback & burn, airdrop to lockers, AI agent budget, and DAO treasury. |
@@ -123,7 +123,7 @@ npm run once # one keeper pass, or npm start for loop
 - **TypeScript & Build:** `tsc --noEmit` and `next build` pass with zero type errors across all packages.
 - **On Testnet against real Ref Finance & LiNEAR contracts (`e2e/testnet.mjs`):**
   - Token deployed from global code by hash
-  - Curve buy (with referrer credited) and sell (2.5% + exit fee)
+  - Curve buy (with referrer credited) and sell (1% platform + token sell tax + exit fee)
   - 30-day lock
   - Curve sell-out → graduation: Ref pool MEME/LiNEAR created, 100% LP shares held by launchpad, pool opened at curve price, vault staked into LiNEAR, ~38M unused LP tokens burned
   - Yield funding → epoch split by vote → Ref buyback & burn, airdrop accrued, agent budget funded

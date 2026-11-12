@@ -16,6 +16,7 @@
 import os from "node:os";
 import path from "node:path";
 import { connect, KeyPair, keyStores, type Account } from "near-api-js";
+import { pollTelegramCommands, postMilestone, postToTelegram, postToX, sendBuyAlert, type AgentTokenInfo, type TradeInfo } from "./social.js";
 
 try {
   process.loadEnvFile?.(".env");
@@ -38,6 +39,10 @@ const AI_KEY = process.env.AI_API_KEY ?? "";
 const AI_MODEL = env("AI_MODEL", "deepseek-ai/DeepSeek-V3.1");
 const KEEPER_SECS = Number(env("KEEPER_INTERVAL_SECS", "60"));
 const POST_SECS = Number(env("POST_INTERVAL_SECS", "1800"));
+const TAX_HARVEST_MIN_NEAR = Number(env("TAX_HARVEST_MIN_NEAR", "2"));
+const TAX_HARVEST_MIN_YOCTO = BigInt(Math.round(TAX_HARVEST_MIN_NEAR * 1e6)) * 10n ** 18n;
+const SOCIAL_API_URL = (process.env.SOCIAL_API_URL ?? "").replace(/\/+$/, "");
+const AGENT_SECRET = process.env.AGENT_SECRET ?? "";
 const ONCE = process.argv.includes("--once");
 
 const TGAS = 10n ** 12n;
@@ -47,10 +52,11 @@ const POST_DEPOSIT = 10n ** 22n; // 0.01 NEAR
 type U128 = string;
 interface TokenView {
   token_id: string;
-  meta: { name: string; symbol: string; description: string };
+  meta: { name: string; symbol: string; description: string; twitter?: string | null; telegram?: string | null };
   dao_stage: "Creating" | "Created" | "Finalizing" | "Ready" | "Failed";
   grad_stage: "Curve" | "CreatePool" | "Stake" | "Deposit" | "AddLiquidity" | "Graduated";
   grad_busy: boolean;
+  pool_id: number | null;
   epoch_busy: boolean;
   next_epoch_at: number;
   harvest_busy?: boolean;
@@ -61,6 +67,7 @@ interface TokenView {
   sold: U128;
   curve_supply: U128;
   holders: number;
+  trade_count: number;
   stakers: number;
   backing_near: U128;
   linear_shares: U128;
@@ -103,6 +110,8 @@ const operator: Account = await near.account(OPERATOR);
 const view = <T>(method: string, args: object = {}) =>
   operator.viewFunction({ contractId: LAUNCHPAD, methodName: method, args }) as Promise<T>;
 
+const launchCfg = await view<{ ref_exchange: string; linear: string }>("get_config");
+
 async function call(method: string, args: object, gasTgas: bigint, deposit = 0n) {
   const res = await operator.functionCall({
     contractId: LAUNCHPAD,
@@ -138,10 +147,50 @@ async function keep(t: TokenView) {
     }
     const harvestDue = t.next_harvest_at !== undefined && (t.harvest_pending || now >= t.next_harvest_at);
     if (t.grad_stage === "Graduated" && !t.harvest_busy && harvestDue) {
-      await call("harvest_lp", { token_id: t.token_id }, 300n).catch((e) => console.warn(`harvest ${t.token_id}:`, (e as Error).message));
+      const ok = await call("harvest_lp", { token_id: t.token_id }, 300n).catch((e) => {
+        console.warn(`harvest ${t.token_id}:`, (e as Error).message);
+        return false;
+      });
+      if (ok) {
+        const info: AgentTokenInfo = { token_id: t.token_id, meta: t.meta, agent_persona: t.agent_persona, stats: stats(t) };
+        await postMilestone(info, `🔥 LP growth harvested for $${t.meta.symbol} — meme tokens burned & LiNEAR yield added to epoch.`);
+      }
     }
     if (t.grad_stage === "Graduated" && !t.epoch_busy && now >= t.next_epoch_at) {
       await call("settle_epoch", { token_id: t.token_id }, 300n);
+    }
+    if (t.grad_stage === "Graduated" && t.pool_id !== null) {
+      const tax = await operator
+        .viewFunction({ contractId: t.token_id, methodName: "get_tax", args: {} })
+        .catch(() => null) as { pairs: string[]; pending_platform: string; pending_tax: string } | null;
+      if (tax) {
+        if (!tax.pairs.includes(launchCfg.ref_exchange)) {
+          await call("ensure_dex_tax_pair", { token_id: t.token_id }, 30n).catch(() => { });
+        }
+        const pending = BigInt(tax.pending_platform || "0") + BigInt(tax.pending_tax || "0");
+        if (pending > 0n) {
+          const linOutStr = await operator
+            .viewFunction({
+              contractId: launchCfg.ref_exchange,
+              methodName: "get_return",
+              args: { pool_id: t.pool_id, token_in: t.token_id, amount_in: pending.toString(), token_out: launchCfg.linear },
+            })
+            .catch(() => "0") as string;
+          const linOut = BigInt(linOutStr || "0");
+          const linPrice = BigInt(t.last_linear_price || YOCTO.toString());
+          const nearVal = (linOut * linPrice) / YOCTO;
+          if (nearVal >= TAX_HARVEST_MIN_YOCTO) {
+            const ok = await call("harvest_token_tax", { token_id: t.token_id }, 250n).catch((e) => {
+              console.warn(`harvest_token_tax ${t.token_id}:`, (e as Error).message);
+              return false;
+            });
+            if (ok) {
+              const info: AgentTokenInfo = { token_id: t.token_id, meta: t.meta, agent_persona: t.agent_persona, stats: stats(t) };
+              await postMilestone(info, `🔥 DEX tax harvested for $${t.meta.symbol} — burn slice destroyed & Floor Vault topped up.`);
+            }
+          }
+        }
+      }
     }
   } catch (e) {
     console.warn(`keeper ${t.token_id}:`, (e as Error).message);
@@ -232,10 +281,46 @@ async function agent(t: TokenView) {
   if (!text) return;
   lastPost.set(t.token_id, now);
   try {
-    await call("agent_post", { token_id: t.token_id, text }, 30n, POST_DEPOSIT);
+    const ok = await call("agent_post", { token_id: t.token_id, text }, 30n, POST_DEPOSIT);
+    if (ok) {
+      const info: AgentTokenInfo = { token_id: t.token_id, meta: t.meta, agent_persona: t.agent_persona, stats: stats(t) };
+      await Promise.allSettled([postToTelegram(info, text), postToX(info, text)]);
+    }
   } catch (e) {
     console.warn(`agent_post ${t.token_id}:`, (e as Error).message);
   }
+}
+
+async function replyToQuestion(info: AgentTokenInfo, question: string): Promise<string> {
+  if (!AI_KEY) {
+    return `$${info.meta.symbol}: ${JSON.stringify(info.stats)}`;
+  }
+  const res = await fetch(`${AI_BASE}/chat/completions`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${AI_KEY}` },
+    body: JSON.stringify({
+      model: AI_MODEL,
+      messages: [
+        {
+          role: "system",
+          content: [
+            info.agent_persona,
+            `You are the community AI agent of $${info.meta.symbol} ("${info.meta.name}") on Floorpad.`,
+            "Answer concisely (max 400 chars) using ONLY the provided live stats. Never promise profits or give financial advice.",
+          ].join("\n"),
+        },
+        {
+          role: "user",
+          content: `Live stats: ${JSON.stringify(info.stats)}\nUser message: ${question}`,
+        },
+      ],
+      max_tokens: 220,
+      temperature: 0.7,
+    }),
+  }).catch(() => null);
+  if (!res?.ok) return `$${info.meta.symbol} stats: ${JSON.stringify(info.stats)}`;
+  const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+  return data.choices?.[0]?.message?.content?.trim() || `$${info.meta.symbol} stats: ${JSON.stringify(info.stats)}`;
 }
 
 // ---------------- NEAR/USD price feed ----------------
@@ -282,16 +367,106 @@ async function pushPrice() {
 
 // ---------------- main loop ----------------
 
+const lastTradeCount = new Map<string, number>();
+const knownTokens = new Set<string>();
+const knownGrad = new Map<string, string>();
+let milestonesPrimed = false;
+let cachedAgentTokens: AgentTokenInfo[] = [];
+
+async function checkMilestones(t: TokenView) {
+  const prevGrad = knownGrad.get(t.token_id);
+  const isNew = !knownTokens.has(t.token_id);
+  knownTokens.add(t.token_id);
+  knownGrad.set(t.token_id, t.grad_stage);
+  if (!milestonesPrimed) return;
+
+  const info: AgentTokenInfo = { token_id: t.token_id, meta: t.meta, agent_persona: t.agent_persona, stats: stats(t) };
+  if (isNew) {
+    await postMilestone(info, `🚀 New launch on Floorpad: $${t.meta.symbol} ("${t.meta.name}") — redeemable floor active.`);
+  } else if (prevGrad !== "Graduated" && t.grad_stage === "Graduated") {
+    await postMilestone(info, `🎓 $${t.meta.symbol} graduated to Ref Finance! 100% LP locked & Floor Vault earning staking yield.`);
+  }
+}
+
+async function checkBuyAlerts(t: TokenView) {
+  const prev = lastTradeCount.get(t.token_id);
+  lastTradeCount.set(t.token_id, t.trade_count);
+  if (prev === undefined || t.trade_count <= prev) return;
+  const delta = Math.min(20, t.trade_count - prev);
+  const recent = await view<TradeInfo[]>("get_trades", { token_id: t.token_id, limit: delta }).catch(() => []);
+  const info: AgentTokenInfo = { token_id: t.token_id, meta: t.meta, agent_persona: t.agent_persona, stats: stats(t) };
+  for (const tr of [...recent].reverse()) {
+    if (tr.is_buy) await sendBuyAlert(info, tr);
+  }
+}
+
 async function tick() {
   await pushPrice().catch((e) => console.warn("price push failed:", (e as Error).message));
   const tokens = await allTokens();
+  cachedAgentTokens = tokens.map((t) => ({
+    token_id: t.token_id,
+    meta: t.meta,
+    agent_persona: t.agent_persona,
+    stats: stats(t),
+  }));
   for (const t of tokens) {
+    await checkMilestones(t);
     await keep(t);
+    await checkBuyAlerts(t);
     await agent(t);
+  }
+  milestonesPrimed = true;
+}
+
+const lastChatId = new Map<string, number>();
+
+async function pollChatMentions(tokens: AgentTokenInfo[]) {
+  if (!SOCIAL_API_URL || !AGENT_SECRET || tokens.length === 0) return;
+  for (const info of tokens) {
+    try {
+      const r = await fetch(`${SOCIAL_API_URL}/tokens/${info.token_id}/messages?limit=15`, {
+        signal: AbortSignal.timeout(6000),
+      });
+      if (!r.ok) continue;
+      const msgs = (await r.json()) as { id: number; account: string; text: string }[];
+      if (!msgs.length) continue;
+      const maxId = Math.max(...msgs.map((m) => m.id));
+      const prev = lastChatId.get(info.token_id);
+      lastChatId.set(info.token_id, maxId);
+      if (prev === undefined) continue; // prime without replying to historical messages
+      for (const m of msgs.filter((x) => x.id > prev).sort((a, b) => a.id - b.id)) {
+        if (m.account === OPERATOR || !/(^|\s)@agent\b/i.test(m.text)) continue;
+        const reply = await replyToQuestion(info, m.text.replace(/@agent/gi, "").trim() || "Give a quick status update.");
+        await fetch(`${SOCIAL_API_URL}/tokens/${info.token_id}/agent-reply`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-agent-secret": AGENT_SECRET },
+          body: JSON.stringify({ text: reply.slice(0, 500), replyTo: m.id }),
+          signal: AbortSignal.timeout(8000),
+        }).catch(() => {});
+      }
+    } catch {
+      /* ignore transient social API errors */
+    }
   }
 }
 
 console.log(`floorpad operator ${OPERATOR} on ${NETWORK}, launchpad ${LAUNCHPAD}`);
+if (!ONCE) {
+  // Fast 3s Telegram & in-app @agent chat loop independent of the 60s on-chain keeper tick
+  (async () => {
+    while (true) {
+      try {
+        if (cachedAgentTokens.length > 0) {
+          await pollTelegramCommands(cachedAgentTokens, replyToQuestion);
+          await pollChatMentions(cachedAgentTokens);
+        }
+      } catch (e) {
+        console.warn("social poll:", (e as Error).message);
+      }
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+  })();
+}
 do {
   try {
     await tick();

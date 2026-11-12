@@ -293,7 +293,9 @@ function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: T
   }
 
   const inSnipe = Date.now() / 1000 < t.snipe_window_ends;
-  const exitPct = cfg ? Math.max(0, (cfg.max_exit_fee_bps * Math.max(0, cfg.exit_decay_secs - age)) / cfg.exit_decay_secs / 100) : 0;
+  const maxExitBps = t.max_exit_fee_bps ?? cfg?.max_exit_fee_bps ?? 0;
+  const decaySecs = t.exit_decay_secs ?? cfg?.exit_decay_secs ?? 0;
+  const exitPct = decaySecs > 0 ? Math.max(0, (maxExitBps * Math.max(0, decaySecs - age)) / decaySecs / 100) : 0;
 
   return (
     <div className="panel stack" style={{ gap: 14 }}>
@@ -442,10 +444,17 @@ function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: T
         {q ? (
           <div className="stack" style={{ gap: 4 }}>
             <Kv k="You receive" v={side === "buy" ? `${fmtTok(q.amount_out)} $${t.meta.symbol}` : `${fmtNear(q.amount_out)} NEAR`} />
-            <Kv
-              k={`${side === "buy" ? "Buy" : "Sell"} fee (${((side === "buy" ? cfg?.buy_fee_bps ?? 125 : cfg?.sell_fee_bps ?? 250) / 100).toFixed(1)}%, ${((cfg?.fee_vault_bps ?? 4000) / 100).toFixed(0)}% to floor)`}
-              v={`${fmtNear(q.fee)} N`}
-            />
+            {(() => {
+              const platBps = t.platform_fee_bps ?? 100;
+              const taxBps = side === "buy" ? (t.buy_tax_bps ?? cfg?.buy_fee_bps ?? 50) : (t.sell_tax_bps ?? cfg?.sell_fee_bps ?? 100);
+              const totalBps = platBps + taxBps;
+              return (
+                <Kv
+                  k={`${side === "buy" ? "Buy" : "Sell"} fee (${(totalBps / 100).toFixed(2).replace(/\.00$/, "")}% · ${(platBps / 100).toFixed(0)}% plat + ${(taxBps / 100).toFixed(2).replace(/\.00$/, "")}% token)`}
+                  v={`${fmtNear(q.fee)} N`}
+                />
+              );
+            })()}
             {side === "sell" && <Kv k={`Exit fee (${exitPct.toFixed(1)}%, to floor)`} v={`${fmtNear(q.exit_fee)} N`} />}
             {BigInt(q.refund) > 0n && <Kv k="Refund (curve sold out)" v={`${fmtNear(q.refund)} N`} />}
           </div>
@@ -460,7 +469,7 @@ function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: T
 
       {side === "sell" && age > 0 && (
         <div className="notice small">
-          Holding age: {Math.floor(age / 86400)}d {Math.floor((age % 86400) / 3600)}h. Exit fee falls to 0% after 7 days.
+          Holding age: {Math.floor(age / 86400)}d {Math.floor((age % 86400) / 3600)}h. Exit fee falls to 0% after {Math.round(decaySecs / 86400)} days.
         </div>
       )}
 

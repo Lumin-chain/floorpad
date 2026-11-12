@@ -42,16 +42,16 @@ fn cfg() -> Config {
         max_price_age_secs: 6 * 3600,
         price_feeder: acc("owner.testnet"),
         referral_bps: 2000,
-        buy_fee_bps: 125,
-        sell_fee_bps: 250,
+        buy_fee_bps: 50,
+        sell_fee_bps: 100,
         fee_vault_bps: 4000,
         fee_creator_bps: 2500,
         creator_instant_bps: 5000,
         grad_vault_bps: 1500,
         grad_platform_bps: 100,
         yield_platform_bps: 1000,
-        max_exit_fee_bps: 1000,
-        exit_decay_secs: 7 * DAY,
+        max_exit_fee_bps: 300,
+        exit_decay_secs: 30 * DAY,
         redeem_fee_bps: 200,
         snipe_window_secs: 120,
         snipe_max_tokens: U128(20_000_000 * TOK),
@@ -111,7 +111,7 @@ fn launched() -> Contract {
     let mut c = Contract::new(cfg());
     c.set_near_usd_price(U128(3_590_000)); // $3.59
     ctx(&acc("alice.testnet"), 3 * NEAR / 2, T0);
-    let id = match c.create_token(meta(), None) {
+    let id = match c.create_token(meta(), None, None) {
         PromiseOrValue::Value(v) => v.unwrap(),
         _ => panic!("feeder mode launches synchronously"),
     };
@@ -150,7 +150,7 @@ fn create_sets_up_curve_and_dao_ids() {
 fn duplicate_ticker_rejected() {
     let mut c = launched();
     ctx(&acc("bob.testnet"), 3 * NEAR / 2, T0);
-    c.create_token(meta(), None);
+    c.create_token(meta(), None, None);
 }
 
 #[test]
@@ -161,12 +161,14 @@ fn buy_splits_fees_into_floor_creator_platform() {
     let out = buy(&mut c, "bob.testnet", NEAR + storage, T0 + 200);
     let t = c.tok(0);
     assert_eq!(t.sold, out);
-    let fee = NEAR * 125 / 10_000;
-    assert_eq!(t.backing_near, fee * 40 / 100);
-    assert_eq!(t.creator_claimable, fee * 125 / 1000);
-    assert_eq!(t.creator_escrow, fee * 125 / 1000);
-    assert_eq!(c.platform_fees - before_platform, fee * 35 / 100);
-    assert_eq!(t.real_near, NEAR - fee);
+    let plat = NEAR * 100 / 10_000;
+    let tok_tax = NEAR * 50 / 10_000;
+    let creator = tok_tax * 25 / 100;
+    assert_eq!(t.backing_near, tok_tax - creator);
+    assert_eq!(t.creator_claimable, creator / 2);
+    assert_eq!(t.creator_escrow, creator - creator / 2);
+    assert_eq!(c.platform_fees - before_platform, plat);
+    assert_eq!(t.real_near, NEAR - plat - tok_tax);
     assert_eq!(t.holders, 1);
     assert_eq!(c.get_trades(token(), None).len(), 1);
 }
@@ -515,8 +517,8 @@ fn selling_costs_more_than_buying() {
     let q_buy = c.quote_buy(token(), U128(10 * NEAR), Some(acc("bob.testnet")));
     let q_sell = c.quote_sell(token(), U128(out), 365 * DAY);
     let sell_gross = q_sell.amount_out.0 + q_sell.fee.0;
-    assert_eq!(q_buy.fee.0, 10 * NEAR * 125 / 10_000); // 1.25%
-    assert_eq!(q_sell.fee.0, sell_gross * 250 / 10_000); // 2.5%
+    assert_eq!(q_buy.fee.0, 10 * NEAR * 150 / 10_000); // 1.0% platform + 0.5% buy tax
+    assert_eq!(q_sell.fee.0, sell_gross * 200 / 10_000); // 1.0% platform + 1.0% sell tax
 }
 
 #[test]
@@ -526,7 +528,7 @@ fn launch_needs_fresh_price() {
     let mut c = Contract::new(cfg());
     c.set_near_usd_price(U128(3_590_000));
     ctx(&acc("alice.testnet"), 3 * NEAR / 2, T0 + 7 * 3600);
-    c.create_token(meta(), None);
+    c.create_token(meta(), None, None);
 }
 
 #[test]
@@ -554,8 +556,7 @@ fn referrer_earns_share_of_platform_fee() {
     let before = c.platform_fees;
     ctx(&acc("bob.testnet"), 10 * NEAR, T0 + 200);
     c.buy(token(), U128(0), Some(acc("kol.testnet")));
-    let fee = (10 * NEAR - curve::STORAGE_FEE) * 125 / 10_000;
-    let platform = fee - fee * 40 / 100 - fee * 25 / 100;
+    let platform = (10 * NEAR - curve::STORAGE_FEE) * 100 / 10_000;
     let referral = platform * 2000 / 10_000;
     assert_eq!(c.get_referral_balance(acc("kol.testnet")).0, referral);
     assert_eq!(c.platform_fees - before, platform - referral);
@@ -599,7 +600,7 @@ fn ref_quote_launch_path() {
     c.accept_price(3_590_000); // first on-chain observation
     // Ref quote for 1 NEAR = 3.579230 USDC after the 0.3% fee
     ctx(&lp(), 0, T0 + 3600);
-    let id = c.on_launch_price(acc("alice.testnet"), U128(3 * NEAR / 2), meta(), "p".into(), Ok(U128(3_579_230)));
+    let id = c.on_launch_price(acc("alice.testnet"), U128(3 * NEAR / 2), meta(), "p".into(), None, Ok(U128(3_579_230)));
     assert_eq!(id, Some(token()));
     let (price, _) = c.get_near_usd_price();
     assert!(price.0.abs_diff(3_590_000) < 100, "{}", price.0);
@@ -612,7 +613,7 @@ fn failed_quote_refunds_launch() {
     ctx(&acc("owner.testnet"), 0, T0);
     let mut c = Contract::new(cfg);
     ctx(&lp(), 0, T0 + 10);
-    let id = c.on_launch_price(acc("alice.testnet"), U128(3 * NEAR / 2), meta(), "p".into(), Err(near_sdk::PromiseError::Failed));
+    let id = c.on_launch_price(acc("alice.testnet"), U128(3 * NEAR / 2), meta(), "p".into(), None, Err(near_sdk::PromiseError::Failed));
     assert_eq!(id, None);
     assert_eq!(c.get_token_count(), 0);
 }
@@ -938,4 +939,57 @@ fn migrate_deserializes_live_v1_state_and_upgrades_in_place() {
     env::storage_write(b"STATE", &borsh::to_vec(&migrated).unwrap());
     let re = std::panic::catch_unwind(|| Contract::migrate());
     assert!(re.is_err());
+}
+
+#[test]
+fn creator_custom_tax_policy_and_dao_update() {
+    ctx(&acc("owner.testnet"), 0, T0);
+    let mut c = Contract::new(cfg());
+    c.set_near_usd_price(U128(3_590_000));
+    ctx(&acc("alice.testnet"), 3 * NEAR / 2, T0);
+    let custom = TokenTaxInput {
+        buy_tax_bps: Some(200),
+        sell_tax_bps: Some(300),
+        max_exit_fee_bps: Some(400),
+        exit_decay_secs: Some(14 * DAY),
+        tax_vault_bps: Some(6000),
+        tax_creator_bps: Some(1500),
+        tax_burn_bps: Some(2500),
+    };
+    c.create_token(meta(), None, Some(custom));
+    let t = c.tok(0);
+    assert_eq!((t.buy_tax_bps, t.sell_tax_bps, t.max_exit_fee_bps, t.exit_decay_secs), (200, 300, 400, 14 * DAY));
+    assert_eq!((t.tax_vault_bps, t.tax_creator_bps, t.tax_burn_bps), (6000, 1500, 2500));
+
+    // Finalize DAO before DAO governance calls are allowed
+    c.tok_mut(0).dao_stage = DaoStage::Ready;
+    // Only the token DAO can update tax policy
+    ctx(&acc("moon-dao.floorpad.testnet"), 0, T0 + 10);
+    c.set_token_tax_policy(
+        token(),
+        TokenTaxInput {
+            buy_tax_bps: Some(100),
+            sell_tax_bps: Some(150),
+            max_exit_fee_bps: Some(200),
+            exit_decay_secs: Some(7 * DAY),
+            tax_vault_bps: Some(5000),
+            tax_creator_bps: Some(1000),
+            tax_burn_bps: Some(4000),
+        },
+    );
+    let t = c.tok(0);
+    assert_eq!((t.buy_tax_bps, t.sell_tax_bps, t.max_exit_fee_bps, t.exit_decay_secs), (100, 150, 200, 7 * DAY));
+    assert_eq!((t.tax_vault_bps, t.tax_creator_bps, t.tax_burn_bps), (5000, 1000, 4000));
+}
+
+#[test]
+fn mainnet_config_enforces_anti_capture_dao_quorum() {
+    let raw = include_str!("../../../deploy/config.mainnet.json")
+        .replace("TREASURY_ID", "treasury.near")
+        .replace("FEEDER_ID", "feeder.near")
+        .replace("LAUNCHPAD_ID", "floorpad.near")
+        .replace("TOKEN_CODE_HASH", "4reLvkAWfqk5fsqio1KLudk46cqRz9erQdaHkWZKMJDZ");
+    let c: Config = near_sdk::serde_json::from_str(&raw).expect("config.mainnet.json must match Config");
+    assert!(c.dao_quorum.0 > c.snipe_max_tokens.0 * 4);
+    assert_eq!(c.grad_mcap_usd, 25_000);
 }

@@ -56,6 +56,12 @@ function describeKind(k: Kind, symbol: string): string {
         return `Release ${fmtNear(decodeArgs(a.args).amount)} NEAR creator escrow`;
       if (body.receiver_id === LAUNCHPAD && a?.method_name === "dao_clawback_creator") return "Claw back creator escrow to treasury";
       if (body.receiver_id === LAUNCHPAD && a?.method_name === "dao_set_agent") return `Update $${symbol} AI agent`;
+      if (body.receiver_id === LAUNCHPAD && a?.method_name === "set_token_tax_policy") {
+        const p = decodeArgs(a.args)?.policy ?? {};
+        const fmtBps = (v: unknown) => `${(Number(v ?? 0) / 100).toFixed(2).replace(/\.00$/, "")}%`;
+        const days = Math.round(Number(p.exit_decay_secs ?? 0) / 86400);
+        return `Update $${symbol} taxes: ${fmtBps(p.buy_tax_bps)} buy · ${fmtBps(p.sell_tax_bps)} sell · ${fmtBps(p.max_exit_fee_bps)} exit (${days}d) · ${fmtBps(p.tax_vault_bps)} floor / ${fmtBps(p.tax_creator_bps)} creator / ${fmtBps(p.tax_burn_bps)} burn`;
+      }
       return `Call ${body.receiver_id}.${actions.map((x) => x.method_name).join(", ")}`;
     }
     case "AddBounty": {
@@ -106,6 +112,8 @@ export function DaoPanel({ t }: TokenCtx) {
   };
   const totalW = BigInt(total ?? "0");
   const mineW = BigInt(mine ?? "0");
+  const quorumW = BigInt(policy?.default_vote_policy?.quorum ?? "0");
+  const quorumMet = totalW >= quorumW && (quorumW === 0n || t.stakers >= 2);
   const list = [...(proposals ?? [])].reverse().filter((p) => p.id > 1 || p.proposer !== LAUNCHPAD);
 
   const thresholdFor = (k: Kind): [number, number] => {
@@ -133,7 +141,8 @@ export function DaoPanel({ t }: TokenCtx) {
           const yes = BigInt(counts[0]);
           const no = BigInt(counts[1]);
           const [n, d] = thresholdFor(p.kind);
-          const needed = totalW > 0n ? (totalW * BigInt(n)) / BigInt(d) : 0n;
+          const rawNeeded = totalW > 0n ? (totalW * BigInt(n)) / BigInt(d) : 0n;
+          const needed = quorumW > rawNeeded ? quorumW : rawNeeded;
           const pct = (v: bigint) => (totalW > 0n ? Number((v * 10000n) / totalW) / 100 : 0);
           const voted = accountId ? p.votes[accountId] : undefined;
           const expires = Number(BigInt(p.submission_time) / 1_000_000_000n) + Number(BigInt(policy?.proposal_period ?? "0") / 1_000_000_000n);
@@ -188,7 +197,13 @@ export function DaoPanel({ t }: TokenCtx) {
           <Stat k="Your vote weight" v={fmtTok(mineW.toString(), 0)} s={totalW > 0n ? `${(Number((mineW * 10000n) / totalW) / 100).toFixed(2)}% of total` : "–"} />
           <Stat k="Total delegated" v={fmtTok(totalW.toString(), 0)} s="ve-weight across lockers" />
         </div>
-        {mineW > 0n ? (
+        {!quorumMet ? (
+          <div className="notice">
+            DAO proposals unlock once at least <strong>{fmtTok(quorumW.toString(), 0)}</strong> total lock weight and{" "}
+            <strong>2 lockers</strong> participate (currently {fmtTok(totalW.toString(), 0)} weight across {t.stakers}{" "}
+            locker{t.stakers === 1 ? "" : "s"}). This prevents a single early holder from passing proposals alone.
+          </div>
+        ) : mineW > 0n ? (
           <NewProposal t={t} bond={policy?.proposal_bond ?? "100000000000000000000000"} onDone={reload} />
         ) : (
           <div className="notice">Only lockers can create proposals. Lock ${t.meta.symbol} in the Lock &amp; vote tab, then propose here.</div>
@@ -198,6 +213,7 @@ export function DaoPanel({ t }: TokenCtx) {
           <div className="panel tight small">
             <Kv k="Who can propose" v="Any locker (bond refunded unless voted spam)" />
             <Kv k="Proposal bond" v={`${fmtNear(policy.proposal_bond)} NEAR`} />
+            <Kv k="Min quorum" v={quorumW > 0n ? `${fmtTok(quorumW.toString(), 0)} weight (2+ lockers)` : "None (testnet)"} />
             <Kv k="Voting period" v={`${Number(BigInt(policy.proposal_period) / 3_600_000_000_000n)}h`} />
             <Kv k="To pass" v="> 70% of all lock weight votes yes" />
             <Kv k="Policy / upgrades" v="> 80% of all lock weight" />
@@ -208,9 +224,10 @@ export function DaoPanel({ t }: TokenCtx) {
   );
 }
 
-type Template = "signal" | "transfer" | "release" | "clawback" | "agent" | "bounty" | "custom";
+type Template = "signal" | "transfer" | "release" | "clawback" | "agent" | "tax" | "bounty" | "custom";
 const TEMPLATES: { id: Template; label: string }[] = [
   { id: "signal", label: "Signal vote" },
+  { id: "tax", label: "Update tax, split & decay" },
   { id: "transfer", label: "Treasury transfer" },
   { id: "release", label: "Release creator milestone" },
   { id: "clawback", label: "Claw back creator escrow" },
@@ -225,7 +242,17 @@ function NewProposal({ t, bond, onDone }: { t: TokenCtx["t"]; bond: string; onDo
   const [desc, setDesc] = useState("");
   const [title, setTitle] = useState("");
   const [f, setF] = useState({ receiver: "", amount: "", token: "NEAR", persona: t.agent_persona, agent: "", method: "", args: "{}", deposit: "0", gas: "100", times: "1", days: "7" });
+  const [taxF, setTaxF] = useState({
+    buyPct: String((t.buy_tax_bps ?? 50) / 100),
+    sellPct: String((t.sell_tax_bps ?? 100) / 100),
+    exitPct: String((t.max_exit_fee_bps ?? 300) / 100),
+    decayDays: String(Math.round((t.exit_decay_secs ?? 2_592_000) / 86_400)),
+    vaultPct: String((t.tax_vault_bps ?? 4000) / 100),
+    creatorPct: String((t.tax_creator_bps ?? 2500) / 100),
+    burnPct: String((t.tax_burn_bps ?? 3500) / 100),
+  });
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setF({ ...f, [k]: e.target.value });
+  const setTax = (k: keyof typeof taxF) => (e: React.ChangeEvent<HTMLInputElement>) => setTaxF({ ...taxF, [k]: e.target.value });
 
   const lpCall = (method_name: string, args: object) => ({
     FunctionCall: { receiver_id: LAUNCHPAD, actions: [{ method_name, args: b64json(args), deposit: "0", gas: "50000000000000" }] },
@@ -245,6 +272,31 @@ function NewProposal({ t, bond, onDone }: { t: TokenCtx["t"]; bond: string; onDo
         return lpCall("dao_clawback_creator", { token_id: t.token_id });
       case "agent":
         return lpCall("dao_set_agent", { token_id: t.token_id, agent_account: f.agent || null, persona: f.persona || null });
+      case "tax": {
+        const buy = Math.round(Number(taxF.buyPct) * 100);
+        const sell = Math.round(Number(taxF.sellPct) * 100);
+        const exit = Math.round(Number(taxF.exitPct) * 100);
+        const decay = Math.round(Number(taxF.decayDays) * 86_400);
+        const vault = Math.round(Number(taxF.vaultPct) * 100);
+        const creator = Math.round(Number(taxF.creatorPct) * 100);
+        const burn = Math.round(Number(taxF.burnPct) * 100);
+        if ([buy, sell, exit, decay, vault, creator, burn].some(Number.isNaN)) return null;
+        if (buy < 0 || buy > 300 || sell < 0 || sell > 500 || exit < 0 || exit > 500) return null;
+        if (decay < 0 || decay > 30 * 86_400 || creator < 0 || creator > 2500 || vault < 0 || burn < 0) return null;
+        if (vault + creator + burn !== 10_000) return null;
+        return lpCall("set_token_tax_policy", {
+          token_id: t.token_id,
+          policy: {
+            buy_tax_bps: buy,
+            sell_tax_bps: sell,
+            max_exit_fee_bps: exit,
+            exit_decay_secs: decay,
+            tax_vault_bps: vault,
+            tax_creator_bps: creator,
+            tax_burn_bps: burn,
+          },
+        });
+      }
       case "bounty":
         if (!f.amount) return null;
         return {
@@ -322,6 +374,24 @@ function NewProposal({ t, bond, onDone }: { t: TokenCtx["t"]; bond: string; onDo
           <label className="field"><span>Persona</span><textarea className="textarea" value={f.persona} onChange={set("persona")} maxLength={1500} /></label>
           <label className="field"><span>New operator account (optional)</span><input className="input mono" value={f.agent} onChange={set("agent")} placeholder={t.agent_account} /></label>
         </>
+      )}
+      {tpl === "tax" && (
+        <div className="stack" style={{ gap: 8, marginBottom: 10 }}>
+          <div className="grid half">
+            <label className="field"><span>Buy tax (0–3%)</span><input className="input mono" type="number" step="0.1" min="0" max="3" value={taxF.buyPct} onChange={setTax("buyPct")} /></label>
+            <label className="field"><span>Sell tax (0–5%)</span><input className="input mono" type="number" step="0.1" min="0" max="5" value={taxF.sellPct} onChange={setTax("sellPct")} /></label>
+            <label className="field"><span>Exit decay fee (0–5%)</span><input className="input mono" type="number" step="0.1" min="0" max="5" value={taxF.exitPct} onChange={setTax("exitPct")} /></label>
+            <label className="field"><span>Decay period (0–30d)</span><input className="input mono" type="number" step="1" min="0" max="30" value={taxF.decayDays} onChange={setTax("decayDays")} /></label>
+          </div>
+          <div className="grid" style={{ gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+            <label className="field"><span>Floor %</span><input className="input mono" type="number" step="1" min="0" max="100" value={taxF.vaultPct} onChange={setTax("vaultPct")} /></label>
+            <label className="field"><span>Creator (0–25%)</span><input className="input mono" type="number" step="1" min="0" max="25" value={taxF.creatorPct} onChange={setTax("creatorPct")} /></label>
+            <label className="field"><span>Burn %</span><input className="input mono" type="number" step="1" min="0" max="100" value={taxF.burnPct} onChange={setTax("burnPct")} /></label>
+          </div>
+          <div className="xs muted">
+            Split total: {(Number(taxF.vaultPct) || 0) + (Number(taxF.creatorPct) || 0) + (Number(taxF.burnPct) || 0)}% (must equal 100%). 1% platform fee stays fixed.
+          </div>
+        </div>
       )}
       {tpl === "custom" && (
         <>

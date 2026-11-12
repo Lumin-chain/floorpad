@@ -129,6 +129,7 @@ export function Shell({ children }: { children: ReactNode }) {
               <XLogo size={13} />
               <span>@usefloorpad_</span>
             </a>
+            <a href="/brand" className="link-chev">Brand kit</a>
           </div>
           <span>Floor backing is denominated in NEAR/LiNEAR; USD value fluctuates with market prices. Not financial advice.</span>
         </div>

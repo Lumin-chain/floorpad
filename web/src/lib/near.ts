@@ -195,6 +195,14 @@ export interface TokenView {
   harvest_pending?: boolean;
   harvested_linear?: string;
   harvest_burned?: string;
+  platform_fee_bps?: number;
+  buy_tax_bps?: number;
+  sell_tax_bps?: number;
+  max_exit_fee_bps?: number;
+  exit_decay_secs?: number;
+  tax_vault_bps?: number;
+  tax_creator_bps?: number;
+  tax_burn_bps?: number;
 }
 
 export interface Position {

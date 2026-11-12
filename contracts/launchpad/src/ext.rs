@@ -23,6 +23,15 @@ pub trait ExtFt {
     fn storage_deposit(&mut self, account_id: Option<AccountId>, registration_only: Option<bool>);
     fn ft_holding_since(&self, account_id: AccountId) -> Option<U64>;
     fn burn(&mut self, amount: U128);
+    fn tax_add_pair(&mut self, pair: AccountId);
+    fn set_tax_policy(
+        &mut self,
+        buy_tax_bps: u16,
+        sell_tax_bps: u16,
+        max_exit_fee_bps: u16,
+        decay_secs: u64,
+    );
+    fn tax_take(&mut self) -> (U128, U128);
 }
 
 /// LiNEAR liquid staking (linear-protocol.near / linear-protocol.testnet).

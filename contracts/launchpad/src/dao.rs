@@ -124,7 +124,7 @@ impl Contract {
 }
 
 impl Contract {
-    fn assert_dao(&self, token_id: &AccountId) -> u32 {
+    pub(crate) fn assert_dao(&self, token_id: &AccountId) -> u32 {
         let idx = self.idx_of(token_id);
         let t = self.tok(idx);
         require!(t.dao_stage == DaoStage::Ready, "ERR_DAO_NOT_READY");

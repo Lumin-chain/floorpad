@@ -58,6 +58,14 @@ pub struct TokenView {
     pub snipe_window_ends: u64,
     pub custody_total: U128,
     pub mech_count: u32,
+    pub platform_fee_bps: u16,
+    pub buy_tax_bps: u16,
+    pub sell_tax_bps: u16,
+    pub max_exit_fee_bps: u16,
+    pub exit_decay_secs: u64,
+    pub tax_vault_bps: u16,
+    pub tax_creator_bps: u16,
+    pub tax_burn_bps: u16,
     pub lp_k0: U128,
     pub last_harvest_at: u64,
     pub next_harvest_at: u64,
@@ -192,7 +200,8 @@ impl Contract {
             .unwrap_or(true);
         let storage = if new_holder { crate::curve::STORAGE_FEE } else { 0 };
         let gross = near_in.0.saturating_sub(storage);
-        let mut fee = bps(gross, cfg.buy_fee_bps as u128);
+        let fee_bps = PLATFORM_FEE_BPS as u128 + t.buy_tax_bps as u128;
+        let mut fee = bps(gross, fee_bps);
         let mut used = gross - fee;
         let remaining = cfg.curve_supply.0 - t.sold;
         let mut out = math::curve_tokens_out(t.v_near, t.v_tokens, used);
@@ -200,7 +209,7 @@ impl Contract {
         if out >= remaining && remaining > 0 {
             out = remaining;
             used = math::curve_near_for_tokens(t.v_near, t.v_tokens, out);
-            fee = bps(used, cfg.buy_fee_bps as u128);
+            fee = bps(used, fee_bps);
             refund = gross - used - fee;
         }
         Quote { amount_out: U128(out), fee: U128(fee), exit_fee: U128(0), refund: U128(refund) }
@@ -209,11 +218,10 @@ impl Contract {
     /// `age_secs`: seconds since the seller's `ft_holding_since`.
     pub fn quote_sell(&self, token_id: AccountId, tokens_in: U128, age_secs: u64) -> Quote {
         let idx = self.idx_of(&token_id);
-        let cfg = &self.config;
         let t = self.tok(idx);
         let gross = math::curve_near_out(t.v_near, t.v_tokens, tokens_in.0);
-        let fee = bps(gross, cfg.sell_fee_bps as u128);
-        let exit = bps(gross, math::exit_fee_bps(cfg.max_exit_fee_bps as u128, cfg.exit_decay_secs, age_secs));
+        let fee = bps(gross, PLATFORM_FEE_BPS as u128 + t.sell_tax_bps as u128);
+        let exit = bps(gross, math::exit_fee_bps(t.max_exit_fee_bps as u128, t.exit_decay_secs, age_secs));
         Quote { amount_out: U128(gross - fee - exit), fee: U128(fee), exit_fee: U128(exit), refund: U128(0) }
     }
 
@@ -232,7 +240,7 @@ impl Contract {
             _ => 0,
         };
         let base = bps(gross, cfg.redeem_fee_bps as u128);
-        let exit = bps(gross, math::exit_fee_bps(cfg.max_exit_fee_bps as u128, cfg.exit_decay_secs, age_secs));
+        let exit = bps(gross, math::exit_fee_bps(t.max_exit_fee_bps as u128, t.exit_decay_secs, age_secs));
         Quote { amount_out: U128(gross - base - exit), fee: U128(base), exit_fee: U128(exit), refund: U128(0) }
     }
 }
@@ -297,6 +305,14 @@ impl Contract {
             snipe_window_ends: t.created_at + c.snipe_window_secs,
             custody_total: U128(t.custody_total),
             mech_count: t.mech_count,
+            platform_fee_bps: PLATFORM_FEE_BPS,
+            buy_tax_bps: t.buy_tax_bps,
+            sell_tax_bps: t.sell_tax_bps,
+            max_exit_fee_bps: t.max_exit_fee_bps,
+            exit_decay_secs: t.exit_decay_secs,
+            tax_vault_bps: t.tax_vault_bps,
+            tax_creator_bps: t.tax_creator_bps,
+            tax_burn_bps: t.tax_burn_bps,
             lp_k0: U128(t.lp_k0),
             last_harvest_at: t.last_harvest_at,
             next_harvest_at: if t.grad_stage == GradStage::Graduated {

@@ -20,8 +20,8 @@ function brandPng(name: string): string | null {
 // the rising floor: each source lays one more slab; same story as the site hero
 // "source | share to floor", from the live launchpad config (same as the site hero)
 const SLABS = [
-  ["BUY FEE 1.25%", "40% → FLOOR"],
-  ["SELL FEE 2.5%", "40% → FLOOR"],
+  ["BUY FEE 1.5%", "1% + 0.5% TAX"],
+  ["SELL FEE 2.0%", "1% + 1.0% TAX"],
   ["EXIT FEE ≤10%", "ALL → FLOOR"],
   ["GRADUATION", "15% → FLOOR"],
   ["LiNEAR YIELD", "BY VOTE"],
@@ -152,8 +152,8 @@ export default async function OpengraphImage() {
 
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 34 }}>
               {[
-                ["BUY", "1.25%"],
-                ["SELL", "2.5%"],
+                ["BUY", "1.5%"],
+                ["SELL", "2.0%"],
                 ["EXIT FEE", "<=10%"],
                 ["PREMINT", "ZERO"],
               ].map(([k, v]) => (

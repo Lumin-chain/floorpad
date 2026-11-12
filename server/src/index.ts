@@ -6,7 +6,7 @@
  * Live updates use Server-Sent Events. Storage is node:sqlite. No runtime deps.
  */
 import http from "node:http";
-import { randomBytes } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import {
   calcPrice,
   cached,
@@ -36,6 +36,7 @@ try {
 const PORT = Number(env("PORT", "8787"));
 const ORIGINS = env("CORS_ORIGINS", "*").split(",").map((s) => s.trim());
 const ADMINS = new Set(env("ADMINS", "").split(",").map((s) => s.trim()).filter(Boolean));
+const AGENT_SECRET = process.env.AGENT_SECRET ?? "";
 const store = openStore(env("DB_PATH", "./floorpad-social.db"));
 
 const SIGN_MESSAGE = "Sign in to Floorpad chat. This does not send a transaction or cost gas.";
@@ -220,6 +221,37 @@ route("POST", "/tokens/:id/messages", async (req, _res, p) => {
     holder_pct: await holderShare(p.id, account).catch(() => 0),
   };
   const saved = store.addMessage(m);
+  publish(`token:${p.id}`, "message", saved);
+  return saved;
+});
+
+route("POST", "/tokens/:id/agent-reply", async (req, _res, p) => {
+  if (!AGENT_SECRET) throw new HttpError(503, "agent bridge not configured");
+  const hdr = String(req.headers["x-agent-secret"] ?? "");
+  const a = Buffer.from(hdr);
+  const b = Buffer.from(AGENT_SECRET);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) throw new HttpError(403, "forbidden");
+  const t = await requireToken(p.id);
+  const bodyJson = await body<{ text: string; replyTo?: number }>(req);
+  const text = clean(bodyJson.text, MAX_TEXT);
+  if (!text) throw new HttpError(400, "empty message");
+  let replyTo: number | null = null;
+  if (bodyJson.replyTo !== undefined && bodyJson.replyTo !== null) {
+    const rid = Number(bodyJson.replyTo);
+    if (Number.isSafeInteger(rid) && rid > 0) {
+      const target = store.message(rid);
+      if (target && !target.hidden && target.token_id === p.id) replyTo = rid;
+    }
+  }
+  const saved = store.addMessage({
+    token_id: p.id,
+    account: t.agent_account || "agent.floorpad.near",
+    text,
+    reply_to: replyTo,
+    ts: now(),
+    is_dev: 0,
+    holder_pct: 0,
+  });
   publish(`token:${p.id}`, "message", saved);
   return saved;
 });

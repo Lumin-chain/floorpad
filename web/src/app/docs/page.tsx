@@ -26,7 +26,7 @@ export default function DocsPage() {
   const [activeSection, setActiveSection] = useState<SectionId>("overview");
   const [viewMode, setViewMode] = useState<"focus" | "all">("focus");
   const { data: cfg } = useView(() => lp<LaunchConfig>("get_config"), [], 0);
-  const gradTargetUsd = cfg ? cfg.grad_mcap_usd : NETWORK === "testnet" ? 100 : 15000;
+  const gradTargetUsd = cfg ? cfg.grad_mcap_usd : NETWORK === "testnet" ? 100 : 25000;
 
   const curIdx = SECTIONS.findIndex((s) => s.id === activeSection);
   const prevSec = curIdx > 0 ? SECTIONS[curIdx - 1] : null;
@@ -125,8 +125,8 @@ export default function DocsPage() {
               </div>
               <div className="stat">
                 <div className="k">Asymmetric Taxes</div>
-                <div className="v">1.25% / 2.5%</div>
-                <div className="s">Plus decaying 10% exit fee</div>
+                <div className="v">1.5% / 2.0%</div>
+                <div className="s">Plus decaying 3% exit fee</div>
               </div>
               <div className="stat">
                 <div className="k">Ref Finance LP</div>
@@ -172,7 +172,7 @@ export default function DocsPage() {
             </p>
             <h3>Live Dynamic Sizing via On-Chain Price</h3>
             <p className="muted small">
-              Virtual reserves scale dynamically using the live NEAR/USD price (read on-chain from Ref pool #4512 on mainnet, or keeper price feed on testnet) so launches currently graduate at <strong>${gradTargetUsd.toLocaleString()} USD FDV</strong> ({NETWORK} setting; mainnet target ~$15,000 USD).
+              Virtual reserves scale dynamically using the live NEAR/USD price (read on-chain from Ref pool #4512 on mainnet, or keeper price feed on testnet) so launches currently graduate at <strong>${gradTargetUsd.toLocaleString()} USD FDV</strong> ({NETWORK} setting; mainnet target ~$25,000 USD).
             </p>
 
             <h3>Zero-Slippage Smooth Migration onto Ref Finance</h3>
@@ -223,13 +223,13 @@ export default function DocsPage() {
               Floorpad employs an asymmetric fee model that rewards holding and penalizes rapid dumping:
             </p>
             <div className="grid half">
-              <div className="panel tight stack" style={{ background: "var(--panel-2)" }}>
-                <b>Buy Fee: 1.25%</b>
-                <span className="small muted">Low entry friction. 40% goes to the floor vault, 25% to creator (half instant, half DAO-escrowed), 35% to platform.</span>
+              <div className="panel tight" style={{ background: "var(--panel-2)" }}>
+                <b>Buy Fee: 1.00% Platform + Token Tax (0.50% default)</b>
+                <p className="small muted" style={{ margin: "4px 0 0" }}>1% flat platform fee + creator-configured buy tax (split 40% floor, 25% creator, 35% burn/floor; DAO-adjustable after launch).</p>
               </div>
-              <div className="panel tight stack" style={{ background: "var(--panel-2)" }}>
-                <b>Sell Fee: 2.50% + Decaying Exit Fee</b>
-                <span className="small muted">Same 40% vault / 25% creator / 35% platform split on base fee, plus 100% of the exit fee straight to the vault.</span>
+              <div className="panel tight" style={{ background: "var(--panel-2)" }}>
+                <b>Sell Fee: 1.00% Platform + Token Tax (1.00% default) + Decaying Exit Fee</b>
+                <p className="small muted" style={{ margin: "4px 0 0" }}>Same split on the token tax, plus 100% of the decaying exit fee straight to the vault — enforced on-curve and on graduated DEX pairs while decay is active.</p>
               </div>
             </div>
 
@@ -238,9 +238,9 @@ export default function DocsPage() {
               The token contract tracks the weighted-average acquisition timestamp (<code>ft_holding_since</code>) of every holder:
             </p>
             <ul className="muted small stack" style={{ paddingLeft: 20 }}>
-              <li><strong>Day 0 (Instant dump):</strong> 10.00% exit fee.</li>
-              <li><strong>Day 3.5:</strong> 5.00% exit fee.</li>
-              <li><strong>Day 7+:</strong> 0.00% exit fee (completely free of exit penalty).</li>
+              <li><strong>Day 0 (Instant dump):</strong> 3.00% exit fee (default).</li>
+              <li><strong>Day 15:</strong> 1.50% exit fee.</li>
+              <li><strong>Day 30+:</strong> 0.00% exit fee (token buy/sell taxes also expire; 1.00% platform fee remains on DEX &amp; curve trades).</li>
             </ul>
             <p className="muted small">
               100% of all exit fees collected are deposited directly into the Floor Vault to benefit remaining holders.
@@ -371,29 +371,29 @@ export default function DocsPage() {
           <div id="faq" className="panel stack">
             <h2><MojiLabel face="flag">11. Frequently Asked Questions (FAQ)</MojiLabel></h2>
             <div className="stack" style={{ gap: 12 }}>
-              <div className="panel tight stack" style={{ background: "var(--panel-2)" }}>
+              <div className="panel tight" style={{ background: "var(--panel-2)" }}>
                 <b>Can the dev or creator rug-pull?</b>
-                <span className="small muted">
+                <p className="small muted" style={{ margin: "4px 0 0" }}>
                   Creators receive zero free premint tokens, and 100% of graduated Ref Finance LP is held by the launchpad contract rather than the creator. Meme tokens remain volatile and risky on the open market.
-                </span>
+                </p>
               </div>
-              <div className="panel tight stack" style={{ background: "var(--panel-2)" }}>
+              <div className="panel tight" style={{ background: "var(--panel-2)" }}>
                 <b>Can the floor price ever drop?</b>
-                <span className="small muted">
+                <p className="small muted" style={{ margin: "4px 0 0" }}>
                   Not in NEAR / LiNEAR terms. Because the vault only receives inflows and redemptions keep fees in the vault while burning supply, the NEAR backing per remaining token is non-decreasing. However, the <strong>USD value fluctuates with NEAR&apos;s market price</strong>, and open-market pool price trades independently.
-                </span>
+                </p>
               </div>
-              <div className="panel tight stack" style={{ background: "var(--panel-2)" }}>
+              <div className="panel tight" style={{ background: "var(--panel-2)" }}>
                 <b>Where does the Ref Finance LP yield go?</b>
-                <span className="small muted">
+                <p className="small muted" style={{ margin: "4px 0 0" }}>
                   The LP is paired with LiNEAR, which accrues staking yield. This yield is distributed every epoch according to the ve-lock holder vote.
-                </span>
+                </p>
               </div>
-              <div className="panel tight stack" style={{ background: "var(--panel-2)" }}>
+              <div className="panel tight" style={{ background: "var(--panel-2)" }}>
                 <b>What happens if a DAO proposal doesn&apos;t reach 70%?</b>
-                <span className="small muted">
+                <p className="small muted" style={{ margin: "4px 0 0" }}>
                   It fails. Floorpad prioritizes security and community consensus over ease of proposal passing.
-                </span>
+                </p>
               </div>
             </div>
           </div>

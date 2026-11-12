@@ -187,6 +187,25 @@ pub enum GradStage {
     Graduated,
 }
 
+pub const PLATFORM_FEE_BPS: u16 = 100; // 1.00% flat platform fee
+pub const MAX_BUY_TAX_BPS: u16 = 300;  // 3.00% max creator/DAO buy tax
+pub const MAX_SELL_TAX_BPS: u16 = 500; // 5.00% max creator/DAO sell tax
+pub const MAX_EXIT_FEE_BPS: u16 = 500; // 5.00% max decaying exit fee
+pub const MAX_DECAY_SECS: u64 = 30 * 86_400; // 30 days max decay
+pub const MAX_CREATOR_SPLIT_BPS: u16 = 2_500; // 25.00% max of token tax to creator
+
+#[near(serializers = [json])]
+#[derive(Clone, Default)]
+pub struct TokenTaxInput {
+    pub buy_tax_bps: Option<u16>,
+    pub sell_tax_bps: Option<u16>,
+    pub max_exit_fee_bps: Option<u16>,
+    pub exit_decay_secs: Option<u64>,
+    pub tax_vault_bps: Option<u16>,
+    pub tax_creator_bps: Option<u16>,
+    pub tax_burn_bps: Option<u16>,
+}
+
 #[near]
 #[derive(Clone)]
 pub struct TokenState {
@@ -273,6 +292,15 @@ pub struct TokenState {
     pub agent_persona: String,
     pub agent_budget_shares: u128,
     pub post_count: u32,
+
+    // Per-token tax & decay policy (creator sets at launch, DAO can update within caps)
+    pub buy_tax_bps: u16,
+    pub sell_tax_bps: u16,
+    pub max_exit_fee_bps: u16,
+    pub exit_decay_secs: u64,
+    pub tax_vault_bps: u16,
+    pub tax_creator_bps: u16,
+    pub tax_burn_bps: u16,
 }
 
 #[near(serializers = [borsh, json])]
@@ -487,26 +515,76 @@ impl Contract {
         )
     }
 
-    /// Split a curve fee into vault, creator (instant + escrow), referrer and platform.
-    pub(crate) fn distribute_fee(&mut self, idx: u32, fee: u128, referrer: Option<&AccountId>) {
+    /// Split a curve trade's 1% platform fee and creator-configured token tax.
+    pub(crate) fn distribute_trade_fees(
+        &mut self,
+        idx: u32,
+        mut platform_fee: u128,
+        token_tax: u128,
+        referrer: Option<&AccountId>,
+    ) {
         let c = self.config.clone();
-        let vault = bps(fee, c.fee_vault_bps as u128);
-        let creator = bps(fee, c.fee_creator_bps as u128);
-        let instant = bps(creator, c.creator_instant_bps as u128);
-        let mut platform = fee - vault - creator;
-        {
+        if token_tax > 0 {
+            let (creator_bps, instant_bps) = (self.tok(idx).tax_creator_bps, c.creator_instant_bps);
+            let creator = bps(token_tax, creator_bps as u128);
+            let instant = bps(creator, instant_bps as u128);
+            let floor_share = token_tax - creator;
             let tok = self.tok_mut(idx);
-            tok.backing_near += vault;
+            tok.backing_near += floor_share;
             tok.creator_claimable += instant;
             tok.creator_escrow += creator - instant;
         }
         if let Some(r) = referrer {
-            let cut = bps(platform, c.referral_bps as u128);
-            platform -= cut;
+            let cut = bps(platform_fee, c.referral_bps as u128);
+            platform_fee -= cut;
             let cur = self.referral_balance.get(r).copied().unwrap_or(0);
             self.referral_balance.insert(r.clone(), cur + cut);
         }
-        self.platform_fees += platform;
+        self.platform_fees += platform_fee;
+    }
+
+    pub(crate) fn resolve_tax_policy(
+        &self,
+        input: Option<TokenTaxInput>,
+    ) -> (u16, u16, u16, u64, u16, u16, u16) {
+        let c = &self.config;
+        let default_burn = 10_000u16.saturating_sub(c.fee_vault_bps + c.fee_creator_bps);
+        let p = input.unwrap_or_default();
+        let buy = p.buy_tax_bps.unwrap_or(c.buy_fee_bps);
+        let sell = p.sell_tax_bps.unwrap_or(c.sell_fee_bps);
+        let exit = p.max_exit_fee_bps.unwrap_or(c.max_exit_fee_bps);
+        let decay = p.exit_decay_secs.unwrap_or(c.exit_decay_secs);
+        let vault = p.tax_vault_bps.unwrap_or(c.fee_vault_bps);
+        let creator = p.tax_creator_bps.unwrap_or(c.fee_creator_bps);
+        let burn = p.tax_burn_bps.unwrap_or(default_burn);
+        require!(
+            buy <= MAX_BUY_TAX_BPS && sell <= MAX_SELL_TAX_BPS && exit <= MAX_EXIT_FEE_BPS,
+            "ERR_TAX_BOUNDS"
+        );
+        require!(decay <= MAX_DECAY_SECS, "ERR_DECAY_BOUNDS");
+        require!(creator <= MAX_CREATOR_SPLIT_BPS, "ERR_CREATOR_SPLIT");
+        require!(vault as u32 + creator as u32 + burn as u32 == 10_000, "ERR_TAX_SPLIT");
+        (buy, sell, exit, decay, vault, creator, burn)
+    }
+
+    /// Token DAO updates the token's tax rates, decay period, and split (within hard caps).
+    pub fn set_token_tax_policy(&mut self, token_id: AccountId, policy: TokenTaxInput) -> near_sdk::Promise {
+        let idx = self.assert_dao(&token_id);
+        let (buy, sell, exit, decay, vault, creator, burn) = self.resolve_tax_policy(Some(policy));
+        {
+            let tok = self.tok_mut(idx);
+            tok.buy_tax_bps = buy;
+            tok.sell_tax_bps = sell;
+            tok.max_exit_fee_bps = exit;
+            tok.exit_decay_secs = decay;
+            tok.tax_vault_bps = vault;
+            tok.tax_creator_bps = creator;
+            tok.tax_burn_bps = burn;
+        }
+        self.log_mech(idx, "tax_policy", (buy as u128) * 10_000 + sell as u128, None);
+        ext::ext_ft::ext(token_id)
+            .with_static_gas(ext::tgas(10))
+            .set_tax_policy(buy, sell, exit, decay)
     }
 
     /// Accept a NEAR/USD observation, clamped to `max_price_move_bps_per_hour` x hours

@@ -26,6 +26,11 @@ hash() { node -e "const c=require('crypto').createHash('sha256').update(require(
 
 echo "== build (Rust 1.86, pinned in contracts/rust-toolchain.toml)"
 (cd "$ROOT/contracts" && cargo build --target wasm32-unknown-unknown --release)
+if command -v wasm-opt >/dev/null 2>&1; then
+  echo "== wasm-opt -Oz"
+  wasm-opt -Oz "$WASM/meme_token.wasm" -o "$WASM/meme_token.wasm"
+  wasm-opt -Oz "$WASM/floorpad_launchpad.wasm" -o "$WASM/floorpad_launchpad.wasm"
+fi
 TOKEN_HASH=$(hash "$WASM/meme_token.wasm")
 echo "token code hash: $TOKEN_HASH"
 

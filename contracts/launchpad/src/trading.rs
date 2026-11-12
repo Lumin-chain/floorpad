@@ -165,20 +165,22 @@ impl Contract {
             require!(tok.grad_stage == GradStage::Curve, "ERR_CURVE_CLOSED");
         }
         require!(gross >= cfg.min_trade.as_yoctonear(), "ERR_BELOW_MIN_TRADE");
-        let mut fee = math::bps(gross, cfg.buy_fee_bps as u128);
-        let mut used = gross - fee;
-        let mut refund = 0u128;
-        let (v_near, v_tokens, sold, created_at) = {
+        let (v_near, v_tokens, sold, created_at, buy_tax_bps) = {
             let t = self.tok(idx);
-            (t.v_near, t.v_tokens, t.sold, t.created_at)
+            (t.v_near, t.v_tokens, t.sold, t.created_at, t.buy_tax_bps)
         };
+        let mut plat = math::bps(gross, PLATFORM_FEE_BPS as u128);
+        let mut tok_tax = math::bps(gross, buy_tax_bps as u128);
+        let mut used = gross - plat - tok_tax;
+        let mut refund = 0u128;
         let remaining = cfg.curve_supply.0 - sold;
         let mut out = math::curve_tokens_out(v_near, v_tokens, used);
         if out >= remaining {
             out = remaining;
             used = math::curve_near_for_tokens(v_near, v_tokens, out);
-            fee = math::bps(used, cfg.buy_fee_bps as u128);
-            refund = gross - used - fee;
+            plat = math::bps(used, PLATFORM_FEE_BPS as u128);
+            tok_tax = math::bps(used, buy_tax_bps as u128);
+            refund = gross - used - plat - tok_tax;
         }
         require!(out > 0 && out >= min_tokens_out, "ERR_SLIPPAGE");
         let key = (idx, buyer.clone());
@@ -203,7 +205,7 @@ impl Contract {
             }
         }
         let referrer = referrer.filter(|r| r != buyer);
-        self.distribute_fee(idx, fee, referrer.as_ref());
+        self.distribute_trade_fees(idx, plat, tok_tax, referrer.as_ref());
         let (vn, vt) = (self.tok(idx).v_near, self.tok(idx).v_tokens);
         self.record_trade(
             idx,
@@ -226,16 +228,19 @@ impl Contract {
         referrer: Option<AccountId>,
         age: u64,
     ) -> Option<u128> {
-        let cfg = self.config.clone();
         let now = now_secs();
         if self.tok(idx).grad_stage != GradStage::Curve {
             return None;
         }
-        let (v_near, v_tokens) = (self.tok(idx).v_near, self.tok(idx).v_tokens);
+        let (v_near, v_tokens, sell_tax_bps, max_exit_bps, decay_secs) = {
+            let t = self.tok(idx);
+            (t.v_near, t.v_tokens, t.sell_tax_bps, t.max_exit_fee_bps, t.exit_decay_secs)
+        };
         let gross = math::curve_near_out(v_near, v_tokens, amount);
-        let fee = math::bps(gross, cfg.sell_fee_bps as u128);
-        let exit = math::bps(gross, math::exit_fee_bps(cfg.max_exit_fee_bps as u128, cfg.exit_decay_secs, age));
-        let net = gross - fee - exit;
+        let plat = math::bps(gross, PLATFORM_FEE_BPS as u128);
+        let tok_tax = math::bps(gross, sell_tax_bps as u128);
+        let exit = math::bps(gross, math::exit_fee_bps(max_exit_bps as u128, decay_secs, age));
+        let net = gross - plat - tok_tax - exit;
         if net < min_near_out || net == 0 || gross > self.tok(idx).real_near {
             return None;
         }
@@ -249,7 +254,7 @@ impl Contract {
             tok.backing_near += exit;
         }
         let referrer = referrer.filter(|r| r != seller);
-        self.distribute_fee(idx, fee, referrer.as_ref());
+        self.distribute_trade_fees(idx, plat, tok_tax, referrer.as_ref());
         let (vn, vt) = (self.tok(idx).v_near, self.tok(idx).v_tokens);
         self.record_trade(
             idx,
