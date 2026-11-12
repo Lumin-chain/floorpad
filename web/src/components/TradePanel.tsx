@@ -506,7 +506,10 @@ function RefTrade({ t, balance, linearPrice, reload, initialSide, onDone }: Trad
   const base = side === "buy" ? parseUnits(amt, 24) : parseUnits(amt, 18);
   // Staking buffer (0.5%) to ensure deposit_and_stake always mints >= shares
   const shares = side === "buy" && linP > 0n ? (((base * YOCTO) / linP) * 995n) / 1000n : 0n;
-  const out = !pool || base === 0n || rMeme === 0n || rLin === 0n ? 0n : side === "buy" ? refOut(shares, rLin, rMeme, fee) : refOut(base, rMeme, rLin, fee);
+  // On Ref sells, meme-token deducts platform + sell + exit-decay tax before crediting Ref.
+  const maxSellTaxBps = BigInt((t.platform_fee_bps ?? 100) + (t.sell_tax_bps ?? 100) + (t.max_exit_fee_bps ?? 300));
+  const netSell = side === "sell" && maxSellTaxBps < 10000n ? (base * (10000n - maxSellTaxBps)) / 10000n : base;
+  const out = !pool || base === 0n || rMeme === 0n || rLin === 0n ? 0n : side === "buy" ? refOut(shares, rLin, rMeme, fee) : refOut(netSell, rMeme, rLin, fee);
   const min = (out * (10000n - SLIPPAGE_BPS)) / 10000n;
   const spot = rMeme > 0n && linP > 0n ? pricePerToken((rLin * linP) / YOCTO, rMeme) : 0;
 
@@ -530,7 +533,6 @@ function RefTrade({ t, balance, linearPrice, reload, initialSide, onDone }: Trad
             pool_id: t.pool_id,
             token_in: LINEAR,
             token_out: t.token_id,
-            amount_in: shares.toString(),
             min_amount_out: min.toString(),
           },
         ],
@@ -561,7 +563,6 @@ function RefTrade({ t, balance, linearPrice, reload, initialSide, onDone }: Trad
             pool_id: t.pool_id,
             token_in: t.token_id,
             token_out: LINEAR,
-            amount_in: base.toString(),
             min_amount_out: min.toString(),
           },
         ],
