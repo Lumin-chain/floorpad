@@ -23,7 +23,7 @@ async function fetchTokenMeta(tokenId: string) {
   if (!isValidNearAccount(tokenId)) return null;
   try {
     const rpc = process.env.NEXT_PUBLIC_RPC || "https://rpc.testnet.fastnear.com";
-    const launchpad = process.env.NEXT_PUBLIC_LAUNCHPAD || "fplpmwbbcg00.testnet";
+    const launchpad = process.env.NEXT_PUBLIC_LAUNCHPAD || "lpv45w4s.fpbankmwbbc95z.testnet";
     const res = await fetch(rpc, {
       method: "POST",
       headers: { "content-type": "application/json" },

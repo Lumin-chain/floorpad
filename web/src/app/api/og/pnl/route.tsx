@@ -24,7 +24,7 @@ async function fetchTokenMetaSafe(tokenId: string): Promise<{ name?: string; sym
   if (!tokenId || !isValidNear(tokenId)) return null;
   try {
     const rpc = process.env.NEXT_PUBLIC_RPC || "https://rpc.testnet.fastnear.com";
-    const launchpad = process.env.NEXT_PUBLIC_LAUNCHPAD || "fplpmwbbcg00.testnet";
+    const launchpad = process.env.NEXT_PUBLIC_LAUNCHPAD || "lpv45w4s.fpbankmwbbc95z.testnet";
     const argsBase64 = Buffer.from(JSON.stringify({ token_id: tokenId })).toString("base64");
     const res = await fetch(rpc, {
       method: "POST",
