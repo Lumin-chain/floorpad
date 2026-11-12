@@ -150,7 +150,7 @@ function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: T
         price: estPrice,
         v_near: t.v_near,
         v_tokens: t.v_tokens,
-      }).catch(() => {});
+      }).catch(() => { });
     }
   }
 
@@ -216,31 +216,31 @@ function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: T
     const tx: Tx =
       side === "buy"
         ? {
-            receiverId: LAUNCHPAD,
-            calls: [
-              {
-                method: "buy",
-                args: { token_id: t.token_id, min_tokens_out: min.toString(), referrer: getReferrer(accountId) },
-                gas: 100,
-                deposit: base,
-              },
-            ],
-          }
+          receiverId: LAUNCHPAD,
+          calls: [
+            {
+              method: "buy",
+              args: { token_id: t.token_id, min_tokens_out: min.toString(), referrer: getReferrer(accountId) },
+              gas: 100,
+              deposit: base,
+            },
+          ],
+        }
         : {
-            receiverId: t.token_id,
-            calls: [
-              {
-                method: "ft_transfer_call",
-                args: {
-                  receiver_id: LAUNCHPAD,
-                  amount: base.toString(),
-                  msg: JSON.stringify({ action: "sell", min_near_out: min.toString(), referrer: getReferrer(accountId) }),
-                },
-                gas: 150,
-                deposit: "1",
+          receiverId: t.token_id,
+          calls: [
+            {
+              method: "ft_transfer_call",
+              args: {
+                receiver_id: LAUNCHPAD,
+                amount: base.toString(),
+                msg: JSON.stringify({ action: "sell", min_near_out: min.toString(), referrer: getReferrer(accountId) }),
               },
-            ],
-          };
+              gas: 150,
+              deposit: "1",
+            },
+          ],
+        };
 
     if (await send([tx])) {
       emitCurveTrade(side === "buy" ? base : BigInt(q.amount_out), side === "buy" ? BigInt(q.amount_out) : base);
@@ -522,6 +522,13 @@ function RefTrade({ t, balance, linearPrice, reload, initialSide, onDone }: Trad
     if (regRef) txs.push(regRef);
 
     if (side === "buy") {
+      // Fetch live LiNEAR ft_price right before submitting so we never use a stale/1.0 fallback.
+      const freshLinP = BigInt(await view<string>(LINEAR, "ft_price"));
+      if (freshLinP <= 0n) throw new Error("Unable to fetch LiNEAR price");
+      const execShares = (((base * YOCTO) / freshLinP) * 995n) / 1000n;
+      const execOut = refOut(execShares, rLin, rMeme, fee);
+      const execMin = (execOut * (10000n - SLIPPAGE_BPS)) / 10000n;
+
       // 1. Storage deposit on target token if receiver needs registration
       const regMeme = await storageCallIfNeeded(t.token_id, accountId);
       if (regMeme) txs.push(regMeme);
@@ -533,7 +540,7 @@ function RefTrade({ t, balance, linearPrice, reload, initialSide, onDone }: Trad
             pool_id: t.pool_id,
             token_in: LINEAR,
             token_out: t.token_id,
-            min_amount_out: min.toString(),
+            min_amount_out: execMin.toString(),
           },
         ],
         swap_out_recipient: accountId,
@@ -545,7 +552,7 @@ function RefTrade({ t, balance, linearPrice, reload, initialSide, onDone }: Trad
           { method: "deposit_and_stake", args: {}, gas: 50, deposit: base },
           {
             method: "ft_transfer_call",
-            args: { receiver_id: REF, amount: shares.toString(), msg },
+            args: { receiver_id: REF, amount: execShares.toString(), msg },
             gas: 220,
             deposit: "1",
           },
@@ -622,7 +629,7 @@ function RefTrade({ t, balance, linearPrice, reload, initialSide, onDone }: Trad
             price: tradePrice,
             v_near: rLin.toString(),
             v_tokens: rMeme.toString(),
-          }).catch(() => {});
+          }).catch(() => { });
         nudge();
         setTimeout(nudge, 7000);
       }
