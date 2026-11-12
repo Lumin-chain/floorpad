@@ -305,7 +305,7 @@ export default function Explore() {
           <input className="input search" placeholder="Search name or ticker" value={q} onChange={(e) => setQ(e.target.value)} />
           {hiddenTestCount > 0 && (
             <button className={`btn sm ${showTests ? "primary" : "ghost"}`} onClick={() => setShowTests((s) => !s)}>
-              {showTests ? "Hide test tokens" : `Show test (${hiddenTestCount})`}
+              {showTests ? "Hide test" : `Show test (${hiddenTestCount})`}
             </button>
           )}
           <div className="spacer desktop-only" />
@@ -433,15 +433,16 @@ function TokenCard({ t, mcapUsd, floorUsd, chat }: { t: TokenView; mcapUsd: numb
           <span className="ellipsis">{t.holders} holders · {chat} chats/h · {ago(t.created_at)}</span>
           <span className="green nowrap">floor {floorUsd ? fmtUsd(floorUsd) : "–"}</span>
         </div>
-        {graduated ? (
-          <div className="desktop-only-block" style={{ marginTop: 8 }}><StageBadges t={t} /></div>
-        ) : (
-          <div className="row" style={{ gap: 8, marginTop: 8 }}>
-            <div className="progress" style={{ flex: 1, margin: 0 }}><div style={{ width: `${pct}%` }} /></div>
-            <span className="xs muted mono desktop-only">{pct.toFixed(0)}%</span>
-          </div>
-        )}
       </div>
+      {/* full-width footer so every card ends on the same row, bonding or graduated */}
+      {graduated ? (
+        <div className="tc-foot desktop-only-block"><StageBadges t={t} /></div>
+      ) : (
+        <div className="tc-foot row" style={{ gap: 8 }}>
+          <div className="progress" style={{ flex: 1, margin: 0 }}><div style={{ width: `${pct}%` }} /></div>
+          <span className="xs muted mono desktop-only">{pct.toFixed(0)}%</span>
+        </div>
+      )}
     </Link>
   );
 }

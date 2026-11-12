@@ -149,7 +149,7 @@ export default function MechanicsPage() {
           <div className="row" style={{ gap: 12 }}>
             <Moji face="hero" size={36} />
             <div>
-              <h1 style={{ margin: 0 }}>Floorpad Mechanics &amp; Simulator</h1>
+              <h1 className="page-title">Floorpad Mechanics &amp; Simulator</h1>
               <span className="small muted">NEAR Protocol · Bonding curves, vault math, and on-chain parameter checks</span>
             </div>
           </div>
@@ -385,7 +385,7 @@ export default function MechanicsPage() {
                 "upgrades: only possible if full-access keys exist (deleted on deploy with LOCK=1)",
               ]).map((power, i) => (
                 <div key={i} className="panel tight row" style={{ background: "var(--panel-2)", gap: 10 }}>
-                  <span className="green" style={{ fontSize: "1.1rem" }}>✓</span>
+                  <span className="green bold">✓</span>
                   <span className="small mono" style={{ wordBreak: "break-word" }}>{power}</span>
                 </div>
               ))}
@@ -497,7 +497,7 @@ export default function MechanicsPage() {
               <span className="small muted">Token:</span>
               <select
                 className="select"
-                style={{ width: "auto", padding: "4px 8px", fontSize: "0.85rem" }}
+                style={{ width: "auto" }}
                 value={activeTokenId}
                 onChange={(e) => setSelectedTokenId(e.target.value)}
               >

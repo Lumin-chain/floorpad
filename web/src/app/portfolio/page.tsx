@@ -86,7 +86,7 @@ export default function Portfolio() {
   return (
     <div className="section stack">
       <div className="row between wrap">
-        <h1>Portfolio</h1>
+        <h1 className="page-title">Portfolio</h1>
         <button
           className="btn sm"
           onClick={async () => {
@@ -157,7 +157,6 @@ export default function Portfolio() {
                       <td>
                         <button
                           className="btn sm"
-                          style={{ padding: "4px 10px", fontSize: 12, gap: 4 }}
                           onClick={() => setPnlTarget({ t, balance, pos, refPool })}
                           title="Share PNL Card on X"
                         >

@@ -151,8 +151,8 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
     <div className="token-page">
       <div className="token-head">
         <Avatar t={t} lg />
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <h1 className="token-title">
+        <div className="token-head-info">
+          <h1 className="token-title ellipsis">
             {t.meta.name} <span className="muted">${t.meta.symbol}</span>
           </h1>
           <div className="row wrap" style={{ gap: 6 }}>
@@ -164,7 +164,7 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
             ))}
           </div>
         </div>
-        <div className="row desktop-only" style={{ gap: 8 }}>
+        <div className="row desktop-only token-head-actions">
           <ShareButton tokenId={t.token_id} />
           <button
             className="btn sm"
@@ -175,7 +175,7 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
           </button>
           <OpsBar t={t} reload={ctx.reload} menu />
         </div>
-        <div className="mobile-only row" style={{ gap: 6 }}>
+        <div className="mobile-only row token-head-actions">
           <ShareButton tokenId={t.token_id} />
           <button className="btn sm" onClick={() => setShowPnl(true)}>PNL</button>
           <OpsBar t={t} reload={ctx.reload} menu />
