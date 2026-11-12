@@ -68,7 +68,7 @@ export function VaultPanel({ t, linearPrice, balance, holdingSince, reload }: To
           )}
         </div>
         {grad && (
-          <div className="panel" style={{ border: "1px solid var(--primary)", background: "#132247" }}>
+          <div className="panel" style={{ border: "1px solid var(--primary)", background: "var(--sky-tint)" }}>
             <div className="row between">
               <div>
                 <h3 style={{ margin: 0 }}>LP Yield Harvest</h3>

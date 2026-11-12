@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { ImageResponse } from "next/og";
 import type { NextRequest } from "next/server";
+import { boardTracesSvg, loadMonoFonts, MONO_STACK, PCB } from "@/lib/og-theme";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -123,221 +124,163 @@ export async function GET(req: NextRequest) {
   const pnlGainUsd = pnlNum === 0 ? 0 : usdNum - costBasisUsd;
   const absUsdGain = Math.abs(pnlGainUsd);
 
-  const bgBorder = isProfit ? "rgba(0, 255, 163, 0.45)" : "rgba(255, 59, 92, 0.45)";
-  const themeColor = isProfit ? "#00ffa3" : "#ff3b5c";
+  const themeColor = isProfit ? PCB.good : PCB.bad;
+  const themeTint = isProfit ? PCB.goodTint : PCB.badTint;
   const pnlFormatted = `${isProfit ? "+" : ""}${pnlNum.toFixed(2)}%`;
 
   const mascotData = loadBrandPng(isProfit ? "pnl-mascot-profit.png" : "pnl-mascot-loss.png");
   const logoData = loadBrandPng("symbol.png");
 
+  const fonts = await loadMonoFonts();
+  const pad = (pos: Record<string, number>) => (
+    <div style={{ position: "absolute", width: 12, height: 12, borderRadius: 6, backgroundColor: PCB.copper, ...pos }} />
+  );
+  const statLabel = { display: "flex", fontSize: 14, color: PCB.secondary, fontWeight: 800, letterSpacing: "0.08em" } as const;
+  const stats: [string, string, string][] = [
+    [entry ? "ENTRY PRICE" : "TRADER", entry ? `$${entry}` : account, PCB.text],
+    [
+      !hideNetworth ? "NETWORTH" : "CURRENT PRICE",
+      !hideNetworth
+        ? `$${usdNum.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        : price
+          ? `$${price}`
+          : pnlFormatted,
+      PCB.text,
+    ],
+    ["VAULT FLOOR", !hideNetworth ? `${floor} NEAR` : "Floor-backed", PCB.gold],
+  ];
+
   return new ImageResponse(
     (
-      <div
-        style={{
-          width: "100%",
-          height: "100%",
-          display: "flex",
-          flexDirection: "column",
-          justifyContent: "space-between",
-          backgroundColor: "#060809",
-          backgroundImage: isProfit
-            ? "linear-gradient(135deg, #071710 0%, #0b1c14 45%, #040c07 100%)"
-            : "linear-gradient(135deg, #19080b 0%, #1d0c10 45%, #0d0406 100%)",
-          padding: "40px 54px",
-          color: "#ffffff",
-          fontFamily: "system-ui, -apple-system, sans-serif",
-          border: `3px solid ${bgBorder}`,
-        }}
-      >
-        {/* Top Header */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-            {logoData ? <img src={logoData} alt="" width={56} height={28} /> : null}
-            <div style={{ display: "flex", flexDirection: "column" }}>
-              <div
-                style={{
-                  fontSize: 32,
-                  fontWeight: 900,
-                  letterSpacing: "-0.02em",
-                  color: "#ffffff",
-                  lineHeight: 1.05,
-                }}
-              >
-                Floorpad
-              </div>
-              <div style={{ fontSize: 15, color: "rgba(255, 255, 255, 0.45)", fontWeight: 500 }}>
-                The floor only goes up.
-              </div>
-            </div>
-          </div>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              backgroundColor: isProfit ? "rgba(0, 255, 163, 0.12)" : "rgba(255, 59, 92, 0.12)",
-              border: `1.5px solid ${isProfit ? "rgba(0, 255, 163, 0.55)" : "rgba(255, 59, 92, 0.55)"}`,
-              padding: "9px 22px",
-              borderRadius: "24px",
-              fontSize: 18,
-              fontWeight: 800,
-              color: themeColor,
-            }}
-          >
-            {isProfit ? "↗  Profit" : "↘  Loss"}
-          </div>
-        </div>
+      <div style={{ width: "100%", height: "100%", display: "flex", position: "relative", backgroundColor: PCB.board, color: PCB.text, fontFamily: MONO_STACK }}>
+        <img src={boardTracesSvg(1200, 630)} width={1200} height={630} alt="" style={{ position: "absolute", top: 0, left: 0 }} />
 
-        {/* Center Content */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
-          {/* Left: Token & Hero PNL */}
-          <div style={{ display: "flex", flexDirection: "column" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "14px", marginBottom: "10px" }}>
-              {tokenIcon ? (
-                <img
-                  src={tokenIcon}
-                  alt=""
-                  width={54}
-                  height={54}
-                  style={{
-                    borderRadius: 27,
-                    border: "2px solid rgba(255, 255, 255, 0.25)",
-                  }}
-                />
-              ) : (
-                <div
-                  style={{
-                    width: "54px",
-                    height: "54px",
-                    borderRadius: "27px",
-                    backgroundColor: isProfit ? "rgba(0, 255, 163, 0.2)" : "rgba(255, 59, 92, 0.2)",
-                    border: `2px solid ${isProfit ? "rgba(0, 255, 163, 0.4)" : "rgba(255, 59, 92, 0.4)"}`,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: 22,
-                    fontWeight: 900,
-                    color: "#ffffff",
-                  }}
-                >
-                  {symbol.slice(0, 2).toUpperCase()}
-                </div>
-              )}
+        <div
+          style={{
+            position: "absolute",
+            top: 18,
+            left: 18,
+            right: 18,
+            bottom: 18,
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "space-between",
+            border: `2px solid ${PCB.copper}`,
+            borderRadius: 12,
+            padding: "30px 44px",
+          }}
+        >
+          {pad({ top: 8, left: 8 })}
+          {pad({ top: 8, right: 8 })}
+          {pad({ bottom: 8, left: 8 })}
+          {pad({ bottom: 8, right: 8 })}
+
+          {/* header */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+              {logoData ? <img src={logoData} alt="" width={56} height={28} /> : null}
               <div style={{ display: "flex", flexDirection: "column" }}>
-                <div style={{ display: "flex", fontSize: 38, fontWeight: 900, color: "#ffffff", letterSpacing: "-0.02em", lineHeight: 1.05 }}>
-                  {`$${symbol}`}
-                </div>
-                <div style={{ display: "flex", fontSize: 16, fontWeight: 600, color: "rgba(255, 255, 255, 0.55)" }}>
-                  {name}
-                </div>
+                <div style={{ display: "flex", fontSize: 32, fontWeight: 800, letterSpacing: "-0.02em", lineHeight: 1.05 }}>Floorpad</div>
+                <div style={{ display: "flex", fontSize: 15, color: PCB.muted }}>Every meme gets a floor.</div>
               </div>
-            </div>
-
-            <div style={{ display: "flex", fontSize: 18, fontWeight: 700, color: "rgba(255, 255, 255, 0.5)", marginTop: "6px", marginBottom: "2px" }}>
-              PNL
             </div>
             <div
               style={{
                 display: "flex",
-                fontSize: 96,
-                fontWeight: 900,
+                backgroundColor: themeTint,
+                border: `2px solid ${themeColor}`,
+                padding: "8px 20px",
+                borderRadius: 6,
+                fontSize: 20,
+                fontWeight: 800,
+                letterSpacing: "0.08em",
                 color: themeColor,
-                lineHeight: 1,
-                letterSpacing: "-0.04em",
               }}
             >
-              {pnlFormatted}
+              {isProfit ? "+ PROFIT" : "- LOSS"}
             </div>
+          </div>
 
-            {/* Networth pill vs Percentage-Only pill */}
-            {!hideNetworth ? (
+          {/* token + PNL readout, mascot */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "14px", marginBottom: "12px" }}>
+                {tokenIcon ? (
+                  <img src={tokenIcon} alt="" width={54} height={54} style={{ borderRadius: 8, border: `2px solid ${PCB.copper}` }} />
+                ) : (
+                  <div
+                    style={{
+                      width: "54px",
+                      height: "54px",
+                      borderRadius: "8px",
+                      backgroundColor: PCB.boardDeep,
+                      border: `2px solid ${PCB.copper}`,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: 22,
+                      fontWeight: 800,
+                    }}
+                  >
+                    {symbol.slice(0, 2).toUpperCase()}
+                  </div>
+                )}
+                <div style={{ display: "flex", flexDirection: "column" }}>
+                  <div style={{ display: "flex", fontSize: 38, fontWeight: 800, letterSpacing: "-0.02em", lineHeight: 1.05 }}>{`$${symbol}`}</div>
+                  <div style={{ display: "flex", fontSize: 16, color: PCB.muted }}>{name}</div>
+                </div>
+              </div>
+
+              {/* multimeter-style PNL readout */}
               <div
                 style={{
                   display: "flex",
-                  alignItems: "center",
+                  flexDirection: "column",
                   alignSelf: "flex-start",
-                  gap: "10px",
-                  backgroundColor: isProfit ? "rgba(0, 255, 163, 0.12)" : "rgba(255, 59, 92, 0.12)",
-                  border: `1px solid ${isProfit ? "rgba(0, 255, 163, 0.35)" : "rgba(255, 59, 92, 0.35)"}`,
-                  padding: "8px 20px",
-                  borderRadius: "20px",
-                  fontSize: 20,
-                  fontWeight: 800,
-                  color: themeColor,
-                  marginTop: "14px",
+                  padding: "14px 24px 18px",
+                  backgroundColor: PCB.boardDeep,
+                  border: `2px solid ${PCB.copperDim}`,
+                  borderRadius: 10,
                 }}
               >
-                {`${pnlGainUsd >= 0 ? "+ $" : "- $"}${absUsdGain.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                <div style={statLabel}>PNL</div>
+                <div style={{ display: "flex", fontSize: 92, fontWeight: 800, color: themeColor, lineHeight: 1, letterSpacing: "-0.04em" }}>
+                  {pnlFormatted}
+                </div>
+                {!hideNetworth ? (
+                  <div style={{ display: "flex", fontSize: 22, fontWeight: 800, color: themeColor, marginTop: 10 }}>
+                    {`${pnlGainUsd >= 0 ? "+ $" : "- $"}${absUsdGain.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                  </div>
+                ) : (
+                  <div style={{ ...statLabel, marginTop: 10 }}>PNL % ONLY</div>
+                )}
               </div>
-            ) : (
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+              {mascotData ? <img src={mascotData} alt="" width={250} height={287} /> : null}
+            </div>
+          </div>
+
+          {/* stats strip */}
+          <div style={{ display: "flex", gap: 14, width: "100%" }}>
+            {stats.map(([k, v, c]) => (
               <div
+                key={k}
                 style={{
                   display: "flex",
-                  alignItems: "center",
-                  alignSelf: "flex-start",
-                  gap: "8px",
-                  backgroundColor: "rgba(255, 255, 255, 0.06)",
-                  border: "1px solid rgba(255, 255, 255, 0.15)",
-                  padding: "6px 16px",
-                  borderRadius: "16px",
-                  fontSize: 14,
-                  fontWeight: 700,
-                  color: "rgba(255, 255, 255, 0.6)",
-                  marginTop: "14px",
+                  flexDirection: "column",
+                  flex: 1,
+                  padding: "12px 20px",
+                  backgroundColor: PCB.boardDeep,
+                  border: `1.5px solid ${PCB.copperDim}`,
+                  borderRadius: 8,
                 }}
               >
-                PNL % ONLY
+                <div style={statLabel}>{k}</div>
+                <div style={{ display: "flex", fontSize: 26, fontWeight: 800, color: c, marginTop: 2 }}>{v}</div>
               </div>
-            )}
-          </div>
-
-          {/* Right: Mascot Artwork */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-            {mascotData ? <img src={mascotData} alt="" width={270} height={310} /> : null}
-          </div>
-        </div>
-
-        {/* Bottom Docked Stats Bar */}
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            width: "100%",
-            backgroundColor: "rgba(0, 0, 0, 0.5)",
-            border: `1.5px solid ${isProfit ? "rgba(0, 255, 163, 0.25)" : "rgba(255, 59, 92, 0.25)"}`,
-            borderRadius: "18px",
-            padding: "16px 28px",
-          }}
-        >
-          <div style={{ display: "flex", flexDirection: "column" }}>
-            <div style={{ display: "flex", fontSize: 13, color: "rgba(255, 255, 255, 0.45)", fontWeight: 700 }}>
-              Entry Price
-            </div>
-            <div style={{ display: "flex", fontSize: 24, fontWeight: 800, color: "#ffffff", marginTop: 2 }}>
-              {entry ? `$${entry}` : account}
-            </div>
-          </div>
-
-          <div style={{ display: "flex", flexDirection: "column" }}>
-            <div style={{ display: "flex", fontSize: 13, color: "rgba(255, 255, 255, 0.45)", fontWeight: 700 }}>
-              {!hideNetworth ? "Networth" : "Current Price"}
-            </div>
-            <div style={{ display: "flex", fontSize: 24, fontWeight: 800, color: "#ffffff", marginTop: 2 }}>
-              {!hideNetworth
-                ? `$${usdNum.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                : price
-                  ? `$${price}`
-                  : pnlFormatted}
-            </div>
-          </div>
-
-          <div style={{ display: "flex", flexDirection: "column" }}>
-            <div style={{ display: "flex", fontSize: 13, color: "rgba(255, 255, 255, 0.45)", fontWeight: 700 }}>
-              Guaranteed Floor
-            </div>
-            <div style={{ display: "flex", fontSize: 24, fontWeight: 800, color: themeColor, marginTop: 2 }}>
-              {!hideNetworth ? `${floor} NEAR` : "Floor-Backed"}
-            </div>
+            ))}
           </div>
         </div>
       </div>
@@ -345,6 +288,7 @@ export async function GET(req: NextRequest) {
     {
       width: 1200,
       height: 630,
+      fonts: fonts.length ? fonts : undefined,
     },
   );
 }

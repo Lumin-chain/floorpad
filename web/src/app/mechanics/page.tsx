@@ -213,8 +213,8 @@ export default function MechanicsPage() {
             </span>
           </div>
           <div className="row" style={{ gap: 12 }}>
-            <span className="small"><span style={{ color: "#22C55E" }}>●</span> Floor Price ($)</span>
-            <span className="small"><span style={{ color: "#F59E0B" }}>●</span> Cumulative Tokens Burned (%)</span>
+            <span className="small"><span style={{ color: "#7DD3A8" }}>●</span> Floor Price ($)</span>
+            <span className="small"><span style={{ color: "#E6C14A" }}>●</span> Cumulative Tokens Burned (%)</span>
           </div>
         </div>
 
@@ -282,8 +282,8 @@ export default function MechanicsPage() {
           >
             <defs>
               <linearGradient id="floorGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#22C55E" stopOpacity="0.16" />
-                <stop offset="100%" stopColor="#22C55E" stopOpacity="0.0" />
+                <stop offset="0%" stopColor="#7DD3A8" stopOpacity="0.16" />
+                <stop offset="100%" stopColor="#7DD3A8" stopOpacity="0.0" />
               </linearGradient>
             </defs>
 
@@ -302,8 +302,8 @@ export default function MechanicsPage() {
 
             {/* Floor fill & lines */}
             <path d={floorArea} fill="url(#floorGrad)" />
-            <path d={floorPath} fill="none" stroke="#22C55E" strokeWidth="2.5" />
-            <path d={burnPath} fill="none" stroke="#F59E0B" strokeWidth="2" strokeDasharray="5 3" />
+            <path d={floorPath} fill="none" stroke="#7DD3A8" strokeWidth="2.5" />
+            <path d={burnPath} fill="none" stroke="#E6C14A" strokeWidth="2" strokeDasharray="5 3" />
 
             {/* Hover point indicator */}
             {hoverDay !== null && activePoint && (
@@ -313,12 +313,12 @@ export default function MechanicsPage() {
                   x2={scaleX(activePoint.day)}
                   y1={P}
                   y2={H - P}
-                  stroke="#9CA3AF"
+                  stroke="#B8A58A"
                   strokeWidth="1"
                   strokeDasharray="2 2"
                 />
-                <circle cx={scaleX(activePoint.day)} cy={scaleYFloor(activePoint.floorPriceUsd)} r="4" fill="#22C55E" />
-                <circle cx={scaleX(activePoint.day)} cy={scaleYBurn(activePoint.burnedPct)} r="4" fill="#F59E0B" />
+                <circle cx={scaleX(activePoint.day)} cy={scaleYFloor(activePoint.floorPriceUsd)} r="4" fill="#7DD3A8" />
+                <circle cx={scaleX(activePoint.day)} cy={scaleYBurn(activePoint.burnedPct)} r="4" fill="#E6C14A" />
               </>
             )}
           </svg>

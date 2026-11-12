@@ -211,7 +211,7 @@ export function PriceChart({ t, linearPrice }: TokenCtx) {
             Spot <strong className="green">{fmtPrice(now)} N</strong>
           </span>
           <span className="small">
-            Floor <strong style={{ color: "#22C55E" }}>{fmtPrice(floor)} N</strong>
+            Floor <strong style={{ color: "#7DD3A8" }}>{fmtPrice(floor)} N</strong>
           </span>
         </div>
       </div>
@@ -229,7 +229,7 @@ export function PriceChart({ t, linearPrice }: TokenCtx) {
             <span>O: <strong style={{ color: "var(--text)" }}>{fmtPrice(activeCandle.open)}</strong></span>
             <span>H: <strong style={{ color: "var(--text)" }}>{fmtPrice(activeCandle.high)}</strong></span>
             <span>L: <strong style={{ color: "var(--text)" }}>{fmtPrice(activeCandle.low)}</strong></span>
-            <span>C: <strong style={{ color: activeCandle.close >= activeCandle.open ? "#22C55E" : "#EF4444" }}>{fmtPrice(activeCandle.close)}</strong></span>
+            <span>C: <strong style={{ color: activeCandle.close >= activeCandle.open ? "#7DD3A8" : "#F0907A" }}>{fmtPrice(activeCandle.close)}</strong></span>
             <span>Vol: <strong style={{ color: "var(--text)" }}>{activeCandle.volume.toFixed(2)} N</strong></span>
             <span className="muted nowrap">{ago(activeCandle.time)}</span>
           </>
@@ -257,8 +257,8 @@ export function PriceChart({ t, linearPrice }: TokenCtx) {
         >
           <defs>
             <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#3B82F6" stopOpacity="0.18" />
-              <stop offset="100%" stopColor="#3B82F6" stopOpacity="0.0" />
+              <stop offset="0%" stopColor="#D98C53" stopOpacity="0.18" />
+              <stop offset="100%" stopColor="#D98C53" stopOpacity="0.0" />
             </linearGradient>
           </defs>
 
@@ -268,7 +268,7 @@ export function PriceChart({ t, linearPrice }: TokenCtx) {
             y={Math.min(H - PAD_BOTTOM, Math.max(PAD_TOP, yFloor))}
             width={W - 2 * P}
             height={Math.max(0, H - PAD_BOTTOM - Math.min(H - PAD_BOTTOM, Math.max(PAD_TOP, yFloor)))}
-            fill="#16A34A"
+            fill="#3E9C77"
             opacity="0.1"
           />
 
@@ -278,12 +278,12 @@ export function PriceChart({ t, linearPrice }: TokenCtx) {
             x2={W - P}
             y1={yFloor}
             y2={yFloor}
-            stroke="#22C55E"
+            stroke="#7DD3A8"
             strokeDasharray="5 4"
             strokeWidth="1.5"
             vectorEffect="non-scaling-stroke"
           />
-          <text x={W - P - 6} y={Math.max(PAD_TOP + 12, yFloor - 4)} textAnchor="end" fill="#22C55E" fontSize="12" className="mono">
+          <text x={W - P - 6} y={Math.max(PAD_TOP + 12, yFloor - 4)} textAnchor="end" fill="#7DD3A8" fontSize="12" className="mono">
             Vault Floor: {fmtPrice(floor)} N
           </text>
 
@@ -291,7 +291,7 @@ export function PriceChart({ t, linearPrice }: TokenCtx) {
           {effectiveMode === "line" && (
             <>
               <path d={lineAreaClean} fill="url(#areaGrad)" />
-              <path d={linePtsClean} fill="none" stroke="#3B82F6" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+              <path d={linePtsClean} fill="none" stroke="#D98C53" strokeWidth="2" vectorEffect="non-scaling-stroke" />
             </>
           )}
 
@@ -304,7 +304,7 @@ export function PriceChart({ t, linearPrice }: TokenCtx) {
               const yHigh = scaleY(c.high);
               const yLow = scaleY(c.low);
               const isBull = c.close >= c.open;
-              const color = isBull ? "#22C55E" : "#EF4444";
+              const color = isBull ? "#7DD3A8" : "#F0907A";
 
               const bodyTop = Math.min(yOpen, yClose);
               const bodyHeight = Math.max(1.5, Math.abs(yClose - yOpen));
@@ -354,7 +354,7 @@ export function PriceChart({ t, linearPrice }: TokenCtx) {
               x2={scaleX(hoverIndex)}
               y1={PAD_TOP}
               y2={H}
-              stroke="#6B7280"
+              stroke="#8FA08E"
               strokeWidth="1"
               strokeDasharray="2 2"
             />
@@ -382,7 +382,7 @@ export function TradesTable({ t, trades: given, limit = 50 }: { t: TokenView; tr
       <div className="row between wrap">
         <div className="row" style={{ gap: 8 }}>
           <span className="badge green" style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-            <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#22C55E", display: "inline-block" }} />
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#7DD3A8", display: "inline-block" }} />
             Live Tape
           </span>
           <div className="seg">
