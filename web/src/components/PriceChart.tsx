@@ -21,6 +21,11 @@ import type { TokenCtx } from "@/app/token/[id]/page";
 
 function useTrades(t: TokenView) {
   const [liveTrades, setLiveTrades] = useState<Trade[]>([]);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const h = setInterval(() => setTick((n) => n + 1), 15_000);
+    return () => clearInterval(h);
+  }, []);
   const fetched = useView(() => lp<Trade[]>("get_trades", { token_id: t.token_id, limit: 200 }), [t.token_id, t.trade_count], 8000).data;
   const [serverTrades, setServerTrades] = useState<Trade[]>([]);
 
@@ -38,16 +43,18 @@ function useTrades(t: TokenView) {
             tokens: r.tokens,
             v_near: r.v_near,
             v_tokens: r.v_tokens,
+            price: r.price,
           })),
         );
       }
     });
-  }, [t.token_id, t.trade_count]);
+    // graduated tokens trade on Ref without bumping trade_count, so refresh on a timer too
+  }, [t.token_id, t.trade_count, tick]);
 
   // Stream new trades live via SSE
   useStream(isSocialConfigured() ? `token:${t.token_id}` : null, {
     trade: (data: unknown) => {
-      const tr = data as { ts: number; account: string; is_buy: number; near: string; tokens: string; v_near: string; v_tokens: string };
+      const tr = data as { ts: number; account: string; is_buy: number; near: string; tokens: string; v_near: string; v_tokens: string; price?: number };
       if (!tr || !tr.near) return;
       const parsed: Trade = {
         ts: tr.ts,
@@ -57,6 +64,7 @@ function useTrades(t: TokenView) {
         tokens: tr.tokens,
         v_near: tr.v_near,
         v_tokens: tr.v_tokens,
+        price: tr.price,
       };
       setLiveTrades((prev) => [parsed, ...prev.slice(0, 199)]);
     },
@@ -118,11 +126,18 @@ export function PriceChart({ t, linearPrice }: TokenCtx) {
     };
   }, [t.token_id, tf, t.trade_count, trades?.length]);
 
+  const tradePrice = (tr: Trade) =>
+    tr.price && tr.price > 0
+      ? tr.price
+      : tr.v_tokens && BigInt(tr.v_tokens) > 0n
+        ? pricePerToken(BigInt(tr.v_near), BigInt(tr.v_tokens))
+        : Number(BigInt(tr.near) / 10n ** 18n) / 1e6 / Math.max(0.000001, Number(BigInt(tr.tokens) / 10n ** 12n) / 1e6);
+
   const now = tokenSpotPrice(t, refPool, linearPrice);
   const floor = floorPrice(t, linearPrice);
 
   // Fallback: build candles locally from trade ring buffer if server has no candles yet
-  const candles: Candle[] = useMemo(() => {
+  const built: Candle[] = useMemo(() => {
     if (serverCandles.length > 0) return serverCandles;
     if (!trades || trades.length === 0) {
       const curTime = Math.floor(Date.now() / 1000);
@@ -134,10 +149,7 @@ export function PriceChart({ t, linearPrice }: TokenCtx) {
 
     for (const tr of sorted) {
       const bucket = Math.floor(tr.ts / bucketSecs) * bucketSecs;
-      const p =
-        tr.v_tokens && BigInt(tr.v_tokens) > 0n
-          ? pricePerToken(BigInt(tr.v_near), BigInt(tr.v_tokens))
-          : (Number(BigInt(tr.near) / 10n ** 18n) / 1e6) / Math.max(0.000001, Number(BigInt(tr.tokens) / 10n ** 18n));
+      const p = tradePrice(tr);
       const volNear = Number(BigInt(tr.near) / 10n ** 18n) / 1e6;
       const existing = map.get(bucket);
       if (!existing) {
@@ -152,7 +164,21 @@ export function PriceChart({ t, linearPrice }: TokenCtx) {
     }
     const list = Array.from(map.values()).sort((a, b) => a.time - b.time);
     return list.length > 0 ? list : [{ time: Math.floor(Date.now() / 1000), open: now, high: now, low: now, close: now, volume: 0, trades: 1 }];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serverCandles, trades, tf, now]);
+
+  // Extend to the present: if the newest candle is older than the current bucket, add a live
+  // candle from the last close to the current spot (curve price, or the Ref pool after graduation).
+  const candles: Candle[] = useMemo(() => {
+    const bucketSecs = TF_SECS[tf];
+    const nowBucket = Math.floor(Date.now() / 1000 / bucketSecs) * bucketSecs;
+    const last = built[built.length - 1];
+    if (!last || !(now > 0) || last.time >= nowBucket || last.volume === 0) return built;
+    return [
+      ...built,
+      { time: nowBucket, open: last.close, high: Math.max(last.close, now), low: Math.min(last.close, now), close: now, volume: 0, trades: 0 },
+    ];
+  }, [built, now, tf]);
 
   // Dimensions
   const W = 680;
@@ -178,7 +204,8 @@ export function PriceChart({ t, linearPrice }: TokenCtx) {
   const lineArea = `${linePts} L${scaleX(candles.length - 1)},${PAD_TOP + priceHeight} L${scaleX(0)},${PAD_TOP + priceHeight} Z`;
 
   const activeCandle = hoverIndex !== null && candles[hoverIndex] ? candles[hoverIndex] : candles[candles.length - 1];
-  const sparse = candles.length < 3;
+  // with only a handful of trades each candle is one print (a flat dash); a line reads better
+  const sparse = candles.filter((c) => c.trades > 0).length < 6;
   const effectiveMode = sparse ? "line" : mode;
   const linePtsClean =
     candles.length === 1
@@ -196,7 +223,7 @@ export function PriceChart({ t, linearPrice }: TokenCtx) {
         <div className="row wrap" style={{ gap: 12 }}>
           <h2 style={{ margin: 0 }}>Price vs Floor</h2>
           <div className="seg">
-            <button className={effectiveMode === "candles" ? "active" : ""} disabled={sparse} title={sparse ? "Needs at least 3 time buckets for candles" : undefined} onClick={() => setMode("candles")}>Candles</button>
+            <button className={effectiveMode === "candles" ? "active" : ""} disabled={sparse} title={sparse ? "Candles unlock once there are 6+ trading periods" : undefined} onClick={() => setMode("candles")}>Candles</button>
             <button className={effectiveMode === "line" ? "active" : ""} onClick={() => setMode("line")}>Line</button>
           </div>
           <div className="seg">

@@ -217,6 +217,8 @@ export interface Trade {
   tokens: string;
   v_near: string;
   v_tokens: string;
+  /** NEAR per whole token, set by the indexer (curve spot after the trade, or Ref execution price) */
+  price?: number;
 }
 export interface Post {
   ts: number;

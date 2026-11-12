@@ -18,12 +18,13 @@ function brandPng(name: string): string | null {
 }
 
 // the rising floor: each source lays one more slab; same story as the site hero
+// "source | share to floor", from the live launchpad config (same as the site hero)
 const SLABS = [
-  ["BUY FEES", "40%"],
-  ["SELL FEES", "40%"],
-  ["EXIT FEES", "100%"],
-  ["GRADUATION", "15%"],
-  ["LiNEAR YIELD", "VOTED"],
+  ["BUY FEE 1.25%", "40% → FLOOR"],
+  ["SELL FEE 2.5%", "40% → FLOOR"],
+  ["EXIT FEE ≤10%", "ALL → FLOOR"],
+  ["GRADUATION", "15% → FLOOR"],
+  ["LiNEAR YIELD", "BY VOTE"],
 ];
 // frame interior is 1164 x 594
 const GROUND_H = 34;

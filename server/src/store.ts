@@ -81,7 +81,13 @@ export function openStore(path: string) {
       PRIMARY KEY (token_id, id)
     );
     CREATE INDEX IF NOT EXISTS trades_token_ts ON trades (token_id, ts);
+    CREATE TABLE IF NOT EXISTS ref_cursors (token_id TEXT PRIMARY KEY, height INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS ref_swap_keys (key TEXT PRIMARY KEY);
   `);
+  // trades the old reserve-diff indexer guessed (poll-time stamps, no trader); the Ref swap
+  // backfill re-reads them exactly from the chain
+  db.exec(`DELETE FROM trades WHERE account = 'ref-finance.near' AND id >= 1000000000
+           AND NOT EXISTS (SELECT 1 FROM ref_cursors)`);
 
   const now = () => Math.floor(Date.now() / 1000);
 
@@ -169,6 +175,21 @@ export function openStore(path: string) {
         .all(since, limit) as unknown as { account: string; calls: number; avg_peak_x: number; best_x: number; hits_2x: number }[];
     },
 
+    // ---- Ref swap indexing (post-graduation) ----
+    refCursor(tokenId: string): number {
+      const r = db.prepare("SELECT height FROM ref_cursors WHERE token_id = ?").get(tokenId) as { height: number } | undefined;
+      return r?.height ?? 0;
+    },
+    setRefCursor(tokenId: string, height: number) {
+      db.prepare(
+        "INSERT INTO ref_cursors (token_id, height) VALUES (?, ?) ON CONFLICT(token_id) DO UPDATE SET height = excluded.height",
+      ).run(tokenId, height);
+    },
+    /** true the first time a swap key is seen */
+    claimSwapKey(key: string): boolean {
+      return db.prepare("INSERT OR IGNORE INTO ref_swap_keys (key) VALUES (?)").run(key).changes > 0;
+    },
+
     // ---- trades & candles ----
     addTrade(t: StoredTrade) {
       db.prepare(
@@ -207,10 +228,10 @@ export function openStore(path: string) {
       const rows = db
         .prepare(
           `SELECT ts, price, near, is_buy FROM trades
-           WHERE token_id = ? AND ts >= ?
+           WHERE token_id = ? AND price > 0
            ORDER BY ts ASC, id ASC`
         )
-        .all(tokenId, now() - tf * limit * 2) as unknown as { ts: number; price: number; near: string; is_buy: number }[];
+        .all(tokenId) as unknown as { ts: number; price: number; near: string; is_buy: number }[];
 
       if (rows.length === 0) return [];
 

@@ -24,6 +24,30 @@ export interface Tx {
   calls: Call[];
 }
 
+/**
+ * First failure anywhere in a transaction outcome: the transaction itself or any receipt it
+ * spawned. A failed ft_on_transfer (e.g. a Ref swap below min_amount_out) is refunded and leaves
+ * the top-level status as success, so the receipts have to be checked too.
+ */
+function outcomeFailure(o: unknown): string | null {
+  if (!o || typeof o !== "object") return null;
+  const out = o as {
+    status?: { Failure?: unknown };
+    receipts_outcome?: { outcome?: { status?: { Failure?: unknown } } }[];
+  };
+  const describe = (f: unknown) => {
+    const text = typeof f === "string" ? f : JSON.stringify(f);
+    if (/E68|slippage|min_amount_out/i.test(text)) return "Swap did not go through: the price moved past your slippage limit, so it was refunded (on a buy, you keep the staked LiNEAR).";
+    return `Transaction failed: ${text.slice(0, 220)}`;
+  };
+  if (out.status?.Failure) return describe(out.status.Failure);
+  for (const r of out.receipts_outcome ?? []) {
+    const f = r.outcome?.status?.Failure;
+    if (f) return describe(f);
+  }
+  return null;
+}
+
 interface WalletCtx {
   accountId: string | null;
   nearBalance: string;
@@ -186,11 +210,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
                 signerId: accountId,
                 transactions: mapped,
               });
+        // A transaction can "succeed" while a cross-contract call inside it fails (e.g. a Ref swap
+        // that misses slippage is refunded inside ft_transfer_call). Check every receipt.
         for (const o of outcomes) {
-          const status = o && typeof o === "object" && "status" in o ? (o.status as { Failure?: unknown }) : null;
-          if (status?.Failure) {
-            throw new Error(typeof status.Failure === "string" ? status.Failure : JSON.stringify(status.Failure));
-          }
+          const failure = outcomeFailure(o);
+          if (failure) throw new Error(failure);
         }
         setToast({ kind: "ok", text: "Transaction sent" });
         setTimeout(reloadNearBalance, 1500);
