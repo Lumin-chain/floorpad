@@ -148,7 +148,10 @@ export default function Create() {
           <label className="field"><span>Website</span><input className="input" maxLength={200} value={f.website} onChange={set("website")} placeholder="https://" /></label>
           <label className="field"><span>X / Twitter</span><input className="input" maxLength={64} value={f.twitter} onChange={set("twitter")} placeholder="@handle" /></label>
         </div>
-        <label className="field"><span>Telegram</span><input className="input" maxLength={64} value={f.telegram} onChange={set("telegram")} placeholder="t.me/…" /></label>
+        <label className="field">
+          <span>Telegram (add @floorpadagentbot to your group &amp; run /link {f.symbol || "$TICKER"} for buy alerts &amp; rules)</span>
+          <input className="input" maxLength={64} value={f.telegram} onChange={set("telegram")} placeholder="t.me/…" />
+        </label>
         <label className="field">
           <span>AI agent persona (holders can change it later by DAO vote)</span>
           <textarea className="textarea" value={f.persona} onChange={set("persona")} maxLength={1500} placeholder={`You are the voice of $${f.symbol || "TICKER"}. Funny, upbeat, never gives financial advice.`} />

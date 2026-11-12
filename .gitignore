@@ -9,3 +9,4 @@ next-env.d.ts
 *.db-wal
 *.db-shm
 .floorpad-social.json
+telegram-groups.json

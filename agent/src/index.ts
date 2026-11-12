@@ -16,7 +16,7 @@
 import os from "node:os";
 import path from "node:path";
 import { connect, KeyPair, keyStores, type Account } from "near-api-js";
-import { pollTelegramCommands, postToTelegram, postToX, type AgentTokenInfo } from "./social.js";
+import { pollTelegramCommands, postToTelegram, postToX, sendBuyAlert, type AgentTokenInfo, type TradeInfo } from "./social.js";
 
 try {
   process.loadEnvFile?.(".env");
@@ -65,6 +65,7 @@ interface TokenView {
   sold: U128;
   curve_supply: U128;
   holders: number;
+  trade_count: number;
   stakers: number;
   backing_near: U128;
   linear_shares: U128;
@@ -352,17 +353,35 @@ async function pushPrice() {
 
 // ---------------- main loop ----------------
 
+const lastTradeCount = new Map<string, number>();
+
+async function checkBuyAlerts(t: TokenView) {
+  const prev = lastTradeCount.get(t.token_id);
+  lastTradeCount.set(t.token_id, t.trade_count);
+  if (prev === undefined || t.trade_count <= prev) return;
+  const delta = Math.min(20, t.trade_count - prev);
+  const recent = await view<TradeInfo[]>("get_trades", { token_id: t.token_id, limit: delta }).catch(() => []);
+  const info: AgentTokenInfo = { token_id: t.token_id, meta: t.meta, agent_persona: t.agent_persona, stats: stats(t) };
+  for (const tr of [...recent].reverse()) {
+    if (tr.is_buy) await sendBuyAlert(info, tr);
+  }
+}
+
 async function tick() {
   await pushPrice().catch((e) => console.warn("price push failed:", (e as Error).message));
   const tokens = await allTokens();
   for (const t of tokens) {
     await keep(t);
+    await checkBuyAlerts(t);
     await agent(t);
   }
   if (!ONCE) {
-    const agentTokens: AgentTokenInfo[] = tokens
-      .filter((t) => t.agent_account === OPERATOR)
-      .map((t) => ({ token_id: t.token_id, meta: t.meta, agent_persona: t.agent_persona, stats: stats(t) }));
+    const agentTokens: AgentTokenInfo[] = tokens.map((t) => ({
+      token_id: t.token_id,
+      meta: t.meta,
+      agent_persona: t.agent_persona,
+      stats: stats(t),
+    }));
     await pollTelegramCommands(agentTokens, replyToQuestion);
   }
 }
