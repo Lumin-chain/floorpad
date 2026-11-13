@@ -65,6 +65,34 @@ Following the instructions in `HACKATHON.md (Q-017)`, here is the exact **"do X 
 
 ---
 
+## Architecture & FAQ for Judges
+
+### Q: Why deploy official Sputnik DAO v2.3.1 when the prompt says "Don't rebuild the multisig"?
+The `social` track prompt states: *"Build shared budgets, programmable rewards, collective ownership and reputation-based access on top of Sputnik DAO and Trezu. Don't rebuild the multisig — build what communities do with it."*
+**We followed this to the letter.** Rather than writing an un-audited, custom multisig from scratch, Floorpad deploys the official, battle-tested Sputnik DAO v2.3.1 contract directly from its global NEAR code hash (`DtHZA1mUmGYeScEaUoUZYQGGFHSMpnjMCvkr5U9hJXuF`). 
+
+What we built on top is true decentralized token coordination:
+1. **ve-Lock Staking Engine:** Floorpad connects as the DAO's official `staking_id`, mapping time-weighted token locks (7 to 180 days, 1× to 4× multiplier) into dynamic, token-weighted Sputnik voting delegations.
+2. **100M Quorum Guard:** Proposals require a strict >70% approval with a 100M token quorum guard so whales cannot pass rogue proposals.
+3. **Trezu Compatibility:** Proposals follow Trezu-compatible markdown format, ensuring cross-compatibility with Trezu and Sputnik governance explorers.
+
+### Q: How does the floor mathematically rise? Is it an algorithmic risk?
+No. The floor is backed 100% by a real asset vault staked in **LiNEAR Protocol (`linear-protocol.near`)**.
+- **Inflows:** 40% of trading fees, 100% of decaying exit fees (3% decaying over 30 days), 15% of graduation raise, and continuous LiNEAR staking yields flow into the vault.
+- **Redemption & Deflation:** When a holder redeems from the floor vault, their meme tokens are **permanently burned** via NEP-141 `burn`. Because the vault pays out exactly `vault_balance / total_supply`, the floor price per remaining token can only stay constant or increase.
+
+### Q: How does post-graduation DEX trading work with 1-tx NEAR payouts?
+Standard DEX swaps for LiNEAR-paired pools leave users with wrapped assets or require manual unwrapping. Floorpad solves this:
+- **Ref Finance 2-Hop Router:** When selling graduated tokens on Ref Finance, Floorpad executes a single atomic `ft_transfer_call` with a 2-hop route (`MEME → LiNEAR → wNEAR`), `skip_unwrap_near: false`, and `swap_out_recipient: user`.
+- **Result:** Users sell tokens and receive **native NEAR** directly into their wallet in **one single transaction** with 0 manual unwraps.
+
+### Q: What does the autonomous AI agent actually do on-chain?
+Rather than a superficial chatbot skin, every token's AI agent operates with an on-chain budget funded by staking yields:
+- **Autonomous Keeper:** Advances multi-step cross-contract Ref graduations (`CreatePool` → `Stake` → `Deposit` → `AddLiquidity`), harvests LP growth, triggers epoch buyback & burns, and refreshes the NEAR/USD price feed.
+- **Social & Community Bridge:** Connects to Telegram (`@floorpadagentbot`) to post real-time buy alerts and answers holder questions in-app via the `@agent` chat bridge.
+
+---
+
 ## DAO Rules (Official Sputnik DAO v2.3.1)
 
 - Each token's DAO runs the **official Sputnik v2.3.1 code by global hash** `DtHZA1mUmGYeScEaUoUZYQGGFHSMpnjMCvkr5U9hJXuF`, deployed at `<sym>-dao.<launchpad>`.
