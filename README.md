@@ -8,8 +8,8 @@ A NEAR meme-coin launchpad where every token has an indestructible **strictly ri
 - **Agent Economy (`agents`)**: Autonomous keeper agent for cross-contract orchestration (graduation, harvest, epoch buybacks, price feeds, and Telegram/X bot integration).
 
 ### Live Deliverables:
-- **Web App**: https://web-production-964c7668.up.railway.app
-- **Mechanics & Simulation Page**: https://web-production-964c7668.up.railway.app/mechanics
+- **Web App (Production)**: https://usefloorpad.fun
+- **Mechanics & Simulation Page**: https://usefloorpad.fun/mechanics
 - **Social API & Trade Indexer**: https://social-production-2f105e1d.up.railway.app
 - **Testnet Launchpad Contract**: `lpv45w4s.fpbankmwbbc95z.testnet`
 - **Global Token Code Hash**: `5YE4r9yi2hwsrDGfziuPhYirxPHBdF4KrqpEBHrQmXPq`
@@ -33,7 +33,7 @@ Following the instructions in `HACKATHON.md (Q-017)`, here is the exact **"do X 
    - **Do:** Call view method `get_admin_powers` on `lpv45w4s.fpbankmwbbc95z.testnet` or visit `/mechanics`.
    - **See:** Returns empty array `[]`. There are zero owner keys, zero privileged setter functions, and zero backdoor withdrawal functions.
 4. **Inspect Live 60-Day Mathematical Simulation:**
-   - **Do:** Navigate to [`/mechanics`](https://web-production-964c7668.up.railway.app/mechanics).
+   - **Do:** Navigate to [`/mechanics`](https://usefloorpad.fun/mechanics).
    - **See:** Live interactive simulation graphing 60 days of community behavior, trading volume, LiNEAR staking appreciation, floor price growth, and token supply burn.
 5. **Trade on the Bonding Curve & Instant Mode:**
    - **Do:** Visit any live token page on the Web App, choose Buy or Sell.

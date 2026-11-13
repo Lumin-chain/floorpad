@@ -35,7 +35,7 @@ Full economics table: `README.md`. Competitor comparison and Sputnik/Trezu notes
 | Git repo (source of truth) | **https://github.com/Lumin-chain/floorpad**, branch `main`. Code must stay on Lumin-chain. |
 | Local copy on the owner's PC | `C:\Users\Igboze\floorpad\floorpad` (clean clone, tracks `origin/main`) |
 | Hosting | **Railway, the `igboze` Railway account**, project `floorpad` (existing project only; don't create new projects) |
-| Web app (live) | https://web-production-964c7668.up.railway.app — service `web`, root dir `/web` |
+| Web app (live) | https://usefloorpad.fun (custom domain) / https://web-production-964c7668.up.railway.app — service `web`, root dir `/web` |
 | Social API (live) | https://social-production-2f105e1d.up.railway.app — service `social`, root dir `/server`, volume mounted at `/data` |
 | Agent / keeper | **Not deployed yet** (needs secrets, see §6) |
 | Contracts (testnet) | Launchpad `fplpmwbbcg00.testnet` — runs an **older v3 build**, not the latest no-admin / instant-trading code |

@@ -166,7 +166,7 @@ export function PnlModal({
 
   // Share on X (Twitter)
   const shareToX = () => {
-    const origin = typeof window !== "undefined" ? window.location.origin : "https://web-production-964c7668.up.railway.app";
+    const origin = typeof window !== "undefined" ? window.location.origin : "https://usefloorpad.fun";
     const refParam = accountId ? `&ref=${encodeURIComponent(accountId)}` : "";
     const hideNetworthParam = !showNetworth ? "&hideNetworth=1" : "";
     const pnlParam = pnlPct.toFixed(2);
