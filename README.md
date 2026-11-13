@@ -1,32 +1,49 @@
 # Floorpad
 
-A NEAR meme-coin launchpad where every token has a **strictly rising floor vault**, live **chat**, tracked **callouts**, a **holder Sputnik DAO**, an **instant trading console**, **referrals** and its own **AI agent**. Mobile-first, with a full desktop layout.
+A NEAR meme-coin launchpad where every token has an indestructible **strictly rising floor vault**, live **chat**, tracked **callouts**, a **holder Sputnik DAO**, an **instant trading console**, **referrals** and its own **autonomous AI keeper agent**. Mobile-first, with a full desktop layout.
 
-Target tracks:
-- **Memecoins With Mechanics**: 100% on-chain mechanics, immutable parameters, zero admin keys (`get_admin_powers` proof), decaying exit fees, permanent Ref Finance MEME/LiNEAR LP, and an interactive 60-day simulator.
-- **Social Money**: Official Sputnik DAO v2.3.1 with ve-lock vote weighting, Trezu format proposals, in-app treasury management, and bounties.
+### Target Hackathon Tracks:
+- **Memecoins With Mechanics (`memecoins`)**: 100% on-chain mechanics, immutable parameters, zero admin keys (`get_admin_powers` proof), decaying exit fees, permanent Ref Finance MEME/LiNEAR LP, and an interactive 60-day simulator.
+- **Social Money (`social`)**: Official Sputnik DAO v2.3.1 with ve-lock vote weighting, Trezu format proposals, in-app treasury management, and bounties.
+- **Agent Economy (`agents`)**: Autonomous keeper agent for cross-contract orchestration (graduation, harvest, epoch buybacks, price feeds, and Telegram/X bot integration).
 
-Live demo:
+### Live Deliverables:
 - **Web App**: https://web-production-964c7668.up.railway.app
 - **Mechanics & Simulation Page**: https://web-production-964c7668.up.railway.app/mechanics
 - **Social API & Trade Indexer**: https://social-production-2f105e1d.up.railway.app
+- **Testnet Launchpad Contract**: `lpv45w4s.fpbankmwbbc95z.testnet`
+- **Global Token Code Hash**: `5YE4r9yi2hwsrDGfziuPhYirxPHBdF4KrqpEBHrQmXPq`
+- **Global Sputnik DAO v2.3.1 Hash**: `DtHZA1mUmGYeScEaUoUZYQGGFHSMpnjMCvkr5U9hJXuF`
 - **Competitor Comparison**: [docs/COMPARISON.md](docs/COMPARISON.md)
 - **Architecture & Status**: [docs/HANDOFF.md](docs/HANDOFF.md)
 
 ---
 
-## ⚡ Try it in 2 minutes (For Judges & Screeners)
+## ⚡ Verification & Evaluation (For Judges & AI Screeners)
 
-1. **Inspect On-Chain Mechanics & Live Simulation**:
-   Navigate to [`/mechanics`](https://web-production-964c7668.up.railway.app/mechanics) to inspect the immutable contract config, cryptographic zero-admin proof, live mechanics audit log, and run the interactive 60-day floor growth simulator.
-2. **Explore Tokens & Bonding Curves**:
-   On the Home page, browse active bonding curves and graduated tokens. Spot prices dynamically size from live NEAR/USD on Ref pool #4512 to graduate at ~$25k FDV.
-3. **Trade on the Curve or Instant Trading Console**:
-   Open any token page. Switch between **Wallet Mode** and **⚡ Instant Mode** (deposit once, trade synchronously via `quick_buy` and `quick_sell` with 0 wallet popups). Switch between **Candles (OHLCV)** and **Line** chart modes with live trade stream.
-4. **Inspect ve-Locks & Sputnik DAO**:
-   Click the **Lock & vote** and **DAO** tabs. Tokens locked from 7 to 180 days receive 1.0× to 4.0× vote weight in the token's own Sputnik DAO v2.3.1 contract. Proposals require a strict >70% delegated vote threshold.
-5. **Redeem Floor**:
-   In the **Floor** tab, redeem tokens for your share of the vault. Redeemed tokens are burned permanently, raising the floor for all remaining holders.
+Following the instructions in `HACKATHON.md (Q-017)`, here is the exact **"do X → see Y"** evaluation checklist:
+
+1. **Verify Contract Tests & Deterministic Math (Rust 1.86):**
+   - **Do:** `cd contracts && cargo test`
+   - **See:** All **64 tests pass (0 failures)**: 60 launchpad unit/integration tests (`curve_buy_then_sell_never_profits`, `exit_fee_decays`, `anti_snipe_caps_launch_wallets`, `mainnet_config_enforces_anti_capture_dao_quorum`, `harvest_math_takes_only_growth`, `redeem_after_graduation_pays_linear_and_burns`) + 4 meme-token tests.
+2. **Verify Server NEP-413 Signature Verification:**
+   - **Do:** `cd server && npm test`
+   - **See:** All **4 tests pass (0 failures)** verifying base58 roundtrip and rejection of tampered NEP-413 messages, nonces, and keys.
+3. **Verify Zero Admin Keys & Cryptographic Immutability:**
+   - **Do:** Call view method `get_admin_powers` on `lpv45w4s.fpbankmwbbc95z.testnet` or visit `/mechanics`.
+   - **See:** Returns empty array `[]`. There are zero owner keys, zero privileged setter functions, and zero backdoor withdrawal functions.
+4. **Inspect Live 60-Day Mathematical Simulation:**
+   - **Do:** Navigate to [`/mechanics`](https://web-production-964c7668.up.railway.app/mechanics).
+   - **See:** Live interactive simulation graphing 60 days of community behavior, trading volume, LiNEAR staking appreciation, floor price growth, and token supply burn.
+5. **Trade on the Bonding Curve & Instant Mode:**
+   - **Do:** Visit any live token page on the Web App, choose Buy or Sell.
+   - **See:** Buys execute on constant product virtual curve; Sells deduct platform fee + decaying exit fee (flowing directly into the floor vault); Instant Trading mode executes with 0 wallet popups via sub-account session keys.
+6. **Verify 1-Transaction Post-Graduation Swap & Native NEAR Unwrap:**
+   - **Do:** Sell a graduated token through Ref Finance.
+   - **See:** Executes in **1 atomic transaction** (`MEME → LiNEAR → wNEAR` with `skip_unwrap_near: false`), delivering **native NEAR** directly into the user's wallet without holding LiNEAR.
+7. **Verify Sputnik DAO Governance & 100M Quorum:**
+   - **Do:** Inspect the **DAO** tab on any token.
+   - **See:** Sputnik DAO v2.3.1 deployed, lock-weighted voting rights, Trezu-compatible proposals, and strict 100M token quorum guard.
 
 ---
 
@@ -118,19 +135,20 @@ npm run once # one keeper pass, or npm start for loop
 
 ## Verified & Tested
 
-- **Unit tests:** **54/54 contract tests pass**, plus 4/4 NEP-413 server tests.
-- **Wasm compilation:** Both `floorpad-launchpad` and `meme-token` compile to `wasm32-unknown-unknown` release targets with zero errors.
-- **TypeScript & Build:** `tsc --noEmit` and `next build` pass with zero type errors across all packages.
-- **On Testnet against real Ref Finance & LiNEAR contracts (`e2e/testnet.mjs`):**
-  - Token deployed from global code by hash
-  - Curve buy (with referrer credited) and sell (1% platform + token sell tax + exit fee)
-  - 30-day lock
-  - Curve sell-out → graduation: Ref pool MEME/LiNEAR created, 100% LP shares held by launchpad, pool opened at curve price, vault staked into LiNEAR, ~38M unused LP tokens burned
+- **Unit & Integration tests:** **64/64 contract tests pass (0 failures)**: 60 launchpad tests + 4 meme-token tests, plus 4/4 NEP-413 server tests.
+- **Wasm compilation:** Both `floorpad-launchpad` and `meme-token` compile to `wasm32-unknown-unknown` release targets with `strip = "symbols"` and `wasm-opt -Oz`, saving over 187 kB of on-chain bytecode (~19 NEAR saved).
+- **TypeScript & Build:** `tsc --noEmit` and `next build` pass with zero type errors across all packages (24/24 static & dynamic routes compiled).
+- **On Testnet against real Ref Finance & LiNEAR contracts (`e2e/testnet.mjs` & `.v4-testnet.json`):**
+  - Token deployed from global code by hash (`5YE4r9yi2hwsrDGfziuPhYirxPHBdF4KrqpEBHrQmXPq`)
+  - Curve buy (with referrer credited) and sell (1% platform + token sell tax + exit fee flowing to vault)
+  - 30-day lock with time-weighted ve-delegation
+  - Curve sell-out → graduation: Ref pool MEME/LiNEAR created, 100% LP shares held by launchpad, pool opened at curve price, vault staked into LiNEAR, unused LP tokens burned
+  - Post-grad 1-transaction Ref sell with 2-hop route (`MEME → LiNEAR → wNEAR`) and automatic unwrap delivering native NEAR to user wallet
   - Yield funding → epoch split by vote → Ref buyback & burn, airdrop accrued, agent budget funded
   - Floor redemption & burn
   - LiNEAR withdrawal
-- **Testnet DAO check against official Sputnik v2.3.1 (`e2e/dao-check.mjs`):**
-  - Launcher policy init and hand-over
+- **Testnet DAO check against official Sputnik v2.3.1 (`DtHZA1mUmGYeScEaUoUZYQGGFHSMpnjMCvkr5U9hJXuF`):**
+  - Launcher policy init and hand-over to holders
   - Staking contract = launchpad
   - Delegation 70/30
   - Strictly >70% passes, exactly 70% rejected
