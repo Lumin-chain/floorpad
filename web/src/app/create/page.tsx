@@ -153,7 +153,7 @@ export default function Create() {
           <input className="input" maxLength={64} value={f.telegram} onChange={set("telegram")} placeholder="t.me/…" />
         </label>
         <label className="field">
-          <span>AI agent persona (holders can change it later by DAO vote)</span>
+          <span>AI agent persona (powered perpetually via Staking-for-Inference · $BRRRAIN; holders can change persona via DAO vote)</span>
           <textarea className="textarea" value={f.persona} onChange={set("persona")} maxLength={1500} placeholder={`You are the voice of $${f.symbol || "TICKER"}. Funny, upbeat, never gives financial advice.`} />
         </label>
         <div className="panel tight stack" style={{ background: "var(--panel-2)", gap: 10, marginBottom: 14 }}>

@@ -50,6 +50,15 @@ export function AgentPanel({ t, linearPrice, onGoDao }: TokenCtx & { onGoDao: ()
               ? "Each post is paid on-chain from this budget. Holders refill it by allocating yield to the AI agent in the Lock & vote tab. With an empty budget the contract rejects posts."
               : "During the curve phase posts are free. After graduation the agent runs only on budget that holders vote for."}
           </p>
+          <div className="panel tight stack" style={{ background: "var(--panel-2)", gap: 6, marginTop: 10 }}>
+            <div className="row between">
+              <b className="small">⚡ BRRRAIN Staking-for-Inference</b>
+              <span className="badge sky">Perpetual AI</span>
+            </div>
+            <p className="xs muted" style={{ margin: 0 }}>
+              Agent budget from staking yield is routed to accumulate <strong>$BRRRAIN</strong> tokens on-chain. Holding $BRRRAIN grants daily <strong>⚡ Power</strong> via <a href="https://brrrain.fun" target="_blank" rel="noreferrer" style={{ textDecoration: "underline" }}>BRRRAIN AI</a>, keeping the agent funded perpetually without credit cards or manual dashboard top-ups.
+            </p>
+          </div>
         </div>
         <div className="panel stack" style={{ gap: 10 }}>
           <div className="row between wrap">

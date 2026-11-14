@@ -5,7 +5,7 @@ A NEAR meme-coin launchpad where every token has an indestructible **strictly ri
 ### Target Hackathon Tracks:
 - **Memecoins With Mechanics (`memecoins`)**: 100% on-chain mechanics, immutable parameters, zero admin keys (`get_admin_powers` proof), decaying exit fees, permanent Ref Finance MEME/LiNEAR LP, and an interactive 60-day simulator.
 - **Social Money (`social`)**: Official Sputnik DAO v2.3.1 with ve-lock vote weighting, Trezu format proposals, in-app treasury management, and bounties.
-- **Agent Economy (`agents`)**: Autonomous keeper agent for cross-contract orchestration (graduation, harvest, epoch buybacks, price feeds, and Telegram/X bot integration).
+- **Agent Economy (`agents`)**: Autonomous keeper agent for cross-contract orchestration (graduation, harvest, epoch buybacks, price feeds, and Telegram/X bot integration) + **BRRRAIN Staking-for-Inference** integration (yield from token vaults automatically acquires `$BRRRAIN` tokens, giving the agent daily ⚡ Power without credit cards).
 
 ### Live Deliverables:
 - **Web App (Production)**: https://usefloorpad.fun
@@ -90,6 +90,14 @@ Standard DEX swaps for LiNEAR-paired pools leave users with wrapped assets or re
 Rather than a superficial chatbot skin, every token's AI agent operates with an on-chain budget funded by staking yields:
 - **Autonomous Keeper:** Advances multi-step cross-contract Ref graduations (`CreatePool` → `Stake` → `Deposit` → `AddLiquidity`), harvests LP growth, triggers epoch buyback & burns, and refreshes the NEAR/USD price feed.
 - **Social & Community Bridge:** Connects to Telegram (`@floorpadagentbot`) to post real-time buy alerts and answers holder questions in-app via the `@agent` chat bridge.
+
+### Q: How is the AI funded perpetually without credit cards or dashboard maintenance? (BRRRAIN Integration)
+Normally, AI on NEAR requires a human developer to log into `cloud.near.ai`, generate a static key, and top it up with a credit card. If an autonomous community token relies on this, the agent dies the moment the developer stops paying.
+Floorpad eliminates this completely through **BRRRAIN (`brrrain.fun`) Staking-for-Inference**:
+1. **On-Chain Yield Route:** Every epoch, the token's LiNEAR staking yield allocates a slice to the `agent_budget_shares` bucket.
+2. **BRRRAIN Token Backing:** This budget acquires and holds **$BRRRAIN** tokens for the agent's account.
+3. **Daily ⚡ Power (Inference Quota):** Holding $BRRRAIN gives the agent daily inference credits on `api.brrrain.fun/v1` (resetting automatically at 00:00 UTC, funded by the underlying staked NEAR in the NEAR AI farm).
+4. **Cryptographic Sign-In (NEP-413):** The agent authenticates programmatically using NEP-413 off-chain signatures with its own NEAR key (`scripts/brrrain-sign-in.mjs`)—requiring zero dashboard visits, zero credit cards, and zero human maintenance. More meme volume and higher floor backing = more yield = more $BRRRAIN held = exponentially greater daily AI inference capacity.
 
 ---
 

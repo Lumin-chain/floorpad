@@ -34,9 +34,17 @@ const NETWORK = env("NEAR_NETWORK", "testnet");
 const RPC = env("NEAR_RPC", `https://rpc.${NETWORK}.fastnear.com`);
 const LAUNCHPAD = env("LAUNCHPAD_ID");
 const OPERATOR = env("OPERATOR_ID");
-const AI_BASE = env("AI_BASE_URL", "https://cloud-api.near.ai/v1");
-const AI_KEY = process.env.AI_API_KEY ?? "";
-const AI_MODEL = env("AI_MODEL", "deepseek-ai/DeepSeek-V3.1");
+const AI_BASE = env(
+  "AI_BASE_URL",
+  process.env.BRRRAIN_API_KEY ? "https://api.brrrain.fun/v1" : "https://cloud-api.near.ai/v1"
+);
+const AI_KEY = process.env.BRRRAIN_API_KEY || process.env.AI_API_KEY || "";
+const AI_MODEL = env(
+  "AI_MODEL",
+  process.env.BRRRAIN_API_KEY || AI_BASE.includes("brrrain.fun")
+    ? "z-ai/glm-5.3-flash"
+    : "deepseek-ai/DeepSeek-V3.1"
+);
 const KEEPER_SECS = Number(env("KEEPER_INTERVAL_SECS", "60"));
 const POST_SECS = Number(env("POST_INTERVAL_SECS", "1800"));
 const TAX_HARVEST_MIN_NEAR = Number(env("TAX_HARVEST_MIN_NEAR", "2"));
@@ -260,6 +268,10 @@ async function writePost(t: TokenView, recent: Post[]): Promise<string | null> {
     console.warn(`inference failed ${res.status}: ${await res.text()}`);
     return null;
   }
+  const brrrainPower = res.headers.get("x-brrrain-power-remaining");
+  if (brrrainPower) {
+    console.log(`[BRRRAIN AI] ⚡ Daily inference power remaining: ${brrrainPower}`);
+  }
   const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
   const text = data.choices?.[0]?.message?.content?.trim();
   return text ? text.slice(0, 1000) : null;
@@ -319,6 +331,10 @@ async function replyToQuestion(info: AgentTokenInfo, question: string): Promise<
     }),
   }).catch(() => null);
   if (!res?.ok) return `$${info.meta.symbol} stats: ${JSON.stringify(info.stats)}`;
+  const replyPower = res.headers.get("x-brrrain-power-remaining");
+  if (replyPower) {
+    console.log(`[BRRRAIN AI] ⚡ Reply generated · Daily power remaining: ${replyPower}`);
+  }
   const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
   return data.choices?.[0]?.message?.content?.trim() || `$${info.meta.symbol} stats: ${JSON.stringify(info.stats)}`;
 }
