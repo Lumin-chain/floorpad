@@ -12,6 +12,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createHmac, randomBytes } from "node:crypto";
+import { getLatestPowerRemaining } from "./brrrain.js";
 
 export interface AgentTokenInfo {
   token_id: string;
@@ -220,6 +221,7 @@ const HELP_TEXT = (botName: string) =>
     "Community Commands:",
     "• /rules — view group rules",
     "• /stats | /floor | /price — live token metrics & AI commentary",
+    "• /power | /brrrain — live BRRRAIN Staking-for-Inference ⚡ Power balance",
     `• @${botName || "floorpadagentbot"} <question> — ask the token's AI agent`,
   ].join("\n");
 
@@ -374,15 +376,16 @@ export async function pollTelegramCommands(
       }
     }
 
-    // AI & Stats queries (/stats, /floor, /price, /agent, @mention, reply, DM)
+    // AI & Stats queries (/stats, /floor, /price, /agent, /power, @mention, reply, DM)
     const lower = raw.toLowerCase();
+    const isPowerCmd = /^\/(power|brrrain)(@\w+)?(\s|$)/i.test(raw);
     const isStatsCmd = /^\/(stats|floor|price|agent)(@\w+)?(\s|$)/i.test(raw);
     const isMention = tgBotUsername ? lower.includes(`@${tgBotUsername}`) : false;
     const isReplyToBot = Boolean(
       tgBotUsername && m.reply_to_message?.from?.username?.toLowerCase() === tgBotUsername,
     );
     const isDm = m.chat.type === "private";
-    if (!isStatsCmd && !isMention && !isReplyToBot && !isDm) continue;
+    if (!isPowerCmd && !isStatsCmd && !isMention && !isReplyToBot && !isDm) continue;
 
     const chatUser = m.chat.username ? `@${m.chat.username.toLowerCase()}` : "";
     let target =
@@ -396,6 +399,19 @@ export async function pollTelegramCommands(
     if (!target && tokens.length === 1) target = tokens[0];
     if (!target) {
       await reply(`Link this group with /link $${tokens[0].meta.symbol} or mention a ticker (e.g. /stats $${tokens[0].meta.symbol}).`);
+      continue;
+    }
+
+    if (isPowerCmd) {
+      const p = getLatestPowerRemaining();
+      await reply(
+        `⚡ BRRRAIN Staking-for-Inference ($${target.meta.symbol})\n` +
+          `• Daily ⚡ Power: ${p ? `${p.toLocaleString()} Power remaining` : "Active (1,000+ Power daily quota)"}\n` +
+          `• Engine: api.brrrain.fun/v1 (GLM-5.3-flash)\n` +
+          `• Autonomous Auth: NEP-413 cryptographic signature (Zero credit cards)\n` +
+          `• Yield Mechanism: Token staking yield backs $BRRRAIN holdings\n\n` +
+          `${WEB_URL}/token/${target.token_id}`,
+      );
       continue;
     }
 

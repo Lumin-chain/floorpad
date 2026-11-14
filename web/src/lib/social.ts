@@ -214,3 +214,12 @@ export const postTrade = (
     method: "POST",
     body: JSON.stringify(trade),
   });
+
+export interface AgentPowerInfo {
+  power: number;
+  model: string;
+  updated: number;
+}
+
+export const getAgentPower = (tokenId: string) =>
+  api<AgentPowerInfo>(`/tokens/${tokenId}/agent-power`).catch(() => null);

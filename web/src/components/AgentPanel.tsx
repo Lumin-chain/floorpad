@@ -1,7 +1,9 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { ago, fmtNear, isGraduated, lp, YOCTO, type Post } from "@/lib/near";
 import { useView } from "@/lib/wallet";
+import { getAgentPower, useStream, type AgentPowerInfo } from "@/lib/social";
 import { Kv } from "./ui";
 import type { TokenCtx } from "@/app/token/[id]/page";
 import { SlabIcon } from "./Brand";
@@ -10,6 +12,18 @@ const TG_BOT = (process.env.NEXT_PUBLIC_TELEGRAM_BOT ?? "floorpadagentbot").repl
 
 export function AgentPanel({ t, linearPrice, onGoDao }: TokenCtx & { onGoDao: () => void }) {
   const { data: posts } = useView(() => lp<Post[]>("get_posts", { token_id: t.token_id, limit: 50 }), [t.token_id, t.post_count], 15000);
+  const [powerInfo, setPowerInfo] = useState<AgentPowerInfo | null>(null);
+
+  useEffect(() => {
+    getAgentPower(t.token_id).then((p) => {
+      if (p) setPowerInfo(p);
+    });
+  }, [t.token_id]);
+
+  useStream(`token:${t.token_id}`, {
+    agent_power: (data) => setPowerInfo(data as AgentPowerInfo),
+  });
+
   const budgetNear = (BigInt(t.agent_budget_shares) * linearPrice) / YOCTO;
   const grad = isGraduated(t);
   const asleep = grad && BigInt(t.agent_budget_shares) === 0n;
@@ -54,6 +68,16 @@ export function AgentPanel({ t, linearPrice, onGoDao }: TokenCtx & { onGoDao: ()
             <div className="row between">
               <b className="small">⚡ BRRRAIN Staking-for-Inference</b>
               <span className="badge sky">Perpetual AI</span>
+            </div>
+            <div className="grid two" style={{ gap: 6, margin: "4px 0" }}>
+              <div className="stat" style={{ padding: "6px 8px" }}>
+                <span className="xs muted">Daily Power</span>
+                <b className="small mono">{powerInfo ? `${powerInfo.power.toLocaleString()} ⚡` : "Active (1,000+ ⚡)"}</b>
+              </div>
+              <div className="stat" style={{ padding: "6px 8px" }}>
+                <span className="xs muted">AI Model</span>
+                <b className="small mono">{powerInfo?.model ? powerInfo.model.split("/").pop() : "glm-5.3-flash"}</b>
+              </div>
             </div>
             <p className="xs muted" style={{ margin: 0 }}>
               Agent budget from staking yield is routed to accumulate <strong>$BRRRAIN</strong> tokens on-chain. Holding $BRRRAIN grants daily <strong>⚡ Power</strong> via <a href="https://brrrain.fun" target="_blank" rel="noreferrer" style={{ textDecoration: "underline" }}>BRRRAIN AI</a>, keeping the agent funded perpetually without credit cards or manual dashboard top-ups.

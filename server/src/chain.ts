@@ -57,6 +57,7 @@ export interface TokenInfo {
   fdv_near: string;
   total_supply: string;
   burned: string;
+  agent_account?: string;
 }
 
 const NEAR_ACCOUNT_RE = /^(([a-z0-9]+[-_])*[a-z0-9]+\.)*([a-z0-9]+[-_])*[a-z0-9]+$/;

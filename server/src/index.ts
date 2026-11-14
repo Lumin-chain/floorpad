@@ -38,6 +38,7 @@ const ORIGINS = env("CORS_ORIGINS", "*").split(",").map((s) => s.trim());
 const ADMINS = new Set(env("ADMINS", "").split(",").map((s) => s.trim()).filter(Boolean));
 const AGENT_SECRET = process.env.AGENT_SECRET ?? "";
 const store = openStore(env("DB_PATH", "./floorpad-social.db"));
+const agentPowerMap = new Map<string, { power: number; model: string; updated: number }>();
 
 const SIGN_MESSAGE = "Sign in to Floorpad chat. This does not send a transaction or cost gas.";
 const RECIPIENT = LAUNCHPAD;
@@ -255,6 +256,24 @@ route("POST", "/tokens/:id/agent-reply", async (req, _res, p) => {
   publish(`token:${p.id}`, "message", saved);
   return saved;
 });
+
+route("GET", "/tokens/:id/agent-power", async (_req, _res, p) => {
+  return agentPowerMap.get(p.id) ?? { power: 1000, model: "z-ai/glm-5.3-flash", updated: now() };
+});
+
+route("POST", "/tokens/:id/agent-power", async (req, _res, p) => {
+  if (!AGENT_SECRET) throw new HttpError(503, "agent bridge not configured");
+  const hdr = String(req.headers["x-agent-secret"] ?? "");
+  const a = Buffer.from(hdr);
+  const b = Buffer.from(AGENT_SECRET);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) throw new HttpError(403, "forbidden");
+  const bJson = await body<{ power: number; model?: string }>(req);
+  const entry = { power: Number(bJson.power) || 0, model: bJson.model || "z-ai/glm-5.3-flash", updated: now() };
+  agentPowerMap.set(p.id, entry);
+  publish(`token:${p.id}`, "agent_power", entry);
+  return entry;
+});
+
 
 route("DELETE", "/messages/:id", async (req, _res, p) => {
   checkRate(req, "write", 40);

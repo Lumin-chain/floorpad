@@ -17,6 +17,7 @@ import os from "node:os";
 import path from "node:path";
 import { connect, KeyPair, keyStores, type Account } from "near-api-js";
 import { pollTelegramCommands, postMilestone, postToTelegram, postToX, sendBuyAlert, type AgentTokenInfo, type TradeInfo } from "./social.js";
+import { getLatestPowerRemaining, obtainBrrrainKey, setLatestPowerRemaining } from "./brrrain.js";
 
 try {
   process.loadEnvFile?.(".env");
@@ -38,7 +39,7 @@ const AI_BASE = env(
   "AI_BASE_URL",
   process.env.BRRRAIN_API_KEY ? "https://api.brrrain.fun/v1" : "https://cloud-api.near.ai/v1"
 );
-const AI_KEY = process.env.BRRRAIN_API_KEY || process.env.AI_API_KEY || "";
+let AI_KEY = process.env.BRRRAIN_API_KEY || process.env.AI_API_KEY || "";
 const AI_MODEL = env(
   "AI_MODEL",
   process.env.BRRRAIN_API_KEY || AI_BASE.includes("brrrain.fun")
@@ -52,6 +53,31 @@ const TAX_HARVEST_MIN_YOCTO = BigInt(Math.round(TAX_HARVEST_MIN_NEAR * 1e6)) * 1
 const SOCIAL_API_URL = (process.env.SOCIAL_API_URL ?? "").replace(/\/+$/, "");
 const AGENT_SECRET = process.env.AGENT_SECRET ?? "";
 const ONCE = process.argv.includes("--once");
+
+function notifyPower(tokenId: string, powerStr: string | null) {
+  if (!powerStr) return;
+  setLatestPowerRemaining(powerStr);
+  if (SOCIAL_API_URL && AGENT_SECRET) {
+    const powerNum = parseFloat(powerStr);
+    fetch(`${SOCIAL_API_URL}/tokens/${tokenId}/agent-power`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-agent-secret": AGENT_SECRET },
+      body: JSON.stringify({ power: Number.isNaN(powerNum) ? 1000 : powerNum, model: AI_MODEL }),
+      signal: AbortSignal.timeout(4000),
+    }).catch(() => {});
+  }
+}
+
+async function initBrrrainAuth() {
+  if (!AI_KEY && process.env.OPERATOR_PRIVATE_KEY && (AI_BASE.includes("brrrain.fun") || !process.env.AI_BASE_URL)) {
+    console.log(`[BRRRAIN Auto-Auth] Zero-config mode: authenticating ${OPERATOR} via NEP-413 on api.brrrain.fun...`);
+    const key = await obtainBrrrainKey(OPERATOR, process.env.OPERATOR_PRIVATE_KEY).catch(() => null);
+    if (key) {
+      AI_KEY = key;
+      console.log(`[BRRRAIN Auto-Auth] ✅ Programmatic key generated! Staking-for-Inference perpetual quota ready.`);
+    }
+  }
+}
 
 const TGAS = 10n ** 12n;
 const YOCTO = 10n ** 24n;
@@ -270,6 +296,7 @@ async function writePost(t: TokenView, recent: Post[]): Promise<string | null> {
   }
   const brrrainPower = res.headers.get("x-brrrain-power-remaining");
   if (brrrainPower) {
+    notifyPower(t.token_id, brrrainPower);
     console.log(`[BRRRAIN AI] ⚡ Daily inference power remaining: ${brrrainPower}`);
   }
   const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
@@ -304,6 +331,10 @@ async function agent(t: TokenView) {
 }
 
 async function replyToQuestion(info: AgentTokenInfo, question: string): Promise<string> {
+  if (/(power|brrrain|quota|inference|credits)/i.test(question)) {
+    const curPower = getLatestPowerRemaining();
+    return `⚡ BRRRAIN Staking-for-Inference: $${info.meta.symbol} AI runs on api.brrrain.fun (${AI_MODEL}). Current daily power: ${curPower ? `${curPower.toLocaleString()} ⚡` : "1,000+ ⚡"}. Yield from staking vaults perpetually backs $BRRRAIN holdings, eliminating credit cards!`;
+  }
   if (!AI_KEY) {
     return `$${info.meta.symbol}: ${JSON.stringify(info.stats)}`;
   }
@@ -333,6 +364,7 @@ async function replyToQuestion(info: AgentTokenInfo, question: string): Promise<
   if (!res?.ok) return `$${info.meta.symbol} stats: ${JSON.stringify(info.stats)}`;
   const replyPower = res.headers.get("x-brrrain-power-remaining");
   if (replyPower) {
+    notifyPower(info.token_id, replyPower);
     console.log(`[BRRRAIN AI] ⚡ Reply generated · Daily power remaining: ${replyPower}`);
   }
   const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
@@ -467,6 +499,7 @@ async function pollChatMentions(tokens: AgentTokenInfo[]) {
 }
 
 console.log(`floorpad operator ${OPERATOR} on ${NETWORK}, launchpad ${LAUNCHPAD}`);
+await initBrrrainAuth().catch((e) => console.warn("brrrain auth init:", e.message));
 if (!ONCE) {
   // Fast 3s Telegram & in-app @agent chat loop independent of the 60s on-chain keeper tick
   (async () => {
