@@ -44,6 +44,12 @@ Following the instructions in `HACKATHON.md (Q-017)`, here is the exact **"do X 
 7. **Verify Sputnik DAO Governance & 100M Quorum:**
    - **Do:** Inspect the **DAO** tab on any token.
    - **See:** Sputnik DAO v2.3.1 deployed, lock-weighted voting rights, Trezu-compatible proposals, and strict 100M token quorum guard.
+8. **Verify BRRRAIN Perpetual Staking-for-Inference & Live ⚡ Power Quota:**
+   - **Do:** Open the **Agent** tab on any token (e.g. [`usefloorpad.fun`](https://usefloorpad.fun)) or send `/power` to `@floorpadagentbot` on Telegram.
+   - **See:** Real-time Daily ⚡ Power balance streaming live via SSE, active AI model (`glm-5.3-flash`), and proof of programmatic zero-credit-card NEP-413 sign-in funded by staked NEAR yields.
+9. **Verify DAO Staking-for-Inference 1-Click Proposal:**
+   - **Do:** Go to the **DAO** tab -> **New proposal** -> Select **⚡ BRRRAIN Staking-for-Inference (Treasury → Agent)**.
+   - **See:** Ready-to-vote proposal routing treasury yield directly into the agent's account for $BRRRAIN token accumulation.
 
 ---
 
@@ -97,7 +103,10 @@ Floorpad eliminates this completely through **BRRRAIN (`brrrain.fun`) Staking-fo
 1. **On-Chain Yield Route:** Every epoch, the token's LiNEAR staking yield allocates a slice to the `agent_budget_shares` bucket.
 2. **BRRRAIN Token Backing:** This budget acquires and holds **$BRRRAIN** tokens for the agent's account.
 3. **Daily ⚡ Power (Inference Quota):** Holding $BRRRAIN gives the agent daily inference credits on `api.brrrain.fun/v1` (resetting automatically at 00:00 UTC, funded by the underlying staked NEAR in the NEAR AI farm).
-4. **Cryptographic Sign-In (NEP-413):** The agent authenticates programmatically using NEP-413 off-chain signatures with its own NEAR key (`scripts/brrrain-sign-in.mjs`)—requiring zero dashboard visits, zero credit cards, and zero human maintenance. More meme volume and higher floor backing = more yield = more $BRRRAIN held = exponentially greater daily AI inference capacity.
+4. **Cryptographic Sign-In (NEP-413):** The agent authenticates programmatically using NEP-413 off-chain signatures with its own NEAR key (`agent/src/brrrain.ts` & `scripts/brrrain-sign-in.mjs`)—requiring zero dashboard visits, zero credit cards, and zero human maintenance. More meme volume and higher floor backing = more yield = more $BRRRAIN held = exponentially greater daily AI inference capacity.
+5. **Live SSE Streaming & UI Feedback:** The social server indexes `x-brrrain-power-remaining` and streams real-time `agent_power` events to the web app (`AgentPanel.tsx`), giving holders instantaneous visibility into remaining ⚡ Power and model state.
+6. **Community Governance:** Holders can propose and pass 1-click **⚡ BRRRAIN Staking-for-Inference** proposals in the Sputnik DAO (`DaoPanel.tsx`) to top up the agent's inference backing directly from treasury yields.
+7. **Social Distribution:** Community members can check quota directly in Telegram groups via `/power` or `/brrrain` and tag `@agent power` in the web chat for live status reports.
 
 ---
 
