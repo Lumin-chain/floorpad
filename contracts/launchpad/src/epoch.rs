@@ -3,7 +3,8 @@
 //! floor (compound), buyback & burn, airdrop to lockers, AI agent budget, DAO treasury.
 //! Principal is never distributed: the floor can only go up.
 use crate::curve::ONE_YOCTO;
-use crate::ext::{ext_ft, ext_linear, tgas};
+use crate::ext::{ext_ft, ext_linear, ext_ref, tgas, RefPoolInfo};
+use crate::guard::{cp_out, within_band, MAX_SWAP_POOL_BPS, SWAP_SLIPPAGE_BPS};
 use crate::math::{self, ACC_SCALE, PRICE_SCALE};
 use crate::*;
 use near_sdk::json_types::U128;
@@ -19,10 +20,13 @@ impl Contract {
         require!(tok.grad_stage == GradStage::Graduated, "ERR_NOT_GRADUATED");
         require!(!tok.epoch_busy, "ERR_EPOCH_IN_FLIGHT");
         require!(now_secs() >= tok.last_epoch_at + epoch_secs, "ERR_EPOCH_NOT_DUE");
+        let pool_id = tok.pool_id.expect("ERR_NO_POOL");
         self.tok_mut(idx).epoch_busy = true;
+        // The pool is read alongside the LiNEAR price so the buyback can be price-checked.
         ext_linear::ext(self.config.linear.clone())
             .with_static_gas(tgas(5))
             .ft_price()
+            .and(ext_ref::ext(self.config.ref_exchange.clone()).with_static_gas(tgas(5)).get_pool(pool_id))
             .then(
                 Self::ext(env::current_account_id())
                     .with_static_gas(tgas(200))
@@ -31,7 +35,12 @@ impl Contract {
     }
 
     #[private]
-    pub fn on_epoch_price(&mut self, idx: u32, #[callback_result] r: Result<U128, PromiseError>) {
+    pub fn on_epoch_price(
+        &mut self,
+        idx: u32,
+        #[callback_result] r: Result<U128, PromiseError>,
+        #[callback_result] pool: Result<RefPoolInfo, PromiseError>,
+    ) {
         let Ok(price) = r else {
             self.tok_mut(idx).epoch_busy = false;
             return;
@@ -57,6 +66,43 @@ impl Contract {
         let tally = tok.alloc_tally;
         let (dao_id, token_id, pool_id) =
             (tok.dao_id.clone(), tok.token_id.clone(), tok.pool_id.unwrap_or(0));
+
+        // Buyback guard: only swap when the pool price is within the band of the slowly-moving
+        // reference, never more than MAX_SWAP_POOL_BPS of the LiNEAR reserve, and with a real
+        // minimum output. Whatever can't be bought back now stays in the floor.
+        let mut buyback_min = 0u128;
+        if split[BUCKET_BUYBACK] > 0 {
+            let reserves = pool.ok().and_then(|p| {
+                let m = p.token_account_ids.iter().position(|t| *t == token_id)?;
+                let l = p.token_account_ids.iter().position(|t| *t == cfg.linear)?;
+                Some((p.amounts.get(l)?.0, p.amounts.get(m)?.0))
+            });
+            let guarded = reserves.and_then(|(r_lin, r_meme)| {
+                let (reference, spot) = self.observe_pool_price(idx, r_lin, r_meme)?;
+                within_band(spot, reference).then_some((r_lin, r_meme, reference))
+            });
+            match guarded {
+                Some((r_lin, r_meme, reference)) => {
+                    let cap = math::mul_div(r_lin, MAX_SWAP_POOL_BPS, math::BPS);
+                    if split[BUCKET_BUYBACK] > cap {
+                        split[BUCKET_FLOOR] += split[BUCKET_BUYBACK] - cap;
+                        split[BUCKET_BUYBACK] = cap;
+                    }
+                    let quoted = cp_out(split[BUCKET_BUYBACK], r_lin, r_meme, cfg.ref_pool_fee);
+                    let at_ref = math::mul_div(split[BUCKET_BUYBACK], math::PRICE_SCALE, reference);
+                    buyback_min = math::mul_div(quoted.min(at_ref), math::BPS - SWAP_SLIPPAGE_BPS, math::BPS);
+                }
+                None => {
+                    split[BUCKET_FLOOR] += split[BUCKET_BUYBACK];
+                    split[BUCKET_BUYBACK] = 0;
+                    env::log_str("buyback skipped: pool price outside the reference band; kept in the floor");
+                }
+            }
+            if buyback_min == 0 && split[BUCKET_BUYBACK] > 0 {
+                split[BUCKET_FLOOR] += split[BUCKET_BUYBACK];
+                split[BUCKET_BUYBACK] = 0;
+            }
+        }
 
         let tok = self.tok_mut(idx);
         // Floor: shares stay in the vault and become principal.
@@ -106,8 +152,8 @@ impl Contract {
         }
         if split[BUCKET_BUYBACK] > 0 {
             let msg = format!(
-                r#"{{"actions":[{{"pool_id":{},"token_in":"{}","token_out":"{}","amount_in":"{}","min_amount_out":"1"}}]}}"#,
-                pool_id, cfg.linear, token_id, split[BUCKET_BUYBACK]
+                r#"{{"actions":[{{"pool_id":{},"token_in":"{}","token_out":"{}","amount_in":"{}","min_amount_out":"{}"}}]}}"#,
+                pool_id, cfg.linear, token_id, split[BUCKET_BUYBACK], buyback_min
             );
             ext_ft::ext(cfg.linear)
                 .with_attached_deposit(ONE_YOCTO)

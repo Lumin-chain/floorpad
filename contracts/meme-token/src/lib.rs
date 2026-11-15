@@ -14,6 +14,7 @@ use near_contract_standards::fungible_token::events::{FtBurn, FtMint};
 use near_contract_standards::fungible_token::metadata::{
     FungibleTokenMetadata, FungibleTokenMetadataProvider,
 };
+use near_contract_standards::fungible_token::receiver::ext_ft_receiver;
 use near_contract_standards::fungible_token::{
     FungibleToken, FungibleTokenCore, FungibleTokenResolver,
 };
@@ -23,7 +24,7 @@ use near_contract_standards::storage_management::{
 use near_sdk::json_types::{U128, U64};
 use near_sdk::store::{LazyOption, LookupMap};
 use near_sdk::{
-    env, near, require, AccountId, BorshStorageKey, NearToken, PanicOnDefault, PromiseOrValue,
+    env, near, require, AccountId, BorshStorageKey, Gas, NearToken, PanicOnDefault, PromiseOrValue,
 };
 
 const BPS: u128 = 10_000;
@@ -168,6 +169,49 @@ impl Contract {
         (U128(p), U128(t))
     }
 
+    /// Resolver for taxed `ft_transfer_call`s. Refunds the unused part like the standard
+    /// resolver, then returns the matching share of the tax (from what is still pending here).
+    /// Returns the amount effectively taken from the sender's original transfer.
+    #[private]
+    pub fn ft_resolve_taxed_transfer(
+        &mut self,
+        sender_id: AccountId,
+        receiver_id: AccountId,
+        amount: U128,
+        plat: U128,
+        tax: U128,
+    ) -> U128 {
+        let net = amount.0;
+        let (used, burned) = self.token.internal_ft_resolve_transfer(&sender_id, receiver_id, amount);
+        if burned > 0 {
+            FtBurn { owner_id: &sender_id, amount: U128(burned), memo: None }.emit();
+        }
+        let unused = net - used;
+        let mut refunded = 0u128;
+        if unused > 0 && burned == 0 && net > 0 {
+            let share = |t: u128| -> u128 {
+                if unused == net {
+                    t
+                } else {
+                    // unused <= net, so unused * 1e9 fits in u128; t * frac stays far below u128::MAX
+                    let frac = unused * 1_000_000_000 / net;
+                    t.saturating_mul(frac) / 1_000_000_000
+                }
+            };
+            let rp = share(plat.0).min(self.pending_platform);
+            let rt = share(tax.0).min(self.pending_tax);
+            let total = rp + rt;
+            if total > 0 {
+                self.pending_platform -= rp;
+                self.pending_tax -= rt;
+                let me = env::current_account_id();
+                self.token.internal_transfer(&me, &sender_id, total, Some("floorpad tax refund".into()));
+                refunded = total;
+            }
+        }
+        U128(used + plat.0 + tax.0 - refunded)
+    }
+
     pub fn get_tax(&self) -> TaxView {
         TaxView {
             config: self.tax.clone(),
@@ -291,7 +335,20 @@ impl FungibleTokenCore for Contract {
             let net = amount.0 - plat - tok_tax;
             self.collect_tax(&sender, plat, tok_tax);
             self.touch_receive(&receiver_id, net);
-            self.token.ft_transfer_call(receiver_id, U128(net), memo, msg)
+            self.token.internal_transfer(&sender, &receiver_id, net, memo);
+            // Same flow as the standard ft_transfer_call, but the resolver also knows the tax,
+            // so whatever the receiver (e.g. a Ref swap that missed its minimum) hands back
+            // comes back to the sender together with its share of the tax.
+            ext_ft_receiver::ext(receiver_id.clone())
+                .with_unused_gas_weight(1)
+                .ft_on_transfer(sender.clone(), U128(net), msg)
+                .then(
+                    Self::ext(env::current_account_id())
+                        .with_static_gas(Gas::from_tgas(10))
+                        .with_unused_gas_weight(0)
+                        .ft_resolve_taxed_transfer(sender, receiver_id, U128(net), U128(plat), U128(tok_tax)),
+                )
+                .into()
         } else {
             self.touch_receive(&receiver_id, amount.0);
             self.token.ft_transfer_call(receiver_id, amount, memo, msg)
@@ -475,5 +532,81 @@ mod tests {
         assert_eq!((p.0, t.0), (120, 90));
         assert_eq!(c.get_tax().pending_platform.0, 0);
         assert_eq!(c.get_tax().pending_tax.0, 0);
+    }
+
+    #[test]
+    fn failed_dex_sell_refunds_tokens_and_tax() {
+        use near_sdk::{test_vm_config, PromiseResult, RuntimeFeesConfig};
+        let tax = TaxConfig {
+            platform_fee_bps: 100,
+            buy_tax_bps: 50,
+            sell_tax_bps: 100,
+            max_exit_fee_bps: 300,
+            decay_secs: 30 * 86_400,
+            tax_start_at: 1000,
+        };
+        ctx(accounts(0), 1000, 0);
+        let mut c = Contract::new(accounts(0), U128(1_000_000), meta(), Some(tax));
+        c.tax_add_pair(accounts(2));
+        for a in [accounts(1), accounts(2)] {
+            ctx(a, 1000, 10u128.pow(23));
+            c.storage_deposit(None, None);
+        }
+        ctx(accounts(0), 1000, 1);
+        c.ft_transfer(accounts(1), U128(10_000), None);
+
+        // trader sells 1_000 into the DEX: 1% platform + 1% sell + 3% exit = 50 taxed, 950 sent
+        ctx(accounts(1), 1000, 1);
+        let _ = c.ft_transfer_call(accounts(2), U128(1_000), None, "swap".into());
+        assert_eq!(c.ft_balance_of(accounts(1)).0, 9_000);
+        assert_eq!(c.ft_balance_of(accounts(2)).0, 950);
+        assert_eq!((c.get_tax().pending_platform.0, c.get_tax().pending_tax.0), (10, 40));
+
+        // the swap missed its minimum: the DEX hands all 950 back
+        testing_env!(
+            VMContextBuilder::new()
+                .current_account_id(accounts(5))
+                .predecessor_account_id(accounts(5))
+                .block_timestamp(1001 * 1_000_000_000)
+                .build(),
+            test_vm_config(),
+            RuntimeFeesConfig::test(),
+            Default::default(),
+            vec![PromiseResult::Successful(near_sdk::serde_json::to_vec(&U128(950)).unwrap())]
+        );
+        let taken = c.ft_resolve_taxed_transfer(accounts(1), accounts(2), U128(950), U128(10), U128(40));
+        assert_eq!(taken.0, 0, "nothing taken from the seller");
+        assert_eq!(c.ft_balance_of(accounts(1)).0, 10_000, "tokens and tax refunded");
+        assert_eq!(c.ft_balance_of(accounts(2)).0, 0);
+        assert_eq!((c.get_tax().pending_platform.0, c.get_tax().pending_tax.0), (0, 0));
+    }
+
+    #[test]
+    fn partially_used_dex_transfer_refunds_tax_pro_rata() {
+        use near_sdk::{test_vm_config, PromiseResult, RuntimeFeesConfig};
+        let tax = TaxConfig { platform_fee_bps: 100, buy_tax_bps: 0, sell_tax_bps: 100, max_exit_fee_bps: 0, decay_secs: 86_400, tax_start_at: 1000 };
+        ctx(accounts(0), 1000, 0);
+        let mut c = Contract::new(accounts(0), U128(10_000_000), meta(), Some(tax));
+        c.tax_add_pair(accounts(2));
+        for a in [accounts(1), accounts(2)] {
+            ctx(a, 1000, 10u128.pow(23));
+            c.storage_deposit(None, None);
+        }
+        ctx(accounts(0), 1000, 1);
+        c.ft_transfer(accounts(1), U128(100_000), None);
+        ctx(accounts(1), 1000, 1);
+        let _ = c.ft_transfer_call(accounts(2), U128(10_000), None, "swap".into()); // 2% tax: 9_800 sent
+        testing_env!(
+            VMContextBuilder::new().current_account_id(accounts(5)).predecessor_account_id(accounts(5)).build(),
+            test_vm_config(),
+            RuntimeFeesConfig::test(),
+            Default::default(),
+            vec![PromiseResult::Successful(near_sdk::serde_json::to_vec(&U128(4_900)).unwrap())]
+        );
+        let taken = c.ft_resolve_taxed_transfer(accounts(1), accounts(2), U128(9_800), U128(100), U128(100));
+        // half unused: half the tax (100 of 200) comes back
+        assert_eq!(taken.0, 4_900 + 100);
+        assert_eq!(c.ft_balance_of(accounts(1)).0, 100_000 - 10_000 + 4_900 + 100);
+        assert_eq!(c.get_tax().pending_platform.0 + c.get_tax().pending_tax.0, 100);
     }
 }

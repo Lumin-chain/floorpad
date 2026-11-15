@@ -19,6 +19,7 @@ mod epoch;
 mod ext;
 pub mod math;
 mod graduation;
+mod guard;
 mod harvest;
 mod migrate;
 mod trading;

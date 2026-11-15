@@ -352,7 +352,8 @@ fn epoch_splits_only_yield_by_vote() {
     let new_price = NEAR * 132 / 100;
     ctx(&lp(), 0, T0 + 4000);
     c.tok_mut(0).epoch_busy = true;
-    c.on_epoch_price(0, Ok(U128(new_price)));
+    let pool = pool_info(c.tok(0).lp_tokens, c.tok(0).lp_shares, NEAR);
+    c.on_epoch_price(0, Ok(U128(new_price)), Ok(pool));
 
     let t = c.tok(0);
     assert_eq!(t.epoch_index, 1);
@@ -380,7 +381,8 @@ fn epoch_without_votes_compounds_into_floor() {
     let (mut c, _) = graduated();
     let shares0 = c.tok(0).linear_shares;
     ctx(&lp(), 0, T0 + 4000);
-    c.on_epoch_price(0, Ok(U128(NEAR * 15 / 10)));
+    let pool = pool_info(c.tok(0).lp_tokens, c.tok(0).lp_shares, NEAR);
+    c.on_epoch_price(0, Ok(U128(NEAR * 15 / 10)), Ok(pool));
     let t = c.tok(0);
     // only the 10% platform cut of the yield leaves; the rest compounds
     let platform = c.get_claimable_linear(acc("treasury.testnet")).0;
@@ -992,4 +994,207 @@ fn mainnet_config_enforces_anti_capture_dao_quorum() {
     let c: Config = near_sdk::serde_json::from_str(&raw).expect("config.mainnet.json must match Config");
     assert!(c.dao_quorum.0 > c.snipe_max_tokens.0 * 4);
     assert_eq!(c.grad_mcap_usd, 25_000);
+}
+
+// ---- audit fixes: guarded protocol swaps, exact tax accounting, lock expiry ----
+
+/// Pool at the LP's opening price (the graduation reference).
+fn opening_pool(c: &Contract) -> crate::ext::RefPoolInfo {
+    let t = c.tok(0);
+    pool_info(t.lp_tokens, t.lp_shares, NEAR)
+}
+
+fn buyback_vote(c: &mut Contract, bob: u128) {
+    ctx(&token(), 0, T0 + 400);
+    c.ft_on_transfer(acc("bob.testnet"), U128(bob), r#"{"action":"lock","days":30}"#.into());
+    ctx(&acc("bob.testnet"), 0, T0 + 401);
+    c.set_allocation(token(), [0, 10_000, 0, 0, 0]); // all yield to buyback
+}
+
+#[test]
+fn graduation_sets_reference_price_at_lp_opening() {
+    let (c, _) = graduated();
+    let t = c.tok(0);
+    let r = c.ref_price(0).expect("reference set at graduation");
+    assert_eq!(r.price, math::mul_div(t.lp_shares, math::PRICE_SCALE, t.lp_tokens));
+}
+
+#[test]
+fn buyback_skipped_when_pool_price_is_manipulated() {
+    let (mut c, bob) = graduated();
+    buyback_vote(&mut c, bob);
+    let t = c.tok(0).clone();
+    // attacker pumped the meme price 3x right before calling settle_epoch
+    let pumped = pool_info(t.lp_tokens / 3, t.lp_shares * 3, NEAR);
+    ctx(&lp(), 0, T0 + 4000);
+    c.on_epoch_price(0, Ok(U128(NEAR * 15 / 10)), Ok(pumped));
+    let rep = &c.get_epochs(token(), None)[0];
+    assert_eq!(rep.split[BUCKET_BUYBACK].0, 0, "no buyback at a manipulated price");
+    assert!(rep.split[BUCKET_FLOOR].0 > 0, "the buyback share stayed in the floor");
+}
+
+#[test]
+fn buyback_runs_capped_at_a_fair_price() {
+    let (mut c, bob) = graduated();
+    buyback_vote(&mut c, bob);
+    let pool = opening_pool(&c);
+    let r_lin = pool.amounts[1].0;
+    ctx(&lp(), 0, T0 + 4000);
+    c.on_epoch_price(0, Ok(U128(NEAR * 15 / 10)), Ok(pool));
+    let rep = &c.get_epochs(token(), None)[0];
+    let bb = rep.split[BUCKET_BUYBACK].0;
+    assert!(bb > 0, "fair price: buyback runs");
+    assert!(bb <= r_lin * 500 / 10_000, "never more than 5% of the LiNEAR reserve");
+}
+
+#[test]
+fn buyback_skipped_when_pool_unreadable() {
+    let (mut c, bob) = graduated();
+    buyback_vote(&mut c, bob);
+    ctx(&lp(), 0, T0 + 4000);
+    c.on_epoch_price(0, Ok(U128(NEAR * 15 / 10)), Err(near_sdk::PromiseError::Failed));
+    assert_eq!(c.get_epochs(token(), None)[0].split[BUCKET_BUYBACK].0, 0);
+}
+
+#[test]
+fn reference_price_moves_at_most_the_hourly_cap() {
+    let (mut c, _) = graduated();
+    let r0 = c.ref_price(0).unwrap().price;
+    let t = c.tok(0).clone();
+    // one hour later the pool shows 2x the price: the reference may only move 20% (config: 2000 bps/h)
+    ctx(&lp(), 0, T0 + 302 + 3600);
+    let (reference, spot) = c.observe_pool_price(0, t.lp_shares * 2, t.lp_tokens).unwrap();
+    assert_eq!(spot, r0 * 2);
+    assert_eq!(reference, r0 * 12 / 10);
+    assert!(!crate::guard::within_band(spot, reference));
+}
+
+fn tax_ok<T: near_sdk::serde::Serialize>(v: &T) -> PromiseResult {
+    PromiseResult::Successful(near_sdk::serde_json::to_vec(v).unwrap())
+}
+
+#[test]
+fn tax_harvest_credits_exactly_what_the_swap_returned() {
+    let (mut c, _) = graduated();
+    let pool = opening_pool(&c);
+    let in_flight0 = c.tok(0).tokens_in_flight;
+    let treasury0 = c.get_claimable_linear(acc("treasury.testnet")).0;
+    let shares0 = c.tok(0).linear_shares;
+
+    ctx(&acc("anyone.testnet"), 0, T0 + 500);
+    c.harvest_token_tax(token());
+    // token handed over 100 platform + 300 tax tokens (whole tokens), pool at the opening price
+    let (plat, tax) = (100 * TOK, 300 * TOK);
+    ctx(&lp(), 0, T0 + 501);
+    let _ = c.on_tax_taken(0, Ok((U128(plat), U128(tax))), Ok(pool));
+    let burn = math::bps(tax, c.tok(0).tax_burn_bps as u128);
+    let held = plat + tax - burn;
+    assert_eq!(c.tax_state(0).held(), held);
+    assert_eq!(c.tok(0).tokens_in_flight, in_flight0 + plat + tax, "held + burning tokens are reserved");
+
+    // Ref took the full deposit
+    let p_part = math::mul_div(held, plat, held);
+    ctx_results(T0 + 502, vec![tax_ok(&U128(held))]);
+    let _ = c.on_tax_deposited(0, U128(p_part), U128(held - p_part), U128(1));
+    assert_eq!(c.tax_state(0).in_ref(), held);
+
+    // the swap produced exactly 7 LiNEAR, no matter what else moved in the launchpad's balance
+    let out = 7 * NEAR;
+    ctx(&lp(), 0, T0 + 503);
+    let _ = c.on_tax_swapped(0, U128(p_part), U128(held - p_part), Ok(U128(out)));
+    let st = c.tax_state(0);
+    assert_eq!(st.lin(), out);
+    assert_eq!(st.in_ref(), 0);
+
+    ctx(&lp(), 0, T0 + 504);
+    c.on_tax_withdrawn(0, Ok(()));
+    let plat_lin = math::mul_div(out, p_part, held);
+    let creator_lin = math::bps(out - plat_lin, c.tok(0).tax_creator_bps as u128);
+    assert_eq!(c.get_claimable_linear(acc("treasury.testnet")).0, treasury0 + plat_lin);
+    assert_eq!(c.get_claimable_linear(acc("alice.testnet")).0, creator_lin);
+    assert_eq!(c.tok(0).linear_shares, shares0 + out - plat_lin - creator_lin);
+    assert_eq!(c.tax_state(0), crate::guard::TaxState::default());
+}
+
+#[test]
+fn tax_swap_deferred_at_manipulated_price_and_tokens_stay_reserved() {
+    let (mut c, _) = graduated();
+    let t = c.tok(0).clone();
+    let dumped = pool_info(t.lp_tokens * 3, t.lp_shares / 3, NEAR);
+    ctx(&acc("anyone.testnet"), 0, T0 + 500);
+    c.harvest_token_tax(token());
+    ctx(&lp(), 0, T0 + 501);
+    let _ = c.on_tax_taken(0, Ok((U128(10 * TOK), U128(0))), Ok(dumped));
+    let st = c.tax_state(0);
+    assert_eq!(st.held(), 10 * TOK);
+    assert!(!st.busy, "free for a retry");
+    // a buyback burn sweep must not burn the held tax tokens
+    let reserved = c.tok(0).total_locked + c.tok(0).owed_tokens + c.tok(0).tokens_in_flight + c.tok(0).custody_total;
+    assert!(reserved >= 10 * TOK);
+}
+
+#[test]
+fn failed_tax_withdrawal_keeps_linear_pending() {
+    let (mut c, _) = graduated();
+    let mut st = crate::guard::TaxState::default();
+    st.busy = true;
+    st.lin_plat = NEAR;
+    st.lin_vault = 2 * NEAR;
+    c.set_tax_state(0, &st);
+    let shares0 = c.tok(0).linear_shares;
+    ctx(&lp(), 0, T0 + 600);
+    c.on_tax_withdrawn(0, Err(near_sdk::PromiseError::Failed));
+    let st = c.tax_state(0);
+    assert_eq!(st.lin(), 3 * NEAR);
+    assert!(!st.busy);
+    assert_eq!(c.tok(0).linear_shares, shares0, "nothing credited without the LiNEAR");
+}
+
+fn locked(days: u64) -> (Contract, u128) {
+    let mut c = launched();
+    let out = buy(&mut c, "bob.testnet", 5 * NEAR, T0 + 200);
+    ctx(&token(), 0, T0 + 300);
+    c.ft_on_transfer(acc("bob.testnet"), U128(out), format!(r#"{{"action":"lock","days":{days}}}"#));
+    ctx(&acc("bob.testnet"), 0, T0 + 301);
+    c.set_allocation(token(), [0, 0, 10_000, 0, 0]);
+    (c, out)
+}
+
+#[test]
+fn expired_lock_loses_weight_without_owner_action() {
+    let (mut c, out) = locked(180);
+    assert_eq!(c.tok(0).total_weight, out * 4);
+    ctx(&acc("keeper.testnet"), 0, T0 + 300 + 100 * DAY);
+    assert!(!c.has_expired_locks(token()));
+    assert_eq!(c.process_expired_locks(token(), None), 0);
+    assert_eq!(c.tok(0).total_weight, out * 4, "not expired yet");
+
+    ctx(&acc("keeper.testnet"), 0, T0 + 300 + 181 * DAY);
+    assert!(c.has_expired_locks(token()));
+    assert_eq!(c.process_expired_locks(token(), None), 1);
+    let p = c.get_position(token(), acc("bob.testnet")).unwrap();
+    assert_eq!(p.weight.0, 0);
+    assert_eq!(p.amount.0, out, "tokens stay withdrawable");
+    assert_eq!(c.tok(0).total_weight, 0);
+    assert_eq!(c.tok(0).alloc_tally[2], 0);
+    assert!(!c.has_expired_locks(token()));
+
+    // the owner can still unlock afterwards
+    ctx(&acc("bob.testnet"), 0, T0 + 300 + 182 * DAY);
+    c.unlock(token());
+    assert_eq!(c.tok(0).total_locked, 0);
+}
+
+#[test]
+fn extended_lock_is_not_expired_early() {
+    let (mut c, _) = locked(7);
+    ctx(&acc("bob.testnet"), 0, T0 + 300 + 5 * DAY);
+    c.extend_lock(token(), 30);
+    let w = c.tok(0).total_weight;
+    ctx(&acc("keeper.testnet"), 0, T0 + 300 + 10 * DAY);
+    assert_eq!(c.process_expired_locks(token(), None), 0, "original 7-day bucket is stale");
+    assert_eq!(c.tok(0).total_weight, w);
+    ctx(&acc("keeper.testnet"), 0, T0 + 300 + 40 * DAY);
+    assert_eq!(c.process_expired_locks(token(), None), 1);
+    assert_eq!(c.tok(0).total_weight, 0);
 }
