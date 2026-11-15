@@ -15,7 +15,7 @@ Researched 10–11 Nov 2026; updated for v3 economics. Most competitor figures c
 | Penalty for quick dumps | – | – | Creator tax (optional) | – | – | – | **Sell fee is double the buy fee**, plus an exit fee based on how long you've held. Both go to remaining holders |
 | Sniper protection | not verified | not verified | not verified | not verified | – | Single-price auction | **2% of supply per wallet for the first 120 s** |
 | Holder governance | – | – | – | Agent-level (not verified) | – | – | **A Sputnik DAO per token, run inside the app.** Lockers propose; a vote passes with >70% of lock weight (>80% for policy changes) |
-| AI | – | – | – | AI-agent tokens | Agent social launches | – | **A per-token AI agent.** Holders vote its persona and its budget; it's paid per post from staking yield |
+| AI | – | – | – | AI-agent tokens | Agent social launches | – | **Autonomous AI agent funded perpetually by on-chain token yield ($BRRRAIN staking-for-inference).** Zero credit cards, zero dashboard API keys, NEP-413 cryptographic auth |
 | Social features | Livestreams (partial rollout), DMs and group chat on mobile [11][12] | – | – | – | Farcaster | – | **Live chat per token**, plus **callouts** stamped with the market cap at the time of the call and tracked, with a caller leaderboard |
 | Mobile | Native app (early ratings under 2.5★) [11] | Web | Web | Web | Farcaster clients | Web | **Installable web app (PWA)** with bottom navigation and a bottom-sheet trade panel |
 
@@ -28,7 +28,7 @@ For context, pump.fun's graduation rate fell to about **0.2–0.3%** of launches
 3. **Liquidity keeps earning.** pump.fun and LetsBonk LP is either locked and idle or not locked at all. Floorpad's locked LP earns NEAR staking yield and swap fees, and each epoch `harvest_lp` pays that growth out: the meme side is burned and the LiNEAR side goes to the holders' vote, while the principal depth stays locked.
 4. **Graduation is easier and priced in dollars.** At ~$15k, versus about $69k on pump.fun, more tokens reach the DEX, and the target doesn't drift when NEAR's price moves.
 5. **Creators are paid but accountable.** The creator share matches or beats pump.fun's 0.30%, but half of it depends on milestones the holders vote on.
-6. **Engagement comes built in.** Chat, tracked callouts, a holder DAO and an AI agent come with every launch, which no single competitor in this table bundles.
+6. **Engagement comes built in.** Live chat, tracked callouts, a holder Sputnik DAO, and an autonomous AI keeper agent funded perpetually via on-chain token yield ($BRRRAIN staking-for-inference) come with every launch, which no single competitor in this table bundles.
 
 ## The four weak spots, and how v3 closes them
 
