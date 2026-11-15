@@ -286,6 +286,9 @@ export interface LaunchConfig {
   snipe_max_tokens: string;
   linear: string;
   ref_exchange: string;
+  price_pool?: unknown | null;
+  max_price_age_secs?: number;
+  price_feeder?: string;
 }
 
 export const isGraduated = (t: TokenView) => t.grad_stage === "Graduated";

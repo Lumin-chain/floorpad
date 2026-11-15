@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { fmtNear, LAUNCHPAD, lp, NETWORK, safeExternalUrl, safeTelegramUrl, safeTwitterUrl, type LaunchConfig } from "@/lib/near";
 import { useView, useWallet } from "@/lib/wallet";
 import { Mascot } from "@/components/Mascot";
@@ -22,8 +23,10 @@ async function toIcon(file: File): Promise<string> {
 }
 
 export default function Create() {
-  const { send, accountId, signIn, busy } = useWallet();
+  const router = useRouter();
+  const { send, accountId, signIn, busy, nearBalance } = useWallet();
   const { data: cfg } = useView(() => lp<LaunchConfig>("get_config"), [], 0);
+  const { data: priceData } = useView(() => lp<[string, number]>("get_near_usd_price"), [], 30_000);
   const [f, setF] = useState({ name: "", symbol: "", description: "", website: "", twitter: "", telegram: "", persona: "" });
   const [taxMode, setTaxMode] = useState<"auto" | "custom">("auto");
   const [tax, setTax] = useState({ buyPct: "0.5", sellPct: "1", exitPct: "3", decayDays: "30" });
@@ -32,11 +35,35 @@ export default function Create() {
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
     setF({ ...f, [k]: k === "symbol" ? e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 10) : e.target.value });
 
+  const creationFee = BigInt(cfg?.creation_fee ?? "600000000000000000000000");
+  // 300 Tgas reservation + account storage requirement buffer (~0.35 NEAR)
+  const gasBuffer = 350_000_000_000_000_000_000_000n;
+  const minBalanceRequired = creationFee + gasBuffer;
+  const currentBalance = BigInt(nearBalance || "0");
+  const hasEnoughBalance = !accountId || currentBalance >= minBalanceRequired;
+
+  const isPriceStale = Boolean(
+    cfg &&
+      cfg.price_pool === null &&
+      priceData &&
+      priceData[1] > 0 &&
+      cfg.max_price_age_secs &&
+      Date.now() / 1000 > priceData[1] + cfg.max_price_age_secs
+  );
+
   const valid = f.name.trim().length > 0 && f.symbol.length >= 2;
 
   async function submit() {
     setErr(null);
     if (!accountId) return signIn();
+    if (isPriceStale) {
+      return setErr("On-chain price feed is temporarily stale. Please wait a moment while the price updates before launching.");
+    }
+    if (!hasEnoughBalance) {
+      return setErr(
+        `Insufficient wallet balance. Launching requires ${fmtNear(creationFee.toString(), 2)} NEAR fee plus ~0.35 NEAR network gas & storage reservation (~${fmtNear(minBalanceRequired.toString(), 2)} NEAR total). Your balance: ${fmtNear(nearBalance || "0", 3)} NEAR.`
+      );
+    }
     if (f.website.trim() && !safeExternalUrl(f.website)) {
       return setErr("Website must be a valid http(s) URL");
     }
@@ -68,7 +95,7 @@ export default function Create() {
         exit_decay_secs: decaySecs,
       };
     }
-    await send([
+    const ok = await send([
       {
         receiverId: LAUNCHPAD,
         calls: [
@@ -93,6 +120,12 @@ export default function Create() {
         ],
       },
     ]);
+
+    if (ok) {
+      router.push(`/token/${sub}.${LAUNCHPAD}`);
+    } else {
+      setErr("Transaction was rejected or failed on-chain. Please verify your balance and network gas limit.");
+    }
   }
 
   const gradTargetStr = cfg ? `$${cfg.grad_mcap_usd.toLocaleString()}` : "target market cap";
@@ -180,9 +213,31 @@ export default function Create() {
             </div>
           )}
         </div>
+        {isPriceStale && (
+          <div className="notice warn" style={{ marginBottom: 12 }}>
+            The on-chain NEAR/USD price feed is currently stale (&gt;24h old). Feeder update required before creating tokens.
+          </div>
+        )}
+        {accountId && !hasEnoughBalance && (
+          <div className="notice warn" style={{ marginBottom: 12 }}>
+            Low balance: You have <strong>{fmtNear(nearBalance || "0", 3)} NEAR</strong>. Creating a token requires{" "}
+            <strong>{creationFeeStr} NEAR</strong> fee plus network gas &amp; account storage buffer (~
+            <strong>{fmtNear(minBalanceRequired.toString(), 2)} NEAR</strong> total).
+          </div>
+        )}
         {err && <div className="notice warn" style={{ marginBottom: 12 }}>{err}</div>}
-        <button className="btn primary block" disabled={!valid || busy} onClick={submit}>
-          {accountId ? `Launch $${f.symbol || "…"} · ${cfg ? fmtNear(cfg.creation_fee, 2) : "1.5"} NEAR` : "Connect wallet to launch"}
+        <button
+          className="btn primary block"
+          disabled={!valid || busy || isPriceStale || (Boolean(accountId) && !hasEnoughBalance)}
+          onClick={submit}
+        >
+          {!accountId
+            ? "Connect wallet to launch"
+            : isPriceStale
+            ? "Price feed updating…"
+            : !hasEnoughBalance
+            ? `Insufficient balance (${fmtNear(nearBalance || "0", 2)} / ${fmtNear(minBalanceRequired.toString(), 2)} NEAR)`
+            : `Launch $${f.symbol || "…"} · ${creationFeeStr} NEAR`}
         </button>
       </div>
 
