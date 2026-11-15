@@ -488,7 +488,13 @@ function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: T
 }
 
 /** After graduation: swap through the locked Ref MEME/LiNEAR pool, all in-app. */
-function RefTrade({ t, balance, linearPrice, reload, initialSide, onDone }: TradeProps) {
+/** The meme token's live DEX tax (`get_tax`); older token code may not expose it. */
+interface TokenTax {
+  config: { platform_fee_bps: number; buy_tax_bps: number; sell_tax_bps: number; max_exit_fee_bps: number; decay_secs: number; tax_start_at: number };
+  decay_active: boolean;
+}
+
+function RefTrade({ t, balance, holdingSince, linearPrice, reload, initialSide, onDone }: TradeProps) {
   const { send, busy, accountId, nearBalance } = useWallet();
   const [side, setSide] = useState<"buy" | "sell">(initialSide ?? "buy");
   const [amt, setAmt] = useState("");
@@ -508,9 +514,24 @@ function RefTrade({ t, balance, linearPrice, reload, initialSide, onDone }: Trad
   const base = side === "buy" ? parseUnits(amt, 24) : parseUnits(amt, 18);
   // Staking buffer (0.5%) to ensure deposit_and_stake always mints >= shares
   const shares = side === "buy" && linP > 0n ? (((base * YOCTO) / linP) * 995n) / 1000n : 0n;
-  // On Ref sells, meme-token deducts platform + sell + exit-decay tax before crediting Ref.
-  const maxSellTaxBps = BigInt((t.platform_fee_bps ?? 100) + (t.sell_tax_bps ?? 100) + (t.max_exit_fee_bps ?? 300));
-  const netSell = side === "sell" && maxSellTaxBps < 10000n ? (base * (10000n - maxSellTaxBps)) / 10000n : base;
+  // The meme token taxes Ref transfers itself: on sells before Ref sees the tokens, on buys after
+  // Ref pays out (so Ref's minimum is on the pre-tax amount). Read the token's live tax so the
+  // panel shows what actually reaches the wallet. Without `get_tax`, assume the worst case.
+  const { data: taxView } = useView(
+    () => view<TokenTax>(t.token_id, "get_tax").catch(() => null as unknown as TokenTax),
+    [t.token_id],
+    30000,
+  );
+  const taxCfg = taxView?.config;
+  const taxActive = taxView ? taxView.decay_active : true;
+  const platBps = taxCfg?.platform_fee_bps ?? t.platform_fee_bps ?? 100;
+  const ageSecs = useAge(holdingSince);
+  const maxExit = taxCfg?.max_exit_fee_bps ?? t.max_exit_fee_bps ?? 300;
+  const decay = taxCfg?.decay_secs ?? 0;
+  const exitBps = !taxActive ? 0 : decay > 0 ? Math.floor((maxExit * Math.max(0, decay - ageSecs)) / decay) : taxCfg ? 0 : maxExit;
+  const buyTaxBps = BigInt(platBps + (taxActive ? (taxCfg?.buy_tax_bps ?? t.buy_tax_bps ?? 0) : 0));
+  const sellTaxBps = BigInt(platBps + (taxActive ? (taxCfg?.sell_tax_bps ?? t.sell_tax_bps ?? 100) + exitBps : 0));
+  const netSell = side === "sell" && sellTaxBps < 10000n ? (base * (10000n - sellTaxBps)) / 10000n : base;
   const out = !pool || base === 0n || rMeme === 0n || rLin === 0n ? 0n : side === "buy" ? refOut(shares, rLin, rMeme, fee) : refOut(netSell, rMeme, rLin, fee);
   const { data: hop2NearStr } = useView(
     side === "sell" && out > 0n
@@ -526,6 +547,9 @@ function RefTrade({ t, balance, linearPrice, reload, initialSide, onDone }: Trad
     8000,
   );
   const sellNearOut = side === "sell" ? (hop2NearStr ? BigInt(hop2NearStr) : (out * linP) / YOCTO) : out;
+  // What the buyer's wallet actually receives after the token's buy tax.
+  const buyNetOut = side === "buy" && buyTaxBps < 10000n ? (out * (10000n - buyTaxBps)) / 10000n : out;
+  const taxPct = Number(side === "buy" ? buyTaxBps : sellTaxBps) / 100;
   const spot = rMeme > 0n && linP > 0n ? pricePerToken((rLin * linP) / YOCTO, rMeme) : 0;
 
   async function submit() {
@@ -726,7 +750,8 @@ function RefTrade({ t, balance, linearPrice, reload, initialSide, onDone }: Trad
         </div>
       )}
 
-      <Kv k="You receive (est.)" v={side === "buy" ? `${fmtTok(out.toString())} $${t.meta.symbol}` : `${fmtNear(sellNearOut.toString())} NEAR`} />
+      <Kv k="You receive (est.)" v={side === "buy" ? `${fmtTok(buyNetOut.toString())} $${t.meta.symbol}` : `${fmtNear(sellNearOut.toString())} NEAR`} />
+      <Kv k="Token tax" v={`${taxPct.toFixed(2)}%${taxView ? "" : " (max)"}`} />
       <Kv k="Route" v={side === "buy" ? "NEAR → LiNEAR (stake) → Ref swap" : "Ref 2-hop swap + unwrap → NEAR"} />
       <Kv k="Slippage limit" v="1%" />
       {side === "sell" && (

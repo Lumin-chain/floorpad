@@ -187,6 +187,9 @@ impl Contract {
             // Baseline depth of the locked LP; harvests only take growth above it.
             tok.lp_k0 = math::lp_depth(tok.lp_shares, tok.lp_tokens, tok.last_linear_price);
             let token_id = tok.token_id.clone();
+            // Reference pool price starts at the price the LP opened at.
+            let opening = math::mul_div(tok.lp_shares, math::PRICE_SCALE, tok.lp_tokens.max(1));
+            self.set_ref_price(idx, opening);
             let ref_id = self.config.ref_exchange.clone();
             ext_ft::ext(token_id).with_static_gas(tgas(10)).tax_add_pair(ref_id).detach();
         }

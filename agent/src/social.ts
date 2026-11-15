@@ -13,6 +13,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createHmac, randomBytes } from "node:crypto";
 import { getLatestPowerRemaining } from "./brrrain.js";
+import { allowAiReply, cleanLabel } from "./safety.js";
 
 export interface AgentTokenInfo {
   token_id: string;
@@ -135,7 +136,7 @@ export async function postToTelegram(t: AgentTokenInfo, text: string) {
   if (!TG_TOKEN) return;
   const targets = resolveTelegramTargets(t, false);
   if (targets.length === 0) return;
-  const msg = `$${t.meta.symbol} (${t.meta.name})\n\n${text}\n\n${WEB_URL}/token/${t.token_id}`;
+  const msg = `$${t.meta.symbol} (${cleanLabel(t.meta.name)})\n\n${text}\n\n${WEB_URL}/token/${t.token_id}`;
   for (const { chat_id } of targets) {
     await tgCall("sendMessage", {
       chat_id,
@@ -145,8 +146,9 @@ export async function postToTelegram(t: AgentTokenInfo, text: string) {
   }
 }
 
+/** Platform-written milestone templates (only the validated ticker is interpolated). */
 export async function postMilestone(t: AgentTokenInfo, headline: string) {
-  await Promise.allSettled([postToTelegram(t, headline), postToX(t, headline)]);
+  await Promise.allSettled([postToTelegram(t, headline), postToX(t, headline, "milestone")]);
 }
 
 export async function sendBuyAlert(t: AgentTokenInfo, trade: TradeInfo) {
@@ -415,6 +417,8 @@ export async function pollTelegramCommands(
       continue;
     }
 
+    // AI replies cost inference budget: cap per user, per chat and overall.
+    if (!allowAiReply(`tg:${m.from?.id ?? m.chat.id}`, `tg:${m.chat.id}`)) continue;
     const prompt = raw.replace(new RegExp(`@${tgBotUsername}`, "gi"), "").trim().slice(0, 400);
     const aiReply = await generateReply(target, prompt || "Give a quick live update.");
     await reply(`${aiReply}\n\n${WEB_URL}/token/${target.token_id}`);
@@ -428,7 +432,9 @@ const X_ACCESS_TOKEN = process.env.X_ACCESS_TOKEN ?? "";
 const X_ACCESS_SECRET = process.env.X_ACCESS_SECRET ?? "";
 const X_OAUTH2_TOKEN = process.env.X_OAUTH2_ACCESS_TOKEN ?? "";
 const X_POST_MIN_SECS = Number(process.env.X_POST_MIN_SECS ?? "300");
-const X_ALLOWLIST = (process.env.X_TOKEN_ALLOWLIST ?? "*")
+// Token AI posts are opt-in per token: by default the official account only posts
+// platform-written milestones. Set X_TOKEN_ALLOWLIST to token ids / tickers (or "*") to opt in.
+const X_ALLOWLIST = (process.env.X_TOKEN_ALLOWLIST ?? "")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
@@ -461,10 +467,15 @@ function oauth1Header(method: string, url: string): string {
   return `OAuth ${header}`;
 }
 
-export async function postToX(t: AgentTokenInfo, text: string) {
+export async function postToX(t: AgentTokenInfo, text: string, kind: "milestone" | "agent") {
   const hasOAuth1 = Boolean(X_API_KEY && X_API_SECRET && X_ACCESS_TOKEN && X_ACCESS_SECRET);
   if (!hasOAuth1 && !X_OAUTH2_TOKEN) return;
-  if (!X_ALLOWLIST.includes("*") && !X_ALLOWLIST.includes(t.token_id) && !X_ALLOWLIST.includes(t.meta.symbol)) {
+  if (
+    kind === "agent" &&
+    !X_ALLOWLIST.includes("*") &&
+    !X_ALLOWLIST.includes(t.token_id) &&
+    !X_ALLOWLIST.includes(t.meta.symbol)
+  ) {
     return;
   }
   const now = Date.now() / 1000;

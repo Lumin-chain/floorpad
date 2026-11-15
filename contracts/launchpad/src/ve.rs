@@ -7,6 +7,7 @@
 //! 3. Pro-rata share of the airdrop bucket.
 use crate::curve::ONE_YOCTO;
 use crate::ext::{ext_dao, ext_ft, tgas};
+use crate::guard::MAX_EMPTY_DAYS_PER_CALL;
 use crate::math::{self, ACC_SCALE};
 use crate::*;
 use near_sdk::json_types::U128;
@@ -96,6 +97,56 @@ impl Contract {
         U128(amount)
     }
 
+    /// Permissionless keeper call: expired locks lose their weight (DAO vote, yield-split vote
+    /// and airdrop share) instead of keeping it until their owner calls `unlock`. Walks the
+    /// day buckets up to today, handling at most `max_accounts` positions per call. Tokens stay
+    /// in the position and can still be withdrawn with `unlock`. Returns positions expired.
+    pub fn process_expired_locks(&mut self, token_id: AccountId, max_accounts: Option<u32>) -> u32 {
+        let idx = self.idx_of(&token_id);
+        let max = max_accounts.unwrap_or(10).clamp(1, 25);
+        let now = now_secs();
+        let today = now / DAY;
+        let Some(mut day) = self.lock_expiry_cursor(idx) else { return 0 };
+        let (mut done, mut scanned) = (0u32, 0u64);
+        while day <= today && done < max && scanned < MAX_EMPTY_DAYS_PER_CALL {
+            let mut list = self.take_expiry_bucket(idx, day);
+            while let Some(account) = list.pop() {
+                if done >= max {
+                    list.push(account);
+                    break;
+                }
+                let key = (idx, account.clone());
+                let Some(mut p) = self.positions.get(&key).cloned() else { continue };
+                // skip positions extended past now, or already without weight
+                if p.unlock_at > now || p.weight.0 == 0 {
+                    continue;
+                }
+                self.settle_rewards(idx, &mut p);
+                self.apply_weight(idx, &mut p, 0);
+                self.positions.insert(key, p);
+                self.maybe_sync_delegation(idx, &account);
+                done += 1;
+            }
+            if !list.is_empty() {
+                self.put_expiry_bucket(idx, day, &list);
+                break;
+            }
+            day += 1;
+            scanned += 1;
+        }
+        self.set_lock_expiry_cursor(idx, day);
+        done
+    }
+
+    /// True if any lock for this token has expired but still carries weight
+    /// (i.e. a keeper should call `process_expired_locks`).
+    pub fn has_expired_locks(&self, token_id: AccountId) -> bool {
+        let idx = self.idx_of(&token_id);
+        let today = now_secs() / DAY;
+        let Some(start) = self.lock_expiry_cursor(idx) else { return false };
+        (start..=today).take(MAX_EMPTY_DAYS_PER_CALL as usize).any(|d| self.has_expiry_bucket(idx, d))
+    }
+
     /// Permissionless: push an account's current weight to its token's DAO.
     pub fn sync_delegation(&mut self, token_id: AccountId, account_id: AccountId) {
         let idx = self.idx_of(&token_id);
@@ -158,6 +209,7 @@ impl Contract {
         p.amount = U128(new_amount);
         p.unlock_at = unlock_at;
         self.positions.insert(key, p);
+        self.enqueue_lock_expiry(idx, &account, unlock_at);
         self.tok_mut(idx).total_locked += amount;
         self.maybe_sync_delegation(idx, &account);
     }

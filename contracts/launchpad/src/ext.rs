@@ -57,6 +57,8 @@ pub trait ExtRef {
         min_amounts: Option<Vec<U128>>,
     ) -> U128;
     fn get_pool(&self, pool_id: u64) -> RefPoolInfo;
+    /// Swaps inside the caller's Ref deposit; returns the output amount (stays in the deposit).
+    fn swap(&mut self, actions: Vec<near_sdk::serde_json::Value>, referral_id: Option<AccountId>) -> U128;
     fn get_pool_shares(&self, pool_id: u64, account_id: AccountId) -> U128;
     /// Proportional removal; the tokens land in the caller's Ref deposit.
     fn remove_liquidity(&mut self, pool_id: u64, shares: U128, min_amounts: Vec<U128>) -> Vec<U128>;
