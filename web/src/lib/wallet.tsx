@@ -10,6 +10,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import type { NearConnector } from "@hot-labs/near-connect";
 import { NETWORK, RPC, view, viewAccount } from "./near";
 import { clearSession, completeRedirectSignIn, getSession, signInChat, type Session } from "./social";
+import { closeWalletModals, watchSignedTxs, type TxWatch } from "./tx-watch";
 
 export interface Call {
   method: string;
@@ -181,8 +182,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         return false;
       }
       setBusy(true);
+      let watch: TxWatch | null = null;
       try {
         const wallet = await connector.current.wallet();
+        // Watch the chain in parallel: if the wallet never reports back after signing, the
+        // transactions are still found on-chain and the stuck wallet modal is closed.
+        watch = await watchSignedTxs(accountId, txs.map((t) => t.receiverId)).catch(() => null);
         const mapped = txs.map((tx) => ({
           receiverId: tx.receiverId,
           actions: tx.calls.map((c) => ({
@@ -195,34 +200,54 @@ export function WalletProvider({ children }: { children: ReactNode }) {
             },
           })),
         }));
-        const outcomes =
+        const viaWallet: Promise<unknown[]> =
           mapped.length === 1
-            ? [
-                await wallet.signAndSendTransaction({
+            ? wallet
+                .signAndSendTransaction({
                   network: NETWORK,
                   signerId: accountId,
                   receiverId: mapped[0].receiverId,
                   actions: mapped[0].actions,
-                }),
-              ]
-            : await wallet.signAndSendTransactions({
+                })
+                .then((o) => [o])
+            : wallet.signAndSendTransactions({
                 network: NETWORK,
                 signerId: accountId,
                 transactions: mapped,
               });
+        const onChain = watch?.done.then((o) => {
+          closeWalletModals();
+          return o;
+        });
+        const outcomes = onChain
+          ? await Promise.race([
+              viaWallet,
+              onChain,
+            ]).catch(async (e) => {
+              // The modal was closed (e.g. after signing in another tab): give the chain a
+              // moment to show the transaction before treating it as cancelled.
+              if (!/closed/i.test(String((e as Error)?.message ?? e))) throw e;
+              const late = await Promise.race([onChain, new Promise<null>((r) => setTimeout(() => r(null), 10_000))]);
+              if (!late) throw e;
+              return late;
+            })
+          : await viaWallet;
         // A transaction can "succeed" while a cross-contract call inside it fails (e.g. a Ref swap
         // that misses slippage is refunded inside ft_transfer_call). Check every receipt.
         for (const o of outcomes) {
           const failure = outcomeFailure(o);
           if (failure) throw new Error(failure);
         }
-        setToast({ kind: "ok", text: "Transaction sent" });
-        setTimeout(reloadNearBalance, 1500);
+        setToast({ kind: "ok", text: txs.length > 1 ? "Transactions confirmed" : "Transaction confirmed" });
+        reloadNearBalance();
+        setTimeout(reloadNearBalance, 2000);
         return true;
       } catch (e) {
-        setToast({ kind: "err", text: (e as Error)?.message ?? "Transaction failed" });
+        const msg = (e as Error)?.message ?? (typeof e === "string" ? e : "");
+        setToast({ kind: "err", text: /reject|cancel|closed/i.test(msg) ? "Transaction cancelled in wallet" : msg || "Transaction failed" });
         return false;
       } finally {
+        watch?.stop();
         setBusy(false);
       }
     },

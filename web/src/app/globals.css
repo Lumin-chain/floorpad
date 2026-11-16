@@ -1098,7 +1098,7 @@ table.t tr:last-child td {
   position: fixed;
   bottom: 20px;
   right: 20px;
-  z-index: 50;
+  z-index: 130; /* above the trade sheet and bottom nav */
   background: var(--panel-2);
   color: var(--text);
   border: 1px solid var(--line-strong);
@@ -1568,10 +1568,11 @@ button.link:hover {
   border-radius: var(--radius-ctl);
 }
 
+/* Above the sticky header and the bottom nav (both z-index 100), so nothing covers the sheet. */
 .sheet-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 60;
+  z-index: 110;
   background: rgba(6, 26, 19, .8);
   display: flex;
   align-items: flex-end;
@@ -1581,7 +1582,9 @@ button.link:hover {
 .sheet {
   width: 100%;
   max-height: 88vh;
+  max-height: 88dvh; /* visible viewport: mobile browser toolbars don't push the bottom off-screen */
   overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--panel);
   border-top: 1px solid var(--line-strong);
   border-top-left-radius: 16px;
@@ -1593,6 +1596,14 @@ button.link:hover {
 .sheet .panel {
   border: none;
   background: transparent;
+}
+
+/* The trade button stays in reach however long the panel gets. */
+.sheet .trade-submit {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  box-shadow: 0 -10px 0 2px var(--panel), 0 -18px 16px -6px var(--panel);
 }
 
 .sheet-grip {
