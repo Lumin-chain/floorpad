@@ -476,12 +476,16 @@ function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: T
       )}
 
       <button
-        className={`btn block ${side === "buy" ? "buy" : "danger-solid"}`}
+        className={`btn block trade-submit ${side === "buy" ? "buy" : "danger-solid"}`}
         disabled={busy || !q || closed || BigInt(q?.amount_out ?? 0) === 0n}
         onClick={submit}
       >
-        {tradeMode === "instant" ? "⚡ Quick " : ""}
-        {side === "buy" ? "Buy" : "Sell"} ${t.meta.symbol}
+        {busy ? "Waiting for wallet…" : (
+          <>
+            {tradeMode === "instant" ? "⚡ Quick " : ""}
+            {side === "buy" ? "Buy" : "Sell"} ${t.meta.symbol}
+          </>
+        )}
       </button>
     </div>
   );
@@ -767,8 +771,8 @@ function RefTrade({ t, balance, holdingSince, linearPrice, reload, initialSide, 
           </div>
         </div>
       )}
-      <button className={`btn block ${side === "buy" ? "buy" : "danger-solid"}`} disabled={busy || out === 0n} onClick={submit}>
-        {side === "buy" ? "Buy" : "Sell"} ${t.meta.symbol}
+      <button className={`btn block trade-submit ${side === "buy" ? "buy" : "danger-solid"}`} disabled={busy || out === 0n} onClick={submit}>
+        {busy ? "Waiting for wallet…" : `${side === "buy" ? "Buy" : "Sell"} $${t.meta.symbol}`}
       </button>
     </div>
   );
