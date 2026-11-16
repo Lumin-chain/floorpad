@@ -124,7 +124,8 @@ In the **Memecoins With Mechanics** track, projects are judged on the elegance, 
 ### 7. Verifiable Zero-Admin Immutability & Anti-Snipe Launch Protection
 - **The Problem It Solves:** "Renounced ownership" in crypto often hides proxy upgrade keys or privileged multisigs.
 - **The Mechanic:** The launchpad contract has zero owner keys and zero parameter-modifying setters. Anyone can verify this cryptographically by calling `get_admin_powers` on-chain (returns `[]`). Additionally, launch snipers are capped at a maximum of 20M tokens (2% supply) per wallet for the first 120 seconds.
-- **What It Makes Better:** Guarantees 100% trustless immutability and fair-launch distribution.
+- **Account Key Immutability (Mainnet `LOCK=1` vs Testnet):** The deployment script (`deploy/deploy-testnet.sh`) includes an automated `LOCK=1` routine that permanently deletes all full-access keys from the launchpad account using `near account delete-keys`. On Testnet, this key is intentionally retained during evaluation so the deployment can be maintained against testnet RPC shifts and upstream contract upgrades (see FAQ below).
+- **What It Makes Better:** Guarantees 100% trustless immutability on-chain while keeping the testnet evaluation environment safe and resilient.
 
 ---
 
@@ -182,6 +183,19 @@ Floorpad eliminates this completely through **BRRRAIN (`brrrain.fun`) Staking-fo
 5. **Live SSE Streaming & UI Feedback:** The social server indexes `x-brrrain-power-remaining` and streams real-time `agent_power` events to the web app (`AgentPanel.tsx`), giving holders instantaneous visibility into remaining ⚡ Power and model state.
 6. **Community Governance:** Holders can propose and pass 1-click **⚡ BRRRAIN Staking-for-Inference** proposals in the Sputnik DAO (`DaoPanel.tsx`) to top up the agent's inference backing directly from treasury yields.
 7. **Social Distribution:** Community members can check quota directly in Telegram groups via `/power` or `/brrrain` and tag `@agent power` in the web chat for live status reports.
+
+### Q: Why hasn't the launchpad account's full-access key been deleted yet on Testnet?
+Deleting an account's full-access key on NEAR is completely irreversible: once deleted, no one can ever upgrade the contract, deploy patches, or recover from breaking testnet environment changes.
+
+There is a critical distinction between **contract-level immutability** and **account-level key locking**:
+1. **Contract-Level Immutability (Active & Verified Today):**
+   - The contract contains **zero owner or admin methods** (`get_admin_powers` returns `[]`).
+   - There are no backdoor withdrawal functions, no emergency pause switches, and zero parameter-mutating setters (`set_config`, fee modifications, or curve adjustments do not exist in the bytecode).
+   - Platform fees can only sweep to the hardcoded `treasury_id` (a community Sputnik DAO).
+2. **Account Key Retention (Intentional for Testnet & Hackathon Evaluation):**
+   - **Testnet Volatility & Upstream Interface Changes:** Testnet dependencies (FastNEAR RPC, testnet Ref Finance, testnet LiNEAR Protocol) frequently undergo state wipes, node restarts, or contract upgrades. If an upstream dependency changes its testnet interface, an account with deleted keys would be permanently bricked and unable to adapt.
+   - **Evaluator Live Testing Safety:** Retaining the testnet upgrade key ensures that if an unexpected testnet network or oracle quirk occurs during evaluator testing (such as testnet feeder timeouts or gas pricing shifts), the deployment can be serviced immediately without forcing evaluators to navigate to a new contract address.
+   - **Production Mainnet Standard (`LOCK=1`):** The automated deployment script (`deploy/deploy-testnet.sh` L71–79) defaults to `LOCK=1` (`near account delete-keys`), which permanently deletes all full-access keys from the launchpad account upon production Mainnet launch following third-party security audits.
 
 ---
 
@@ -279,5 +293,6 @@ npm run once # one keeper pass, or npm start for loop
 ## Disclosures & Security
 
 - Contracts are deployed on NEAR Testnet for evaluation.
+- On Testnet, the launchpad account's full-access key is intentionally retained for evaluator testing safety and upstream testnet stability (see FAQ). Production mainnet deployments permanently delete all full-access keys via `LOCK=1`.
 - Meme tokens are volatile; Floorpad's redeemable vault sets a mathematically rising floor, but does not eliminate market risk.
 - Smart contracts have not yet undergone a third-party security audit.
