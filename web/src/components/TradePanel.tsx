@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   getReferrer,
+  STORAGE_FEE,
   fmtNear,
   fmtPrice,
   fmtTok,
@@ -55,7 +56,7 @@ function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: T
   const { send, busy, accountId, nearBalance, setToast } = useWallet();
   const [side, setSide] = useState<"buy" | "sell">(initialSide ?? "buy");
   const [amt, setAmt] = useState("");
-  const [q, setQ] = useState<Quote | null>(null);
+  const [chainQ, setQ] = useState<Quote | null>(null);
   const [tradeMode, setTradeMode] = useState<"wallet" | "instant">("wallet");
   const [depositAmt, setDepositAmt] = useState("");
   const [showDepositModal, setShowDepositModal] = useState(false);
@@ -95,17 +96,60 @@ function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: T
 
   const base = side === "buy" ? parseUnits(amt, 24) : parseUnits(amt, 18);
 
+  // Instant quote: the contract's own curve math on the curve state already loaded, so the panel
+  // answers as you type; the on-chain quote below confirms it (and covers storage / caps).
+  const ageMin = Math.floor(age / 60); // exit fee changes slowly: don't re-quote every second
+  const localQ = useMemo<Quote | null>(() => {
+    if (base === 0n || closed) return null;
+    const vn = BigInt(t.v_near);
+    const vt = BigInt(t.v_tokens);
+    if (vn === 0n || vt === 0n) return null;
+    if (side === "buy") {
+      const storage = balance === 0n ? STORAGE_FEE : 0n; // first buy pays token storage
+      const gross = base > storage ? base - storage : 0n;
+      const feeBps = BigInt(100 + (t.buy_tax_bps ?? 0));
+      let fee = (gross * feeBps) / 10000n;
+      let used = gross - fee;
+      let out = (vt * used) / (vn + used);
+      const remaining = BigInt(t.curve_supply) - BigInt(t.sold);
+      let refund = 0n;
+      if (out >= remaining && remaining > 0n) {
+        out = remaining;
+        used = (vn * out + (vt - out) - 1n) / (vt - out); // rounded up, as the contract does
+        fee = (used * feeBps) / 10000n;
+        refund = gross - used - fee;
+      }
+      return { amount_out: out.toString(), fee: fee.toString(), exit_fee: "0", refund: refund.toString() } as Quote;
+    }
+    const gross = (vn * base) / (vt + base);
+    const fee = (gross * BigInt(100 + (t.sell_tax_bps ?? 0))) / 10000n;
+    const decay = t.exit_decay_secs ?? 0;
+    const exitBps = decay > 0 && ageMin * 60 < decay ? BigInt(Math.floor(((t.max_exit_fee_bps ?? 0) * (decay - ageMin * 60)) / decay)) : 0n;
+    const exit = (gross * exitBps) / 10000n;
+    const net = gross - fee - exit;
+    return { amount_out: (net > 0n ? net : 0n).toString(), fee: fee.toString(), exit_fee: exit.toString(), refund: "0" } as Quote;
+  }, [base, side, closed, t.v_near, t.v_tokens, t.sold, t.curve_supply, t.buy_tax_bps, t.sell_tax_bps, t.exit_decay_secs, t.max_exit_fee_bps, balance, ageMin]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (base === 0n || closed) return setQ(null);
-    const h = setTimeout(async () => {
-      const r =
+    setQ(null); // the instant quote shows meanwhile
+    let live = true;
+    const h = setTimeout(() => {
+      const p =
         side === "buy"
-          ? await lp<Quote>("quote_buy", { token_id: t.token_id, near_in: base.toString(), account_id: accountId })
-          : await lp<Quote>("quote_sell", { token_id: t.token_id, tokens_in: base.toString(), age_secs: age });
-      setQ(r);
-    }, 250);
-    return () => clearTimeout(h);
-  }, [base, side, t.token_id, t.sold, accountId, age]);
+          ? lp<Quote>("quote_buy", { token_id: t.token_id, near_in: base.toString(), account_id: accountId })
+          : lp<Quote>("quote_sell", { token_id: t.token_id, tokens_in: base.toString(), age_secs: ageMin * 60 });
+      p.then((r) => live && setQ(r)).catch(() => {
+        /* keep the instant quote; the next change retries */
+      });
+    }, 150);
+    return () => {
+      live = false;
+      clearTimeout(h);
+    };
+  }, [base, side, t.token_id, t.sold, accountId, ageMin, closed]); // eslint-disable-line react-hooks/exhaustive-deps
+  // on-chain quote when it has arrived, the instant one meanwhile
+  const q = chainQ ?? localQ;
 
   // Keyboard shortcuts (B = Buy, S = Sell)
   useEffect(() => {
