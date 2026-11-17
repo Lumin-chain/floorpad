@@ -26,7 +26,7 @@ import {
 } from "@/lib/near";
 import { fmtUsd } from "@/lib/social";
 import { useView, useWallet } from "@/lib/wallet";
-import { Avatar, StageBadges } from "@/components/ui";
+import { Avatar, CopyAddress, StageBadges } from "@/components/ui";
 import { TradePanel } from "@/components/TradePanel";
 import { PriceChart, TradesTable } from "@/components/PriceChart";
 import { VaultPanel } from "@/components/VaultPanel";
@@ -156,6 +156,7 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
           <h1 className="token-title ellipsis">
             {t.meta.name} <span className="muted">${t.meta.symbol}</span>
           </h1>
+          <CopyAddress value={t.token_id} label="CA" className="token-ca" />
           <div className="row wrap" style={{ gap: 6 }}>
             <StageBadges t={t} />
             {links.map((l) => (
@@ -292,7 +293,7 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
             <div className="panel about">
               <h3>About</h3>
               <p className="muted small" style={{ margin: 0 }}>{t.meta.description}</p>
-              <p className="small muted mono" style={{ margin: "8px 0 0" }}>{t.token_id}</p>
+              <div style={{ marginTop: 8 }}><CopyAddress value={t.token_id} short={false} /></div>
             </div>
           )}
         </div>
@@ -306,9 +307,9 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
             <Chat t={t} compact />
           </div>
           <div className="panel tight small">
-            <div className="kv"><span>Contract</span><span className="mono ellipsis" style={{ maxWidth: 200 }}>{t.token_id}</span></div>
-            <div className="kv"><span>DAO</span><span className="mono ellipsis" style={{ maxWidth: 200 }}>{t.dao_id}</span></div>
-            <div className="kv"><span>Creator</span><span className="mono ellipsis" style={{ maxWidth: 200 }}>{t.creator}</span></div>
+            <div className="kv"><span>Contract</span><CopyAddress value={t.token_id} /></div>
+            <div className="kv"><span>DAO</span><CopyAddress value={t.dao_id} /></div>
+            <div className="kv"><span>Creator</span><CopyAddress value={t.creator} /></div>
             <div className="kv"><span>Sized at</span><span>NEAR ${(Number(t.launch_near_usd) / 1e6).toFixed(2)}</span></div>
           </div>
         </aside>}

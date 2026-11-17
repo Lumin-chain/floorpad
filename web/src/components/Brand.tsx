@@ -63,6 +63,8 @@ const PATHS: Record<string, string[]> = {
   up: ["M12 5 20 17H4Z"],
   down: ["M4 7H20L12 19Z"],
   swatch: [slab(3, 5, 18, 14, 3)],
+  copy: [slab(3, 9, 13, 12, 1.6), slab(8, 3, 13, 3, 0.8), slab(18.6, 3, 2.4, 12, 0.5)], // front slab + back slab's edges
+  check: ["M3.5 12.5 6.4 9.8 10 13.3 17.8 4.8 20.6 7.4 10.1 18.7Z"],
 };
 
 export type SlabIconName = keyof typeof PATHS;
