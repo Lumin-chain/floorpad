@@ -6,7 +6,104 @@ import { storageCallIfNeeded, tokenBalanceError, useView, useWallet, type Tx } f
 import { Kv, Stat } from "./ui";
 import type { TokenCtx } from "@/app/token/[id]/page";
 
-export function VaultPanel({ t, linearPrice, balance, holdingSince, reload }: TokenCtx) {
+/** Plain-language "what is the floor" card, filled with this token's live numbers. */
+function FloorExplainer({
+  t,
+  linearPrice,
+  balance,
+  age,
+  spotPriceNear,
+  nearUsd,
+}: Pick<TokenCtx, "t" | "linearPrice" | "balance"> & { age: number; spotPriceNear?: number; nearUsd?: number }) {
+  const sym = t.meta.symbol;
+  const floor = floorPrice(t, linearPrice);
+  const vault = vaultNear(t, linearPrice);
+  const usd = (near: number) => {
+    if (!nearUsd) return "";
+    const v = near * nearUsd;
+    return ` (≈ $${v >= 1 ? v.toFixed(2) : v >= 0.01 ? v.toFixed(3) : fmtPrice(v)})`;
+  };
+  const vaultN = Number(vault / 10n ** 18n) / 1e6;
+  const { data: mine } = useView(
+    balance > 0n ? () => lp<Quote>("quote_redeem", { token_id: t.token_id, tokens_in: balance.toString(), age_secs: age }) : null,
+    [t.token_id, balance.toString(), age > 0, t.linear_shares, t.backing_near],
+    20000,
+  );
+  // graduated tokens redeem for LiNEAR: value it in NEAR for the USD figure
+  const mineN = mine
+    ? (Number(BigInt(mine.amount_out) / 10n ** 18n) / 1e6) * (isGraduated(t) ? Number(linearPrice / 10n ** 18n) / 1e6 : 1)
+    : 0;
+  const ratio = spotPriceNear && floor > 0 ? spotPriceNear / floor : null;
+  return (
+    <div className="panel floor-explainer">
+      <h2 style={{ marginTop: 0 }}>What is the floor?</h2>
+      <p style={{ margin: "0 0 10px" }}>
+        Every ${sym} is backed by NEAR held in this token&apos;s <b>floor vault</b>. The floor is that backing per token:{" "}
+        <b className="green">
+          {fmtPrice(floor)} NEAR{usd(floor)}
+        </b>
+        . You can sell any ${sym} back to the vault at that price, at any time. No buyer, pool or liquidity is needed.
+      </p>
+      <div className="floor-facts">
+        <div>
+          <span className="small muted">Vault holds</span>
+          <b>
+            {fmtNear(vault, 3)} NEAR{usd(vaultN)}
+          </b>
+        </div>
+        <div>
+          <span className="small muted">Your ${sym} redeem for</span>
+          <b>{balance > 0n ? `${fmtNear(mine?.amount_out ?? "0", 4)} ${isGraduated(t) ? "LiNEAR" : "NEAR"}${usd(mineN)}` : "connect a wallet holding it"}</b>
+        </div>
+        <div>
+          <span className="small muted">Market price vs floor</span>
+          <b className={ratio && ratio < 0.95 ? "green" : undefined}>
+            {!ratio
+              ? "–"
+              : ratio >= 1.05
+                ? `${ratio >= 100 ? Math.round(ratio).toLocaleString() : ratio.toFixed(1)}× above the floor`
+                : ratio > 0.95
+                  ? "trading at the floor"
+                  : `below the floor: redeeming pays ${(1 / ratio).toFixed(1)}× the market price`}
+          </b>
+        </div>
+      </div>
+      <div className="floor-why">
+        <div>
+          <b>🛟 A guaranteed exit</b>
+          <span className="small muted">Even if nobody is buying, the vault always pays the floor. Your tokens can&apos;t go to zero.</span>
+        </div>
+        <div>
+          <b>📈 It only goes up</b>
+          <span className="small muted">
+            Nothing is ever taken out except by redemptions, and those burn the tokens at the floor rate, so the backing per token stays the same. Yield, fees and burns push it higher.
+          </span>
+        </div>
+        <div>
+          <b>🧲 It supports the price</b>
+          <span className="small muted">
+            If the market price drops below the floor, anyone can buy cheap and redeem at the floor for a profit. That buying lifts the price back up.
+          </span>
+        </div>
+      </div>
+      <p className="small muted" style={{ margin: "10px 0 0" }}>
+        The floor is the <b>minimum</b> the vault pays, not the market price. If you bought above the floor, redeeming can still be a loss: it protects the downside, it does not
+        guarantee a profit. Redemptions pay a {isGraduated(t) ? "small redemption fee, plus an exit fee on recently bought tokens," : "small fee"} that stays in the vault for the remaining
+        holders.
+      </p>
+    </div>
+  );
+}
+
+export function VaultPanel({
+  t,
+  linearPrice,
+  balance,
+  holdingSince,
+  reload,
+  spotPriceNear,
+  nearUsd,
+}: TokenCtx & { spotPriceNear?: number; nearUsd?: number }) {
   const { send, busy, accountId, setToast } = useWallet();
   const [amt, setAmt] = useState("");
   const [q, setQ] = useState<Quote | null>(null);
@@ -56,6 +153,8 @@ export function VaultPanel({ t, linearPrice, balance, holdingSince, reload }: To
   const pendingYield = grad ? BigInt(t.linear_shares) - principalShares : 0n;
 
   return (
+    <div className="stack">
+    <FloorExplainer t={t} linearPrice={linearPrice} balance={balance} age={age} spotPriceNear={spotPriceNear} nearUsd={nearUsd} />
     <div className="grid two">
       <div className="stack">
         <div className="grid stats">
@@ -102,14 +201,14 @@ export function VaultPanel({ t, linearPrice, balance, holdingSince, reload }: To
         )}
         <div className="panel">
           <h2>How the floor rises</h2>
+          <p className="muted small" style={{ margin: "0 0 8px" }}>Floor = NEAR in the vault ÷ tokens in circulation. It rises when the vault grows or the supply shrinks.</p>
           <ul className="muted small" style={{ paddingLeft: 18, margin: 0 }}>
-            <li>Token taxes (default 0.5% buy, 1% sell during the 30-day decay window) and 100% of exit fees back the vault.</li>
-            <li>Anyone can top up the yield pool with LiNEAR (Treasury tab); it is split by the next epoch vote.</li>
-            <li>At graduation, 15% of the raise seeds the vault and unused LP tokens are burned.</li>
-            <li>Exit fees on curve sells and on redemptions stay in the vault for remaining holders.</li>
-            <li>At graduation the leftover raise joins the vault, and the whole vault is staked as LiNEAR.</li>
-            <li>Each epoch, holders vote how to split staking yield. The &quot;Floor&quot; share compounds into principal.</li>
-            <li>Redeemed tokens are burned, so supply only shrinks. Principal can never be withdrawn by anyone, including the DAO.</li>
+            <li><b>Curve trades:</b> part of every bonding-curve fee and 100% of exit fees go into the vault, in NEAR.</li>
+            <li><b>Graduation:</b> 15% of everything the curve raised seeds the vault, and the vault is staked as LiNEAR.</li>
+            <li><b>Staking yield:</b> LiNEAR earns NEAR staking rewards every epoch; holders vote how much compounds into the floor.</li>
+            <li><b>Pool fees:</b> the locked Ref LP earns a fee on every swap. The LiNEAR side becomes yield; the token side is burned.</li>
+            <li><b>Burns:</b> DEX tax, harvested LP tokens, buyback-and-burn and redemptions all shrink the supply, so each remaining token is backed by more.</li>
+            <li><b>Locked forever:</b> nobody, not even the DAO or the team, can withdraw the vault&apos;s principal. The protocol never sells your tokens.</li>
           </ul>
         </div>
       </div>
@@ -162,6 +261,7 @@ export function VaultPanel({ t, linearPrice, balance, holdingSince, reload }: To
           )}
         </div>
       </div>
+    </div>
     </div>
   );
 }
