@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import {
@@ -33,7 +33,32 @@ const clean = (s: unknown, max: number) =>
 const gRate = globalThis as unknown as {
   __floorpadRate?: Map<string, { resetAt: number; count: number }>;
   __floorpadSseCount?: number;
+  __floorpadAgentPower?: Map<string, AgentPower>;
 };
+
+/** BRRRAIN power the agent reports per token (in memory, refreshed by the agent). */
+interface AgentPower {
+  power: number;
+  model: string;
+  updated: number;
+}
+const DEFAULT_MODEL = "z-ai/glm-5.3-flash";
+const agentPower = (gRate.__floorpadAgentPower ??= new Map());
+
+/**
+ * The agent service authenticates with the shared `AGENT_SECRET` (same value on the agent).
+ * Returns an error response, or null when the request is from the agent.
+ */
+function agentAuthError(req: NextRequest): NextResponse | null {
+  const secret = process.env.AGENT_SECRET ?? "";
+  if (!secret) return NextResponse.json({ error: "agent bridge not configured" }, { status: 503 });
+  const a = Buffer.from(req.headers.get("x-agent-secret") ?? "");
+  const b = Buffer.from(secret);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+  return null;
+}
 const rateBuckets = (gRate.__floorpadRate ??= new Map());
 
 function clientIp(req: NextRequest): string {
@@ -112,6 +137,8 @@ async function proxyUpstream(req: NextRequest, segments: string[], rawBody?: str
   if (auth) headers.authorization = auth;
   const ct = req.headers.get("content-type");
   if (ct) headers["content-type"] = ct;
+  const agentSecret = req.headers.get("x-agent-secret");
+  if (agentSecret) headers["x-agent-secret"] = agentSecret;
 
   const init: RequestInit = { method: req.method, headers, signal: AbortSignal.timeout(10_000) };
   if (req.method !== "GET" && req.method !== "HEAD") {
@@ -356,6 +383,67 @@ async function handle(req: NextRequest, context: { params: Promise<{ path: strin
           holder_pct: await holderShare(tokenId, account).catch(() => 0),
         });
         return NextResponse.json(saved);
+      }
+    }
+
+    // ---- agent bridge: the agent service posts AI replies and its power balance ----
+    if ((m = /^\/tokens\/([^/]+)\/agent-reply$/.exec(p)) && method === "POST") {
+      const tokenId = decodeURIComponent(m[1]);
+      if (!isValidNearAccount(tokenId)) return NextResponse.json({ error: "invalid token id" }, { status: 400 });
+      const denied = agentAuthError(req);
+      if (denied) return denied;
+      const tok = await getToken(tokenId).catch(() => null);
+      if (!tok) return NextResponse.json({ error: "unknown token" }, { status: 404 });
+      let b: { text?: string; replyTo?: number };
+      try {
+        b = (preReadBody ? JSON.parse(preReadBody) : {}) as typeof b;
+      } catch {
+        return NextResponse.json({ error: "invalid json" }, { status: 400 });
+      }
+      const text = clean(b.text, MAX_TEXT);
+      if (!text) return NextResponse.json({ error: "empty message" }, { status: 400 });
+      let replyTo: number | null = null;
+      const rid = Number(b.replyTo);
+      if (Number.isSafeInteger(rid) && rid > 0) {
+        const target = backend.state.messages.find((x) => x.id === rid && !x.hidden && x.token_id === tokenId);
+        if (target) replyTo = rid;
+      }
+      const saved = backend.addMessage({
+        token_id: tokenId,
+        account: tok.agent_account || "agent.floorpad.near",
+        text,
+        reply_to: replyTo,
+        ts: now(),
+        is_dev: 0,
+        holder_pct: 0,
+      });
+      return NextResponse.json(saved);
+    }
+
+    if ((m = /^\/tokens\/([^/]+)\/agent-power$/.exec(p))) {
+      const tokenId = decodeURIComponent(m[1]);
+      if (!isValidNearAccount(tokenId)) return NextResponse.json({ error: "invalid token id" }, { status: 400 });
+      if (method === "GET") {
+        return NextResponse.json(agentPower.get(tokenId) ?? { power: 1000, model: DEFAULT_MODEL, updated: now() });
+      }
+      if (method === "POST") {
+        const denied = agentAuthError(req);
+        if (denied) return denied;
+        let b: { power?: number; model?: string };
+        try {
+          b = (preReadBody ? JSON.parse(preReadBody) : {}) as typeof b;
+        } catch {
+          return NextResponse.json({ error: "invalid json" }, { status: 400 });
+        }
+        const entry: AgentPower = {
+          power: Number.isFinite(Number(b.power)) ? Number(b.power) : 0,
+          model: clean(b.model, 80) || DEFAULT_MODEL,
+          updated: now(),
+        };
+        if (agentPower.size > 5000 && !agentPower.has(tokenId)) agentPower.clear();
+        agentPower.set(tokenId, entry);
+        backend.publish(`token:${tokenId}`, "agent_power", entry);
+        return NextResponse.json(entry);
       }
     }
 
