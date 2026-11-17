@@ -10,6 +10,9 @@ use crate::*;
 use near_sdk::json_types::U128;
 use near_sdk::{Promise, PromiseError};
 
+/// Share of epoch yield sent to the AI agent's budget while no holder has voted (10%).
+const DEFAULT_AGENT_BPS: u128 = 1_000;
+
 #[near]
 impl Contract {
     /// Permissionless once per epoch after graduation. Attach 300 Tgas.
@@ -55,6 +58,13 @@ impl Contract {
         let yield_shares = tok.linear_shares.saturating_sub(principal_shares);
         let platform_cut = math::mul_div(yield_shares, cfg.yield_platform_bps as u128, math::BPS);
         let mut split = math::split_by_tally(yield_shares - platform_cut, &tok.alloc_tally);
+        // Until holders vote, a small default share keeps the token's AI agent running
+        // (otherwise everything goes to the floor and the agent never gets a budget).
+        if tok.alloc_tally.iter().all(|w| *w == 0) {
+            let agent = math::bps(split[BUCKET_FLOOR], DEFAULT_AGENT_BPS);
+            split[BUCKET_FLOOR] -= agent;
+            split[BUCKET_AGENT] += agent;
+        }
         if tok.total_weight == 0 {
             split[BUCKET_FLOOR] += split[BUCKET_AIRDROP];
             split[BUCKET_AIRDROP] = 0;

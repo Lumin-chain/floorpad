@@ -7,10 +7,10 @@ export type Pose = "hero" | "cool" | "wink" | "flag";
 export type Motion = "idle" | "wave" | "celebrate" | "peek" | "none";
 
 const SRC: Record<Pose, string> = {
-  hero: "/brand/graded/mascot-hero.png",
-  cool: "/brand/graded/mascot-cool.png",
-  wink: "/brand/graded/mascot-wink.png",
-  flag: "/brand/graded/mascot-flag.png",
+  hero: "/brand/graded/mascot-hero.webp",
+  cool: "/brand/graded/mascot-cool.webp",
+  wink: "/brand/graded/mascot-wink.webp",
+  flag: "/brand/graded/mascot-flag.webp",
 };
 
 /**

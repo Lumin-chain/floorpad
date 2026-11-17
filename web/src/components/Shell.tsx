@@ -48,7 +48,7 @@ function Header() {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/symbol.png" alt="Floorpad mark" className="brand-symbol" />
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/wordmark.png" alt="Floorpad" className="brand-wordmark" />
+          <img src="/brand/wordmark.webp" alt="Floorpad" className="brand-wordmark" />
         </Link>
         <nav className="nav desktop-only">
           {NAV.map((n) => (
@@ -129,7 +129,7 @@ export function Shell({ children }: { children: ReactNode }) {
               <XLogo size={13} />
               <span>@usefloorpad_</span>
             </a>
-            <a href="/brand" className="link-chev">Brand kit</a>
+            <Link href="/brand" className="link-chev">Brand kit</Link>
           </div>
           <span>Floor backing is denominated in NEAR/LiNEAR; USD value fluctuates with market prices. Not financial advice.</span>
         </div>

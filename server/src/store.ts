@@ -213,7 +213,12 @@ export function openStore(path: string) {
         .get(tokenId, isBuy, tokens, now() - withinSecs);
       return Boolean(r);
     },
-    trades(tokenId: string, limit: number): StoredTrade[] {
+    trades(tokenId: string, limit: number, account?: string): StoredTrade[] {
+      if (account) {
+        return db
+          .prepare("SELECT * FROM trades WHERE token_id = ? AND account = ? ORDER BY id DESC LIMIT ?")
+          .all(tokenId, account, limit) as unknown as StoredTrade[];
+      }
       return db
         .prepare("SELECT * FROM trades WHERE token_id = ? ORDER BY id DESC LIMIT ?")
         .all(tokenId, limit) as unknown as StoredTrade[];

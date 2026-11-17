@@ -551,9 +551,9 @@ class SocialBackend {
     );
   }
 
-  tradesForToken(tokenId: string, limit: number): SocialTrade[] {
+  tradesForToken(tokenId: string, limit: number, account?: string): SocialTrade[] {
     return this.state.trades
-      .filter((t) => t.token_id === tokenId)
+      .filter((t) => t.token_id === tokenId && (!account || t.account === account))
       .sort((a, b) => b.ts - a.ts || b.id - a.id)
       .slice(0, limit);
   }

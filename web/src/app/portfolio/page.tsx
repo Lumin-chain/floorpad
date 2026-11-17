@@ -25,12 +25,47 @@ import { Avatar } from "@/components/ui";
 import { Mascot } from "@/components/Mascot";
 import { SlabIcon } from "@/components/Brand";
 import { PnlModal } from "@/components/PnlModal";
+import { positionSummary } from "@/lib/pnl";
 
 interface Row {
   t: TokenView;
+  /** Wallet balance only. */
   balance: bigint;
+  /** Tokens held in the instant-trading custody account. */
+  custody: bigint;
   pos: Position | null;
+  /** ft_holding_since for the wallet (seconds), drives exit-fee decay. */
+  since: number | null;
   refPool?: { token_account_ids: string[]; amounts: string[] } | null;
+}
+
+/** Worth-now and PnL for one row, same math as the PnL card. */
+function PositionCells({ r, account, linearPrice }: { r: Row; account: string; linearPrice: bigint }) {
+  const held = r.balance + r.custody + (r.pos ? BigInt(r.pos.amount) : 0n);
+  const age = r.since ? Math.max(0, Math.floor(Date.now() / 1000) - r.since) : 0;
+  const { data: s } = useView(
+    () => positionSummary(r.t, account, held, age, linearPrice),
+    [r.t.token_id, account, held.toString(), linearPrice.toString()],
+    60000,
+  );
+  if (!s) {
+    return (
+      <>
+        <td className="muted">…</td>
+        <td className="muted">…</td>
+      </>
+    );
+  }
+  return (
+    <>
+      <td title={s.value.via === "floor" ? "Best exit: redeem at the floor" : "Best exit: sell on the market"}>
+        {fmtNear(s.value.near, 3)} N<span className="small muted"> {s.value.via === "floor" ? "floor" : "market"}</span>
+      </td>
+      <td className={s.pnlNear >= 0n ? "green" : "red"}>
+        {s.pnlPct === null ? <span className="muted">no buys</span> : `${s.pnlPct >= 0 ? "+" : ""}${s.pnlPct.toFixed(1)}%`}
+      </td>
+    </>
+  );
 }
 
 export default function Portfolio() {
@@ -45,16 +80,20 @@ export default function Portfolio() {
           const tokens = (await lp<TokenView[]>("get_tokens", { from_index: 0, limit: 100 })).filter((t) => t.deployed);
           const out = await Promise.all(
             tokens.map(async (t) => {
-              const balance = BigInt(await view<string>(t.token_id, "ft_balance_of", { account_id: accountId }).catch(() => "0"));
-              const pos = await lp<Position | null>("get_position", { token_id: t.token_id, account_id: accountId });
+              const [balance, pos, custody, since] = await Promise.all([
+                view<string>(t.token_id, "ft_balance_of", { account_id: accountId }).then((x) => BigInt(x)).catch(() => 0n),
+                lp<Position | null>("get_position", { token_id: t.token_id, account_id: accountId }).catch(() => null),
+                lp<{ amount: string }>("get_custody", { token_id: t.token_id, account_id: accountId }).then((c) => BigInt(c?.amount ?? "0")).catch(() => 0n),
+                view<string | null>(t.token_id, "ft_holding_since", { account_id: accountId }).then((x) => (x ? Number(x) : null)).catch(() => null),
+              ]);
               const refPool =
-                isGraduated(t) && t.pool_id !== null && (balance > 0n || (pos && BigInt(pos.amount) > 0n))
+                isGraduated(t) && t.pool_id !== null && (balance > 0n || custody > 0n || (pos && BigInt(pos.amount) > 0n))
                   ? await view<{ token_account_ids: string[]; amounts: string[] }>(REF, "get_pool", { pool_id: t.pool_id }).catch(() => null)
                   : null;
-              return { t, balance, pos, refPool };
+              return { t, balance, custody, pos, since, refPool };
             }),
           );
-          return out.filter((r) => r.balance > 0n || (r.pos && BigInt(r.pos.amount) > 0n));
+          return out.filter((r) => r.balance > 0n || r.custody > 0n || (r.pos && BigInt(r.pos.amount) > 0n));
         }
       : null,
     [accountId],
@@ -136,12 +175,13 @@ export default function Portfolio() {
           <div className="table-scroll">
             <table className="t">
               <thead>
-                <tr><th>Token</th><th>Wallet</th><th>Locked</th><th>Unlocks</th><th>Floor value</th><th>Rewards</th><th>Share</th></tr>
+                <tr><th>Token</th><th>Wallet</th><th>Locked</th><th>Unlocks</th><th>Floor value</th><th>Worth now</th><th>PnL</th><th>Rewards</th><th>Share</th></tr>
               </thead>
               <tbody>
-                {rows.map(({ t, balance, pos, refPool }) => {
+                {rows.map((row) => {
+                  const { t, balance, custody, pos } = row;
                   const locked = pos ? BigInt(pos.amount) : 0n;
-                  const floorVal = floorPrice(t, linearPrice) * Number((balance + locked) / 10n ** 14n) / 1e4;
+                  const floorVal = floorPrice(t, linearPrice) * Number((balance + custody + locked) / 10n ** 14n) / 1e4;
                   return (
                     <tr key={t.token_id}>
                       <td>
@@ -149,15 +189,19 @@ export default function Portfolio() {
                           <Avatar t={t} /> <b>${t.meta.symbol}</b>
                         </Link>
                       </td>
-                      <td>{fmtTok(balance.toString(), 0)}</td>
+                      <td>
+                        {fmtTok(balance.toString(), 0)}
+                        {custody > 0n && <div className="small muted">+{fmtTok(custody.toString(), 0)} instant</div>}
+                      </td>
                       <td>{fmtTok(locked.toString(), 0)}</td>
                       <td>{locked > 0n ? until(pos!.unlock_at) : "–"}</td>
                       <td className="green">{fmtPrice(floorVal)} N</td>
+                      <PositionCells r={row} account={accountId} linearPrice={linearPrice} />
                       <td>{pos ? `${fmtNear(pos.pending_reward, 5)} LiNEAR` : "–"}</td>
                       <td>
                         <button
                           className="btn sm"
-                          onClick={() => setPnlTarget({ t, balance, pos, refPool })}
+                          onClick={() => setPnlTarget(row)}
                           title="Share PNL Card on X"
                         >
                           <SlabIcon name="share" size={12} /> PNL
@@ -175,8 +219,9 @@ export default function Portfolio() {
       {pnlTarget && (
         <PnlModal
           t={pnlTarget.t}
-          balance={pnlTarget.balance + (pnlTarget.pos ? BigInt(pnlTarget.pos.amount) : 0n)}
-          holdingSince={pnlTarget.pos ? pnlTarget.pos.unlock_at - 7 * 86400 : null}
+          balance={pnlTarget.balance}
+          holdingSince={pnlTarget.since}
+          linearPrice={linearPrice}
           spotPriceNear={tokenSpotPrice(pnlTarget.t, pnlTarget.refPool, linearPrice)}
           floorPriceNear={floorPrice(pnlTarget.t, linearPrice)}
           nearUsd={usd ?? 3.6}

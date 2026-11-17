@@ -195,6 +195,10 @@ export const getCandles = (tokenId: string, tf = "5m", limit = 100) =>
 export const getIndexedTrades = (tokenId: string, limit = 50) =>
   api<IndexedTrade[]>(`/tokens/${tokenId}/trades?limit=${limit}`).catch(() => []);
 
+/** One wallet's full trade history for a token (curve and Ref), newest first. */
+export const getAccountTrades = (tokenId: string, account: string) =>
+  api<IndexedTrade[]>(`/tokens/${tokenId}/trades?account=${encodeURIComponent(account)}&limit=500`).catch(() => [] as IndexedTrade[]);
+
 export const getGlobalTrades = (limit = 20) =>
   api<GlobalTrade[]>(`/trades?limit=${limit}`).catch(() => []);
 

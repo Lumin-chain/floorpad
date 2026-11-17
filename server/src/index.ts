@@ -364,8 +364,11 @@ route("GET", "/trades", async (_req, _res, _p, q) => {
 
 route("GET", "/tokens/:id/trades", async (_req, _res, p, q) => {
   if (!isValidNearAccount(p.id)) throw new HttpError(400, "invalid token id");
-  const limit = clampInt(q.get("limit"), 1, 100, 50);
-  return store.trades(p.id, limit);
+  // ?account=: one wallet's full history (PnL), so a higher cap
+  const account = q.get("account");
+  if (account && !isValidNearAccount(account)) throw new HttpError(400, "invalid account");
+  const limit = clampInt(q.get("limit"), 1, account ? 500 : 100, 50);
+  return store.trades(p.id, limit, account ?? undefined);
 });
 
 const lastNudgeByToken = new Map<string, number>();
