@@ -164,7 +164,7 @@ export default function MechanicsPage() {
         </div>
 
         <p className="muted" style={{ marginTop: 8, maxWidth: 860 }}>
-          Floorpad pairs a bonding curve with an on-chain <strong className="green">Redeemable Floor Vault</strong> (denominated in NEAR/LiNEAR), a 1% platform fee plus creator/DAO-governed token taxes (default 0.5% buy / 1.0% sell + decaying 3% exit fee over 30 days, enforced on-curve and on graduated DEX pairs), permanent Ref Finance LP locking, and Sputnik DAO lock-weighted yield governance.
+          Floorpad pairs a bonding curve with an on-chain <strong className="green">Redeemable Floor Vault</strong> (denominated in NEAR/LiNEAR), a 1% platform fee plus creator/DAO-governed token taxes (default 0.5% buy / 1.0% sell + decaying 3% exit fee over 30 days on the curve, paid in NEAR; after graduation a 1% pool fee funds the floor in LiNEAR and the protocol never sells tokens), permanent Ref Finance LP locking, and Sputnik DAO lock-weighted yield governance.
         </p>
 
         <div className="grid four stats" style={{ marginTop: 6 }}>

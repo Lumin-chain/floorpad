@@ -327,27 +327,27 @@ export function formatMilestone(tok: AlertToken, m: Milestone, links: AlertLinks
     lines.push("", "<i>Fees in, supply out. The floor only goes one way.</i>");
     plain.push(`🔥 $${tok.symbol} LP harvest: ${compactNum(m.burnedTokens)} burned, fees added to the floor's staking yield.`, tokenUrl);
   } else {
-    lines.push(`💰 <b>$${sym} DEX TAX HARVEST</b>`, "Trading tax swapped into the floor", RULE);
-    const vb = m.vaultBefore ?? null;
-    const va = m.vaultAfter ?? null;
-    if (vb !== null && va !== null) {
-      const pct = vb > 0 ? ((va - vb) / vb) * 100 : null;
-      const change = va > vb ? ` <b>(+${pct !== null ? `${pct.toFixed(pct < 1 ? 2 : 1)}%` : fmtNear(va - vb)})</b>` : " (unchanged so far)";
-      lines.push(`🧱 Floor vault  ${fmtNear(vb)} → <b>${fmtNear(va)}</b> NEAR${change}`);
-      if (tok.nearUsd) lines.push(`      ${fmtUsd(vb * tok.nearUsd)} → ${fmtUsd(va * tok.nearUsd)}`);
-      if (m.floorBefore && m.floorAfter) {
-        lines.push(`🏷 Floor per token  <code>${fmtPrice(m.floorBefore)}</code> → <code>${fmtPrice(m.floorAfter)}</code> NEAR`);
-      }
-      plain.push(
-        `💰 $${tok.symbol} DEX tax harvested: floor vault ${fmtNear(vb)} → ${fmtNear(va)} NEAR${pct !== null && va > vb ? ` (+${pct.toFixed(1)}%)` : ""}.`,
-        tokenUrl,
-      );
-    } else {
-      lines.push(vault ? `🧱 Floor vault topped up  ${vault}` : "🧱 Floor vault topped up");
-      plain.push(`💰 $${tok.symbol} DEX tax harvested: floor vault topped up.`, tokenUrl);
-    }
+    // The tax is burned, never sold: the vault stays the same, the supply shrinks, so every
+    // holder's floor per token rises.
+    lines.push(`🔥 <b>$${sym} TAX BURN</b>`, "Trading tax burned. Nothing sold on the pool.", RULE);
     if (m.burnedTokens) lines.push(`🔥 Burned <b>${compactNum(m.burnedTokens)}</b> $${sym}`);
-    if (va !== null && vb !== null && va > vb) lines.push("", "<i>Every trade pays the floor. Up only.</i>");
+    const fb = m.floorBefore ?? null;
+    const fa = m.floorAfter ?? null;
+    if (fb && fa) {
+      const pct = ((fa - fb) / fb) * 100;
+      lines.push(
+        `🏷 Floor per token  <code>${fmtPrice(fb)}</code> → <code>${fmtPrice(fa)}</code> NEAR` +
+          (fa > fb ? ` <b>(+${pct.toFixed(pct < 1 ? 3 : 2)}%)</b>` : ""),
+      );
+    }
+    if (tok.circulating) lines.push(`📉 Supply now ${compactNum(tok.circulating)} $${sym}`);
+    if (vault) lines.push(`🧱 Floor vault  ${vault} (stays in the vault)`);
+    lines.push("", "<i>Less supply, same vault: the floor per token goes up.</i>");
+    plain.push(
+      `🔥 $${tok.symbol} tax burn: ${m.burnedTokens ? `${compactNum(m.burnedTokens)} burned` : "burned"}, nothing sold.` +
+        (fb && fa && fa > fb ? ` Floor per token +${(((fa - fb) / fb) * 100).toFixed(2)}%.` : ""),
+      tokenUrl,
+    );
   }
   return { text: lines.join("\n"), plain: plain.join("\n"), reply_markup: { inline_keyboard: [buttons] } };
 }

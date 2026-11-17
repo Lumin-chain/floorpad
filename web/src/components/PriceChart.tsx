@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  LAUNCHPAD,
   ago,
   floorPrice,
   fmtNear,
@@ -447,8 +448,13 @@ export function TradesTable({ t, trades: given, limit = 50 }: { t: TokenView; tr
                   <td className="mono">{fmtPrice(p)}</td>
                   <td className="mono">{fmtNear(tr.near, 3)}</td>
                   <td className="mono">{fmtTok(tr.tokens, 0)}</td>
-                  <td className="mono small ellipsis" style={{ maxWidth: 130 }}>
-                    {tr.account}
+                  <td className="mono small ellipsis" style={{ maxWidth: 130 }} title={tr.account}>
+                    {tr.account === LAUNCHPAD ? (
+                      // Protocol activity (old DEX-tax swaps; since the burn-only upgrade the protocol never sells).
+                      <span className="badge">Floorpad protocol</span>
+                    ) : (
+                      tr.account
+                    )}
                   </td>
                   <td className="muted nowrap">{ago(tr.ts)}</td>
                 </tr>

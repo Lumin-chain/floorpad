@@ -52,7 +52,8 @@ const KEEPER_SECS = Number(env("KEEPER_INTERVAL_SECS", "60"));
 /** How often to look for curves that just filled (graduation fast path). */
 const GRAD_WATCH_SECS = Number(env("GRAD_WATCH_SECS", "5"));
 const POST_SECS = Number(env("POST_INTERVAL_SECS", "1800"));
-const TAX_HARVEST_MIN_NEAR = Number(env("TAX_HARVEST_MIN_NEAR", "2"));
+// Tax harvests only burn now (no swap, no market impact), so they can run on smaller amounts.
+const TAX_HARVEST_MIN_NEAR = Number(env("TAX_HARVEST_MIN_NEAR", "0.5"));
 const TAX_HARVEST_MIN_YOCTO = BigInt(Math.round(TAX_HARVEST_MIN_NEAR * 1e6)) * 10n ** 18n;
 const SOCIAL_API_URL = (process.env.SOCIAL_API_URL ?? "").replace(/\/+$/, "");
 const AGENT_SECRET = process.env.AGENT_SECRET ?? "";
@@ -305,7 +306,7 @@ async function keep(t: TokenView) {
           if (nearVal >= TAX_HARVEST_MIN_YOCTO) {
             const linP = (await liveLinearPrice()) || BigInt(t.last_linear_price || YOCTO.toString());
             const before = await floorSnapshot(t.token_id, linP);
-            const ok = await call("harvest_token_tax", { token_id: t.token_id }, 300n).catch((e) => {
+            const ok = await call("harvest_token_tax", { token_id: t.token_id }, 100n).catch((e) => {
               console.warn(`harvest_token_tax ${t.token_id}:`, (e as Error).message);
               return false;
             });
