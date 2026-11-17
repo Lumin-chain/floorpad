@@ -242,11 +242,14 @@ impl Contract {
                 "reference_hash": null,
                 "decimals": 18
             },
+            // No token-level DEX tax on new tokens: after graduation the pool fee pays the floor
+            // in LiNEAR and nothing is ever sold. The creator's rates still apply on the curve
+            // (charged in NEAR there).
             "tax": {
-                "platform_fee_bps": PLATFORM_FEE_BPS,
-                "buy_tax_bps": buy_tax_bps,
-                "sell_tax_bps": sell_tax_bps,
-                "max_exit_fee_bps": max_exit_fee_bps,
+                "platform_fee_bps": 0,
+                "buy_tax_bps": 0,
+                "sell_tax_bps": 0,
+                "max_exit_fee_bps": 0,
                 "decay_secs": exit_decay_secs,
                 "tax_start_at": now
             }

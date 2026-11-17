@@ -21,6 +21,7 @@ impl Contract {
         let me = env::current_account_id();
         let tok = self.tok(idx).clone();
         require!(!tok.grad_busy, "ERR_STEP_IN_FLIGHT");
+        let pool_fee = self.pool_fee_bps();
         let cb = Self::ext(me.clone()).with_static_gas(tgas(30));
         let p = match tok.grad_stage {
             GradStage::Curve => env::panic_str("ERR_CURVE_NOT_SOLD_OUT"),
@@ -53,7 +54,7 @@ impl Contract {
                         .with_static_gas(tgas(20))
                         .add_simple_pool(
                             vec![tok.token_id.clone(), cfg.linear.clone()],
-                            cfg.ref_pool_fee,
+                            pool_fee,
                         ),
                 )
                 .then(cb.on_grad_pool_created(idx)),

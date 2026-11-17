@@ -86,7 +86,9 @@ pub struct Quote {
 #[near]
 impl Contract {
     pub fn get_config(&self) -> Config {
-        self.config.clone()
+        let mut c = self.config.clone();
+        c.ref_pool_fee = self.pool_fee_bps();
+        c
     }
 
     pub fn get_token_count(&self) -> u32 {
