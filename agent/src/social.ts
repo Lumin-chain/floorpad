@@ -38,7 +38,8 @@ export interface TradeInfo {
 }
 
 interface GroupConfig {
-  token_id: string;
+  /** Linked token (alerts, /stats). Rules and the welcome message work without one. */
+  token_id?: string;
   buy_alerts: boolean;
   min_buy_near: number;
   rules?: string;
@@ -345,7 +346,7 @@ export async function pollTelegramCommands(
         if (cmd === "link") {
           const tok = findToken(tokens, arg);
           if (!tok) {
-            await reply(`Token not found for "${arg}". Usage: /link $SYMBOL or /link token.floorpad.near`);
+            await reply(arg ? `No Floorpad token "${arg}". Use its symbol, e.g. /link LL` : "Send the token on the same line, e.g. /link LL");
             continue;
           }
           groups[chatKey] = {
@@ -367,8 +368,29 @@ export async function pollTelegramCommands(
           await reply("Unlinked this group from Floorpad alerts.");
           continue;
         }
-        if (!linkedCfg) {
-          await reply("Link a token first with /link <SYMBOL>.");
+        // Rules and the welcome message are group settings: they don't need a linked token.
+        if (cmd === "setrules" || cmd === "setwelcome") {
+          if (!arg) {
+            await reply(
+              cmd === "setrules"
+                ? "Send the rules on the same line, e.g.\n/setrules Be kind. No spam. No DMs asking for funds."
+                : "Send the message on the same line, e.g.\n/setwelcome Welcome to the Floorpad community! Read /rules and say hi.",
+            );
+            continue;
+          }
+          const cfg = (groups[chatKey] ??= { buy_alerts: true, min_buy_near: 0 });
+          if (cmd === "setrules") cfg.rules = arg.slice(0, 1500);
+          else cfg.welcome = arg.slice(0, 800);
+          saveGroups(groups);
+          await reply(
+            cmd === "setrules"
+              ? "✅ Group rules updated. Members can view them anytime with /rules."
+              : "✅ Welcome message updated for new group members.",
+          );
+          continue;
+        }
+        if (!linkedCfg?.token_id) {
+          await reply("This needs a linked token. Link one first: /link SYMBOL (for example /link LL).");
           continue;
         }
         if (cmd === "buyalerts") {
@@ -392,26 +414,6 @@ export async function pollTelegramCommands(
           linkedCfg.min_buy_near = min;
           saveGroups(groups);
           await reply(`Minimum buy alert set to ${min} NEAR.`);
-          continue;
-        }
-        if (cmd === "setrules") {
-          if (!arg) {
-            await reply("Usage: /setrules <your group rules>");
-            continue;
-          }
-          linkedCfg.rules = arg.slice(0, 1500);
-          saveGroups(groups);
-          await reply("✅ Group rules updated. Members can view them anytime with /rules.");
-          continue;
-        }
-        if (cmd === "setwelcome") {
-          if (!arg) {
-            await reply("Usage: /setwelcome <welcome message>");
-            continue;
-          }
-          linkedCfg.welcome = arg.slice(0, 800);
-          saveGroups(groups);
-          await reply("✅ Welcome message updated for new group members.");
           continue;
         }
       }
