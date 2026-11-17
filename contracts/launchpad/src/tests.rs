@@ -1116,6 +1116,32 @@ fn failed_tax_burn_is_retried_by_the_next_harvest() {
 }
 
 #[test]
+fn testnet_grad_mcap_applies_to_new_launches_only() {
+    let mut c = launched();
+    let old = c.tok(0).grad_mcap_usd;
+    ctx(&lp(), 0, T0 + 50);
+    c.set_grad_mcap_usd(5_000);
+    assert_eq!(c.config.grad_mcap_usd, 5_000);
+    assert_eq!(c.tok(0).grad_mcap_usd, old, "existing curve keeps its target");
+}
+
+#[test]
+#[should_panic(expected = "ERR_NOT_LAUNCHPAD")]
+fn grad_mcap_setter_is_launchpad_only() {
+    let mut c = launched();
+    ctx(&acc("alice.testnet"), 0, T0 + 50);
+    c.set_grad_mcap_usd(5_000);
+}
+
+#[test]
+#[should_panic(expected = "ERR_GRAD_MCAP_BOUNDS")]
+fn grad_mcap_setter_has_bounds() {
+    let mut c = launched();
+    ctx(&lp(), 0, T0 + 50);
+    c.set_grad_mcap_usd(5);
+}
+
+#[test]
 fn new_pools_use_the_one_percent_fee() {
     let (c, _) = graduated();
     assert_eq!(c.pool_fee_bps(), crate::guard::NEW_POOL_FEE_BPS.max(c.config.ref_pool_fee));

@@ -13,6 +13,7 @@
  *     After graduation each post is paid from the holder-voted agent budget;
  *     when the budget is empty the contract refuses and the agent sleeps.
  */
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { connect, KeyPair, keyStores, type Account } from "near-api-js";
@@ -658,7 +659,31 @@ async function checkMilestones(t: TokenView) {
 
 /** Ref swaps the social indexer stores get ids from here up (curve trades keep their on-chain index). */
 const REF_TRADE_ID_BASE = 1_000_000_000;
-const lastRefTradeId = new Map<string, number>();
+
+/**
+ * Ref-trade alert bookkeeping, keyed by each trade's transaction (not the social service's
+ * numeric ids: those restart whenever the site's store is rebuilt, which silently stopped
+ * alerts). Saved next to the Telegram state (the /data volume) so a restart neither replays
+ * old trades nor drops the ones made meanwhile.
+ */
+const REF_ALERTS_PATH = path.join(
+  path.dirname(path.resolve(process.env.TELEGRAM_STATE_PATH ?? "./telegram-groups.json")),
+  "ref-alerts.json",
+);
+const refAlerts: Record<string, { since: number; seen: string[] }> = (() => {
+  try {
+    return JSON.parse(fs.readFileSync(REF_ALERTS_PATH, "utf8"));
+  } catch {
+    return {};
+  }
+})();
+function saveRefAlerts() {
+  try {
+    fs.writeFileSync(REF_ALERTS_PATH, JSON.stringify(refAlerts));
+  } catch {
+    /* best effort */
+  }
+}
 
 /** Wallet NEAR balance (liquid), or null if it can't be read. */
 async function nearBalance(account: string): Promise<number | null> {
@@ -752,16 +777,31 @@ async function checkTradeAlerts(t: TokenView) {
     const r = await fetch(`${SOCIAL_API_URL}/tokens/${t.token_id}/trades?limit=20`, { signal: AbortSignal.timeout(6000) });
     if (!r.ok) return;
     const rows = ((await r.json()) as { id: number; ts: number; account: string; is_buy: number; near: string; tokens: string; tx?: string }[])
-      .filter((x) => x.id >= REF_TRADE_ID_BASE);
-    const maxId = rows.reduce((m, x) => Math.max(m, x.id), 0);
-    const last = lastRefTradeId.get(t.token_id);
-    if (maxId > 0) lastRefTradeId.set(t.token_id, Math.max(maxId, last ?? 0));
-    if (last === undefined) {
-      if (maxId === 0) lastRefTradeId.set(t.token_id, REF_TRADE_ID_BASE - 1); // no Ref trades yet: alert the first one
-      return; // first sight: don't replay history
+      .filter((x) => x.id >= REF_TRADE_ID_BASE)
+      .sort((a, b) => a.ts - b.ts);
+    const keyOf = (x: (typeof rows)[number]) => x.tx ?? `${x.ts}:${x.account}:${x.tokens}`;
+    let st = refAlerts[t.token_id];
+    if (!st) {
+      // first time this token is tracked: everything already there is history
+      refAlerts[t.token_id] = { since: Math.floor(Date.now() / 1000), seen: rows.map(keyOf) };
+      saveRefAlerts();
+      return;
     }
-    for (const x of rows.filter((x) => x.id > last).sort((a, b) => a.id - b.id)) {
+    let changed = false;
+    for (const x of rows) {
+      const k = keyOf(x);
+      if (st.seen.includes(k)) continue;
+      st.seen.push(k);
+      changed = true;
+      // a rebuilt store re-lists old trades: only announce what happened since tracking began
+      if (x.ts < st.since - 60) continue;
+      if (x.account === LAUNCHPAD) continue; // protocol activity (buyback), not a trader
       await alert({ account: x.account, is_buy: Boolean(x.is_buy), near: x.near, tokens: x.tokens, tx: x.tx }, "ref");
+    }
+    if (changed) {
+      st = refAlerts[t.token_id];
+      st.seen = st.seen.slice(-300);
+      saveRefAlerts();
     }
   } catch (e) {
     console.warn(`ref trade alerts ${t.token_id}:`, (e as Error).message);

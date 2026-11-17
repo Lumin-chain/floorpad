@@ -135,10 +135,18 @@ impl Contract {
     /// Plain-language statement of who can move funds, for auditors and the UI.
     pub fn get_admin_powers(&self) -> Vec<String> {
         vec![
-            "owner: none (no admin methods; config is immutable after init)".into(),
+            if self.config.price_pool.is_some() {
+                "owner: none (no admin methods; config is immutable after init)".into()
+            } else {
+                "owner: none (config is immutable after init, except the testnet graduation target below)".into()
+            },
             format!("platform fees: accrue in-contract; anyone can sweep them, only to treasury {}", self.config.treasury_id),
             format!("platform yield cut: claimable LiNEAR credited to treasury {}", self.config.treasury_id),
             format!("price: {}", if self.config.price_pool.is_some() { "read on-chain from Ref; nobody can set it" } else { "feeder mode (testnet), capped at 2x per update" }),
+            format!(
+                "graduation market cap: {}",
+                if self.config.price_pool.is_some() { "fixed at init" } else { "testnet only: the launchpad account may change it for new launches (set_grad_mcap_usd)" }
+            ),
             "upgrades: only possible if the launchpad account still has a full-access key (deploy script deletes it)".into(),
         ]
     }
