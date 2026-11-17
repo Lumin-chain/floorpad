@@ -808,8 +808,27 @@ async function checkTradeAlerts(t: TokenView) {
   }
 }
 
+/**
+ * Testnet: Rhea's rated LiNEAR/wNEAR pool refuses to quote or trade once its cached LiNEAR rate
+ * expires, which hides the best LiNEAR -> NEAR route from users. Refresh it every 20 minutes.
+ */
+const LINEAR_RATED_POOL = process.env.LINEAR_RATED_POOL ?? (NETWORK === "testnet" ? "571" : "");
+let lastRateRefresh = 0;
+async function refreshLinearRate() {
+  if (!LINEAR_RATED_POOL || Date.now() - lastRateRefresh < 20 * 60_000) return;
+  lastRateRefresh = Date.now();
+  const res = await operator.functionCall({
+    contractId: launchCfg.ref_exchange,
+    methodName: "update_token_rate",
+    args: { token_id: launchCfg.linear },
+    gas: 60n * TGAS,
+  });
+  if (JSON.stringify(res.receipts_outcome).includes("Failure")) console.warn("LiNEAR rate refresh failed");
+}
+
 async function tick() {
   await pushPrice().catch((e) => console.warn("price push failed:", (e as Error).message));
+  await refreshLinearRate().catch((e) => console.warn("LiNEAR rate refresh:", (e as Error).message));
   const tokens = await allTokens();
   cachedAgentTokens = tokens.map((t) => ({
     token_id: t.token_id,

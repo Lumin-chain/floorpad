@@ -26,6 +26,7 @@ import { Mascot } from "@/components/Mascot";
 import { SlabIcon } from "@/components/Brand";
 import { PnlModal } from "@/components/PnlModal";
 import { positionSummary } from "@/lib/pnl";
+import { openConvertLinear } from "@/lib/linear-exit";
 
 interface Row {
   t: TokenView;
@@ -139,6 +140,7 @@ export default function Portfolio() {
         <div className="row">
           <span className="muted">Claimable: <b>{fmtNear(claimable ?? "0")} LiNEAR</b></span>
           <button className="btn primary sm" disabled={busy || !claimable || claimable === "0"} onClick={withdraw}>Withdraw</button>
+          <button className="btn sm" onClick={openConvertLinear} title="Turn LiNEAR into NEAR">LiNEAR → NEAR</button>
         </div>
       </div>
       <div className="grid half">

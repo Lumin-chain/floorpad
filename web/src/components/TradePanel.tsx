@@ -22,6 +22,7 @@ import {
   type TradingAccount,
 } from "@/lib/near";
 import { storageCallIfNeeded, tokenBalanceError, useView, useWallet, type Tx } from "@/lib/wallet";
+import { bestLinearQuote, openConvertLinear, rateRefreshTxs } from "@/lib/linear-exit";
 import { isSocialConfigured, postTrade } from "@/lib/social";
 import { Kv } from "./ui";
 import type { TokenCtx } from "@/app/token/[id]/page";
@@ -537,19 +538,9 @@ function RefTrade({ t, balance, holdingSince, linearPrice, reload, initialSide, 
   const sellTaxBps = BigInt(platBps + (taxActive ? (taxCfg?.sell_tax_bps ?? t.sell_tax_bps ?? 100) + exitBps : 0));
   const netSell = side === "sell" && sellTaxBps < 10000n ? (base * (10000n - sellTaxBps)) / 10000n : base;
   const out = !pool || base === 0n || rMeme === 0n || rLin === 0n ? 0n : side === "buy" ? refOut(shares, rLin, rMeme, fee) : refOut(netSell, rMeme, rLin, fee);
-  const { data: hop2NearStr } = useView(
-    side === "sell" && out > 0n
-      ? () =>
-          view<string>(REF, "get_return", {
-            pool_id: LINEAR_WNEAR_POOL,
-            token_in: LINEAR,
-            amount_in: out.toString(),
-            token_out: WNEAR,
-          })
-      : null,
-    [side, out.toString()],
-    8000,
-  );
+  // 2nd hop: the best LiNEAR -> wNEAR pool (Rhea's rated pool when it pays more)
+  const { data: hop2 } = useView(side === "sell" && out > 0n ? () => bestLinearQuote(out) : null, [side, out.toString()], 8000);
+  const hop2NearStr = hop2?.out ? hop2.out.toString() : null;
   // Sells can pay out in NEAR (2nd hop through the LiNEAR/wNEAR pool) or in LiNEAR (1 hop).
   // Buys stake NEAR into LiNEAR at the fair rate, so when that pool is thin the NEAR leg loses
   // value buys never paid; on Auto the panel pays LiNEAR then (redeemable for NEAR via LiNEAR).
@@ -631,14 +622,11 @@ function RefTrade({ t, balance, holdingSince, linearPrice, reload, initialSide, 
         calls: [{ method: "ft_transfer_call", args: { receiver_id: REF, amount: base.toString(), msg }, gas: 200, deposit: "1" }],
       });
     } else {
-      // 1. Quote exact 2nd-hop wNEAR output so 1% slippage applies to the native NEAR received
-      const liveHop2 = await view<string>(REF, "get_return", {
-        pool_id: LINEAR_WNEAR_POOL,
-        token_in: LINEAR,
-        amount_in: out.toString(),
-        token_out: WNEAR,
-      }).catch(() => sellNearOut.toString());
-      const minWnearOut = (BigInt(liveHop2) * (10000n - SLIPPAGE_BPS)) / 10000n;
+      // 1. Quote the best 2nd hop so 1% slippage applies to the native NEAR received
+      const best = await bestLinearQuote(out);
+      const liveHop2 = best.out ?? (linValueNear * 7000n) / 10000n; // expired rate: refreshed below, floor at 70% of value
+      const minWnearOut = (liveHop2 * (10000n - SLIPPAGE_BPS)) / 10000n;
+      txs.push(...rateRefreshTxs(best));
 
       // 2. Single-tx 2-hop swap (MEME -> LiNEAR -> wNEAR) + unwrap to native NEAR
       const msg = JSON.stringify({
@@ -650,7 +638,7 @@ function RefTrade({ t, balance, holdingSince, linearPrice, reload, initialSide, 
             min_amount_out: "1",
           },
           {
-            pool_id: LINEAR_WNEAR_POOL,
+            pool_id: best.pool,
             token_in: LINEAR,
             token_out: WNEAR,
             min_amount_out: minWnearOut.toString(),
@@ -808,8 +796,9 @@ function RefTrade({ t, balance, holdingSince, linearPrice, reload, initialSide, 
       {side === "sell" && nearLegLossBps > 100 && (
         <div className="notice small" style={{ margin: 0 }}>
           {payLinear
-            ? `Paying out in LiNEAR: converting to NEAR right now would lose ${(nearLegLossBps / 100).toFixed(1)}% in the thin LiNEAR/NEAR pool (you'd get ${fmtNear(hop2Near.toString())} NEAR). LiNEAR is staked NEAR: unstake it on LiNEAR or swap it later.`
-            : `The LiNEAR/NEAR pool is thin: taking NEAR loses ${(nearLegLossBps / 100).toFixed(1)}% vs. ${fmtNear(linValueNear.toString())} NEAR in LiNEAR. Choose LiNEAR to keep it.`}
+            ? `Paying out in LiNEAR: converting to NEAR right now would lose ${(nearLegLossBps / 100).toFixed(1)}% in the shallow testnet pools (you'd get ${fmtNear(hop2Near.toString())} NEAR). LiNEAR is staked NEAR: unstake it for full value or swap it later. `
+            : `Testnet pools are shallow: taking NEAR loses ${(nearLegLossBps / 100).toFixed(1)}% vs. ${fmtNear(linValueNear.toString())} NEAR in LiNEAR. Choose LiNEAR to keep it. `}
+          <button className="btn sm ghost" style={{ marginTop: 6 }} onClick={openConvertLinear}>Convert LiNEAR → NEAR</button>
         </div>
       )}
       <Kv k="Token tax" v={`${taxPct.toFixed(2)}%${taxView ? "" : " (max)"}`} />
