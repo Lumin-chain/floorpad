@@ -21,11 +21,13 @@ export const BUCKET_LABELS = ["Floor", "Buyback & burn", "Airdrop lockers", "AI 
 
 let rpcId = 0;
 async function rpc<T>(method: string, params: unknown): Promise<T> {
-  const res = await fetch(RPC, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method, params }),
-  });
+  const body = () => JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method, params });
+  let res = await fetch(RPC, { method: "POST", headers: { "content-type": "application/json" }, body: body() });
+  // public RPCs rate-limit bursts: back off briefly instead of failing the view
+  for (let attempt = 1; res.status === 429 && attempt <= 2; attempt++) {
+    await new Promise((r) => setTimeout(r, 400 * attempt));
+    res = await fetch(RPC, { method: "POST", headers: { "content-type": "application/json" }, body: body() });
+  }
   const json = await res.json();
   if (json.error) throw new Error(json.error.data ?? json.error.message ?? "rpc error");
   if (json.result?.error) throw new Error(json.result.error);
@@ -34,7 +36,29 @@ async function rpc<T>(method: string, params: unknown): Promise<T> {
 
 const b64 = (s: string) => btoa(unescape(encodeURIComponent(s)));
 
-export async function view<T>(contract: string, method: string, args: object = {}): Promise<T> {
+/**
+ * Read-only contract views are shared and briefly cached: the same view asked for by several
+ * components at once is one request, and a repeat within VIEW_CACHE_MS reuses the answer. This
+ * cuts the browser's RPC traffic sharply (pages poll the same views from many places).
+ */
+const VIEW_CACHE_MS = 2000;
+const viewCache = new Map<string, { at: number; p: Promise<unknown> }>();
+
+export function view<T>(contract: string, method: string, args: object = {}): Promise<T> {
+  const key = `${contract}|${method}|${JSON.stringify(args)}`;
+  const now = Date.now();
+  const hit = viewCache.get(key);
+  if (hit && now - hit.at < VIEW_CACHE_MS) return hit.p as Promise<T>;
+  const p = viewUncached<T>(contract, method, args);
+  viewCache.set(key, { at: now, p });
+  p.catch(() => viewCache.delete(key)); // never cache failures
+  if (viewCache.size > 500) {
+    for (const [k, v] of viewCache) if (now - v.at > VIEW_CACHE_MS) viewCache.delete(k);
+  }
+  return p;
+}
+
+async function viewUncached<T>(contract: string, method: string, args: object): Promise<T> {
   const r = await rpc<{ result: number[] }>("query", {
     request_type: "call_function",
     finality: "optimistic",

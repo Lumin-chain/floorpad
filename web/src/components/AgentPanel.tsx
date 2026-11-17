@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ago, fmtNear, isGraduated, lp, YOCTO, type Post } from "@/lib/near";
-import { useView } from "@/lib/wallet";
+import { ago, fmtNear, isGraduated, LAUNCHPAD, LINEAR, lp, parseUnits, view, YOCTO, type Post } from "@/lib/near";
+import { useView, useWallet } from "@/lib/wallet";
 import { getAgentPower, useStream, type AgentPowerInfo } from "@/lib/social";
 import { Kv } from "./ui";
 import type { TokenCtx } from "@/app/token/[id]/page";
@@ -10,7 +10,52 @@ import { SlabIcon } from "./Brand";
 
 const TG_BOT = (process.env.NEXT_PUBLIC_TELEGRAM_BOT ?? "floorpadagentbot").replace(/^@/, "");
 
-export function AgentPanel({ t, linearPrice, onGoDao }: TokenCtx & { onGoDao: () => void }) {
+/** Anyone can pay for the agent: stakes NEAR into LiNEAR and sends it to the agent budget. */
+function FundAgent({ t, linearPrice, reload }: Pick<TokenCtx, "t" | "linearPrice" | "reload">) {
+  const { send, busy, accountId, signIn } = useWallet();
+  const [amt, setAmt] = useState("1");
+  const near = parseUnits(amt, 24);
+  const posts = near > 0n ? Number(near / 10n ** 22n) : 0; // 0.01 NEAR per post
+  async function fund() {
+    if (!accountId) return signIn();
+    if (near === 0n) return;
+    // fresh LiNEAR price, with a small buffer so the staked shares always cover the transfer
+    const price = BigInt(await view<string>(LINEAR, "ft_price").catch(() => linearPrice.toString()));
+    const shares = (((near * YOCTO) / (price > 0n ? price : YOCTO)) * 995n) / 1000n;
+    const ok = await send([
+      {
+        receiverId: LINEAR,
+        calls: [
+          { method: "deposit_and_stake", args: {}, gas: 50, deposit: near },
+          {
+            method: "ft_transfer_call",
+            args: { receiver_id: LAUNCHPAD, amount: shares.toString(), msg: JSON.stringify({ fund_agent: t.token_id }) },
+            gas: 60,
+            deposit: "1",
+          },
+        ],
+      },
+    ]);
+    if (ok) reload();
+  }
+  return (
+    <div className="panel stack" style={{ gap: 8 }}>
+      <h2 style={{ margin: 0 }}>Fund the agent</h2>
+      <p className="small muted" style={{ margin: 0 }}>
+        Pay for ${t.meta.symbol}&apos;s AI posts directly. Your NEAR is staked as LiNEAR and added to the agent budget; each post costs 0.01 NEAR.
+      </p>
+      <div className="input-suffix">
+        <input className="input" inputMode="decimal" value={amt} onChange={(e) => setAmt(e.target.value)} />
+        <em>NEAR</em>
+      </div>
+      <button className="btn primary block" disabled={busy || near === 0n} onClick={fund}>
+        {busy ? "Waiting for wallet…" : `Fund about ${posts.toLocaleString()} posts`}
+      </button>
+    </div>
+  );
+}
+
+export function AgentPanel({ t, linearPrice, reload, onGoDao }: TokenCtx & { onGoDao: () => void }) {
   const { data: posts } = useView(() => lp<Post[]>("get_posts", { token_id: t.token_id, limit: 50 }), [t.token_id, t.post_count], 15000);
   const [powerInfo, setPowerInfo] = useState<AgentPowerInfo | null>(null);
 
@@ -61,10 +106,13 @@ export function AgentPanel({ t, linearPrice, onGoDao }: TokenCtx & { onGoDao: ()
           <Kv k="Operator" v={<span className="mono small">{t.agent_account}</span>} />
           <p className="small muted" style={{ marginTop: 10 }}>
             {grad
-              ? "Each post is paid on-chain from this budget. Holders refill it by allocating yield to the AI agent in the Lock & vote tab. With an empty budget the contract rejects posts."
+              ? "Each post is paid on-chain from this budget. It refills from staking yield (10% by default; holders can vote more in Lock & vote) and from anyone funding it below. With an empty budget the contract rejects posts."
               : "During the curve phase posts are free. After graduation the agent runs only on budget that holders vote for."}
           </p>
-          <div className="panel tight stack" style={{ background: "var(--panel-2)", gap: 6, marginTop: 10 }}>
+        </div>
+        <FundAgent t={t} linearPrice={linearPrice} reload={reload} />
+        <div className="panel">
+          <div className="panel tight stack" style={{ background: "var(--panel-2)", gap: 6, marginTop: 0 }}>
             <div className="row between">
               <b className="small">⚡ BRRRAIN Staking-for-Inference</b>
               <span className="badge sky">Perpetual AI</span>

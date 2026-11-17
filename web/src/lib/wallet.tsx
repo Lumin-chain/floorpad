@@ -326,8 +326,18 @@ export function useView<T>(fetcher: (() => Promise<T>) | null, key: unknown[], i
     // Stale-while-revalidate: keep previous data in place so UI doesn't collapse/jump
     load();
     if (!intervalMs) return;
-    const t = setInterval(load, intervalMs);
-    return () => clearInterval(t);
+    // Background tabs don't poll; coming back refreshes at once.
+    const t = setInterval(() => {
+      if (typeof document === "undefined" || !document.hidden) load();
+    }, intervalMs);
+    const onVisible = () => {
+      if (!document.hidden) load();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [k, intervalMs, load]);
   return { data, error, reload: load };
 }

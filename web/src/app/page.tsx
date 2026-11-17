@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import {
   ago,
@@ -46,6 +47,7 @@ function isDevTestToken(t: TokenView): boolean {
 }
 
 export default function Explore() {
+  const router = useRouter();
   const { data: tokens, error } = useView(() => lp<TokenView[]>("get_tokens", { from_index: 0, limit: 100 }), [], 10000);
   const { data: cfg } = useView(() => lp<LaunchConfig>("get_config"), [], 0);
   const { data: usd } = useView(() => nearUsd(), [], 60000);
@@ -365,7 +367,7 @@ export default function Explore() {
               </thead>
               <tbody>
                 {tableRows.map((t) => (
-                  <tr key={t.token_id} className="click-row" onClick={() => (window.location.href = `/token/${t.token_id}`)}>
+                  <tr key={t.token_id} className="click-row" onClick={() => router.push(`/token/${t.token_id}`)} onMouseEnter={() => router.prefetch(`/token/${t.token_id}`)}>
                     <td>
                       <div className="row" style={{ gap: 10 }}>
                         <Avatar t={t} small />
