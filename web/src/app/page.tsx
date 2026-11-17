@@ -31,6 +31,12 @@ type Filter = "trending" | "new" | "bonding" | "graduated";
 type SortKey = "mcap" | "floor" | "progress" | "holders" | "volume" | "age";
 
 const FILTER_LABEL: Record<Filter, string> = { trending: "Trending", new: "New", bonding: "Bonding", graduated: "Graduated" };
+const FILTER_HINT: Record<Filter, string> = {
+  trending: "All tokens, most active first (trades, chat and holders).",
+  new: "All tokens, newest launch first.",
+  bonding: "Only tokens still on the bonding curve or moving to Rhea, closest to graduating first.",
+  graduated: "Only tokens trading on Rhea, most recently graduated first.",
+};
 const FILTER_FACE = { trending: "cool", new: "wink", bonding: "hero", graduated: "flag" } as const;
 
 interface RefPoolData {
@@ -57,7 +63,8 @@ export default function Explore() {
   const [calls, setCalls] = useState<Callout[]>([]);
   const [filter, setFilter] = useState<Filter>("trending");
   const [viewMode, setViewMode] = useState<"grid" | "table">("grid");
-  const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "mcap", dir: -1 });
+  // table column sort; null = follow the selected tab's order
+  const [sort, setSort] = useState<{ key: SortKey | null; dir: 1 | -1 }>({ key: null, dir: -1 });
   const [q, setQ] = useState("");
   const [showGuide, setShowGuide] = useState(false);
   const [showTests, setShowTests] = useState(false);
@@ -135,6 +142,18 @@ export default function Explore() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visiblePool, filter, q, chatCounts]);
 
+  // how many tokens each tab holds (with the current search), shown on the tabs
+  const tabCounts = useMemo(() => {
+    const s = q.toLowerCase();
+    const base = s ? visiblePool.filter((t) => t.meta.name.toLowerCase().includes(s) || t.meta.symbol.toLowerCase().includes(s)) : visiblePool;
+    return {
+      trending: base.length,
+      new: base.length,
+      bonding: base.filter((t) => t.grad_stage !== "Graduated").length,
+      graduated: base.filter((t) => t.grad_stage === "Graduated").length,
+    } as Record<Filter, number>;
+  }, [visiblePool, q]);
+
   const featured = useMemo(() => {
     const curveActive = visiblePool.filter((t) => t.grad_stage === "Curve");
     return [...curveActive].sort((a, b) => progressPct(b) - progressPct(a))[0] ?? visiblePool[0];
@@ -165,7 +184,9 @@ export default function Explore() {
       volume: (t) => toUsd(t.volume_near),
       age: (t) => -t.created_at,
     };
-    return [...list].sort((a, b) => (val[sort.key](a) - val[sort.key](b)) * sort.dir);
+    const key = sort.key;
+    if (!key) return list; // the tab decides the order until a column is clicked
+    return [...list].sort((a, b) => (val[key](a) - val[key](b)) * sort.dir);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [list, sort, usd, refPools, linearPrice]);
 
@@ -308,8 +329,19 @@ export default function Explore() {
         <div className="toolbar">
           <div className="seg scroll-x scroll-cue" role="tablist" aria-label="Filter launches">
             {(Object.keys(FILTER_LABEL) as Filter[]).map((f) => (
-              <button key={f} className={filter === f ? "active" : ""} onClick={() => setFilter(f)}>
-                <span className="moji-label"><Moji face={FILTER_FACE[f]} size={18} />{FILTER_LABEL[f]}</span>
+              <button
+                key={f}
+                className={filter === f ? "active" : ""}
+                onClick={() => {
+                  setFilter(f);
+                  setSort({ key: null, dir: -1 }); // the new tab's order applies in the table too
+                }}
+              >
+                <span className="moji-label">
+                  <Moji face={FILTER_FACE[f]} size={18} />
+                  {FILTER_LABEL[f]}
+                  {tokens && (f === "bonding" || f === "graduated") ? <span className="tab-count">{tabCounts[f]}</span> : null}
+                </span>
               </button>
             ))}
           </div>
@@ -326,7 +358,8 @@ export default function Explore() {
           </div>
         </div>
 
-        {error && <div className="notice warn">Could not load tokens: {error}</div>}
+        <div className="small muted filter-hint">{FILTER_HINT[filter]}</div>
+        {error && !tokens && <div className="notice warn">Could not load tokens: {error}</div>}
         {!tokens && !error && (
           <div className="grid cards">
             {[0, 1, 2].map((i) => (
@@ -346,7 +379,16 @@ export default function Explore() {
         {tokens && list.length === 0 && (
           <div className="empty mascot-empty">
             <Mascot pose="flag" size={110} motion="peek" alt="Launch mascot" />
-            <span>No tokens match this filter. <Link href="/create" className="green link-chev">Launch the next one <SlabIcon name="chevron" size={12} /></Link></span>
+            <span>
+              {q
+                ? `Nothing matches "${q}" here.`
+                : filter === "bonding"
+                  ? "No tokens are on the bonding curve right now: they have all graduated."
+                  : filter === "graduated"
+                    ? "No token has graduated yet."
+                    : "No tokens yet."}{" "}
+              <Link href="/create" className="green link-chev">Launch the next one <SlabIcon name="chevron" size={12} /></Link>
+            </span>
           </div>
         )}
 

@@ -19,15 +19,47 @@ export const ONE_YOCTO = "1";
 export const STORAGE_FEE = 1_250_000_000_000_000_000_000n; // 0.00125 NEAR
 export const BUCKET_LABELS = ["Floor", "Buyback & burn", "Airdrop lockers", "AI agent", "DAO treasury"] as const;
 
+/**
+ * Endpoints tried in order. Public RPCs rate-limit busy browsers, and a rate-limited response
+ * often arrives without CORS headers, which the browser reports only as "Failed to fetch". So a
+ * network error, a 429 or a 5xx moves on to the next endpoint (all of these allow browsers).
+ */
+const RPC_FALLBACKS = [
+  RPC,
+  ...(NETWORK === "mainnet"
+    ? ["https://free.rpc.fastnear.com", "https://rpc.mainnet.near.org"]
+    : ["https://test.rpc.fastnear.com", "https://rpc.testnet.near.org"]),
+].filter((u, i, a) => a.indexOf(u) === i);
+/** Endpoint that last answered; tried first next time. */
+let rpcPreferred = 0;
+
 let rpcId = 0;
 async function rpc<T>(method: string, params: unknown): Promise<T> {
   const body = () => JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method, params });
-  let res = await fetch(RPC, { method: "POST", headers: { "content-type": "application/json" }, body: body() });
-  // public RPCs rate-limit bursts: back off briefly instead of failing the view
-  for (let attempt = 1; res.status === 429 && attempt <= 2; attempt++) {
-    await new Promise((r) => setTimeout(r, 400 * attempt));
-    res = await fetch(RPC, { method: "POST", headers: { "content-type": "application/json" }, body: body() });
+  let res: Response | null = null;
+  let lastErr: unknown = null;
+  for (let attempt = 0; attempt < RPC_FALLBACKS.length + 1 && !res; attempt++) {
+    const i = (rpcPreferred + attempt) % RPC_FALLBACKS.length;
+    try {
+      const r = await fetch(RPC_FALLBACKS[i], {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: body(),
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (r.status === 429 || r.status >= 500) {
+        lastErr = new Error(`RPC busy (${r.status})`);
+        await new Promise((s) => setTimeout(s, 250 * (attempt + 1)));
+        continue;
+      }
+      res = r;
+      rpcPreferred = i;
+    } catch (e) {
+      lastErr = e; // network error or CORS-less 429: try the next endpoint
+      await new Promise((s) => setTimeout(s, 250 * (attempt + 1)));
+    }
   }
+  if (!res) throw new Error(`NEAR RPC unreachable right now (${(lastErr as Error)?.message ?? "network error"}). Retrying…`);
   const json = await res.json();
   if (json.error) throw new Error(json.error.data ?? json.error.message ?? "rpc error");
   if (json.result?.error) throw new Error(json.result.error);
