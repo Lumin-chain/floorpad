@@ -3421,3 +3421,105 @@ tr.click-row:hover td {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------- token chart ---------- */
+.token-chart {
+  padding: 12px 12px 8px;
+}
+
+.tc-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tc-price {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tc-price > b {
+  font-size: var(--fs-lg, 20px);
+}
+
+.tc-ohlc {
+  margin: 6px 0 2px;
+  color: var(--muted);
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.tc-ohlc b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.tc-canvas {
+  position: relative;
+  height: 380px;
+  margin-top: 4px;
+}
+
+.tc-heads {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+  overflow: hidden;
+}
+
+.tc-head-buy,
+.tc-dot-sell {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: auto;
+  transition: transform 0.12s ease;
+}
+
+.tc-head-buy {
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
+}
+
+.tc-head-buy:hover,
+.tc-dot-sell:hover {
+  transform: scale(1.35);
+  z-index: 2;
+}
+
+.tc-dot-sell {
+  background: #e5655b;
+  border: 1.5px solid rgba(0, 0, 0, 0.5);
+}
+
+.tc-dot-sell.inline {
+  position: static;
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  vertical-align: middle;
+}
+
+.tc-head-buy.mine,
+.tc-dot-sell.mine {
+  outline: 2px solid var(--gold, #e6c14a);
+  outline-offset: 1px;
+}
+
+.tc-legend {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 767px) {
+  .tc-canvas {
+    height: 300px;
+  }
+}

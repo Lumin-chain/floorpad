@@ -14,6 +14,7 @@
   "dependencies": {
     "@hot-labs/near-connect": "^0.12.0",
     "@walletconnect/sign-client": "^2.26.0",
+    "lightweight-charts": "4.2.3",
     "next": "15.5.29",
     "react": "19.1.10",
     "react-dom": "19.1.10"
