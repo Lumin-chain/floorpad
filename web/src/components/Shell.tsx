@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { ConvertLinearHost, LinearChip } from "./ConvertLinear";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { WalletProvider, useWallet } from "@/lib/wallet";
@@ -75,6 +76,7 @@ function Header() {
             <span className="badge green mono desktop-only" title="Wallet NEAR Balance" style={{ padding: "4px 8px" }}>
               {fmtNear(nearBalance, 2)} N
             </span>
+            <LinearChip />
             <button className="btn sm account-btn" onClick={signOut} title="Sign out">
               {accountId}
             </button>
@@ -136,6 +138,7 @@ export function Shell({ children }: { children: ReactNode }) {
       </footer>
       <BottomNav />
       <Toast />
+      <ConvertLinearHost />
       <MascotPreload />
     </WalletProvider>
   );

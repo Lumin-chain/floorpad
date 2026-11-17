@@ -410,12 +410,11 @@ export default function Explore() {
       {/* ---------- how the floor rises: four steps, each a level higher ---------- */}
       <section className="section">
         <h2 className="section-title">How the floor rises</h2>
-        <p className="muted small" style={{ marginTop: -4 }}>Where every trade&apos;s fees go, from first buy to locked liquidity.</p>
-        <ol className="signal-path">
-          <Step n="01" title="Fair curve" body="One transaction deploys token, curve and DAO. No premint, no dev bag; launch-window wallet caps slow snipers." />
-          <Step n="02" title="Floor vault" body="40% of trade fees, 100% of quick-flip exit fees and 15% of the graduation raise flow into a NEAR vault. Burn tokens for your share anytime." />
-          <Step n="03" title="Sell tax > buy tax" body="1% platform fee + creator token tax (default 0.5% buy, 1% sell, plus up to 3% decaying over 30 days, enforced on-curve and on graduated DEX trades). Dumping pays holders." />
-          <Step n="04" title="Locked yield LP" body="At graduation liquidity moves to Ref Finance, locks forever and earns LiNEAR yield. Lockers vote where it goes (>70% to pass)." />
+        <ol className="signal-path compact">
+          <Step n="01" title="Fair curve" body="No premint, no dev bag. Launch-window caps slow snipers." />
+          <Step n="02" title="Floor vault" body="Curve fees, exit fees and 15% of the raise back every token. Redeem anytime." />
+          <Step n="03" title="Burns, never sells" body="A 1% pool fee earns LiNEAR for the floor; the token side is burned." />
+          <Step n="04" title="Locked yield LP" body="Liquidity locks forever on Rhea and earns staking yield, split by holder vote." />
         </ol>
       </section>
     </>
