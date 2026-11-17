@@ -1,6 +1,7 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { SlabIcon } from "./Brand";
 import { BUCKET_LABELS, safeImageSrc, type TokenView } from "@/lib/near";
 
 export const BUCKET_COLORS = ["#3E9C77", "#F0907A", "#E6C14A", "#D98C53", "#C0C0C0"];
@@ -74,6 +75,77 @@ export function AllocBar({ values }: { values: (string | number | bigint)[] }) {
         ))}
       </div>
     </div>
+  );
+}
+
+/** Shortens a NEAR account for display: nhth.lpv45w4s.fpbankmwbbc95z.testnet -> nhth.lpv45…testnet */
+export function shortAccount(a: string, max = 22): string {
+  if (a.length <= max) return a;
+  const parts = a.split(".");
+  const tail = parts.length > 1 ? parts[parts.length - 1] : a.slice(-6);
+  const head = a.slice(0, Math.max(6, max - tail.length - 1));
+  return `${head}…${tail}`;
+}
+
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    // Older mobile browsers / non-secure contexts: fall back to a hidden textarea.
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
+      ta.remove();
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+}
+
+/**
+ * An account id with a one-tap copy button. Shows a shortened form (`short`) but always copies
+ * the full id; the full id is in the tooltip and the accessible label.
+ */
+export function CopyAddress({
+  value,
+  label,
+  short = true,
+  className = "",
+}: {
+  value: string;
+  label?: string;
+  short?: boolean;
+  className?: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  const shown = short ? shortAccount(value) : value;
+  return (
+    <button
+      type="button"
+      className={`copy-addr ${copied ? "copied" : ""} ${className}`}
+      title={`${value} (click to copy)`}
+      aria-label={`Copy ${label ?? "address"} ${value}`}
+      onClick={async (e) => {
+        e.stopPropagation();
+        if (await copyText(value)) {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1600);
+        }
+      }}
+    >
+      {label && <span className="copy-addr-label">{label}</span>}
+      <span className="mono copy-addr-value">{shown}</span>
+      <SlabIcon name={copied ? "check" : "copy"} size={13} />
+      <span className="copy-addr-state" aria-live="polite">{copied ? "Copied" : ""}</span>
+    </button>
   );
 }
 

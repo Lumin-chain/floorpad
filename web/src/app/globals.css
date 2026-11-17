@@ -784,6 +784,62 @@ input[type=range] {
 }
 
 /* hard solid-tint badges (min 12px / 0.75rem) */
+/* Copyable account id: shows a short form, copies the full id. */
+.copy-addr {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-height: 28px;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-inner);
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  transition: color .15s, border-color .15s;
+}
+
+.copy-addr:hover,
+.copy-addr:focus-visible {
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+
+.copy-addr.copied {
+  color: var(--accent-bright);
+  border-color: var(--accent-bright);
+}
+
+.copy-addr-label {
+  font-family: var(--display);
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+
+.copy-addr-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.copy-addr-state:empty {
+  display: none;
+}
+
+.token-ca {
+  margin: 4px 0 6px;
+}
+
+@media (max-width: 767px) {
+  .token-ca {
+    min-height: 36px;
+    font-size: var(--fs-sm);
+  }
+}
+
 .badge {
   display: inline-flex;
   align-items: center;

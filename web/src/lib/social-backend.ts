@@ -177,6 +177,8 @@ export interface TokenInfo {
   total_supply: string;
   burned: string;
   trade_count?: number;
+  /** Account the token's AI agent posts as (launchpad `agent_account`). */
+  agent_account?: string;
 }
 
 const NEAR_ACCOUNT_RE = /^(([a-z0-9]+[-_])*[a-z0-9]+\.)*([a-z0-9]+[-_])*[a-z0-9]+$/;

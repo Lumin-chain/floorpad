@@ -1,0 +1,236 @@
+/**
+ * Telegram trade alerts: layout, size tiers and the buy roasts.
+ *
+ * Pure functions (no I/O) so the format can be previewed and tested without a bot.
+ * Output is Telegram HTML (`parse_mode: "HTML"`); every interpolated value is escaped.
+ */
+
+export interface AlertTrade {
+  isBuy: boolean;
+  /** NEAR spent (buy) or received (sell). */
+  near: number;
+  /** Whole tokens bought or sold. */
+  tokens: number;
+  account: string;
+  /** Wallet NEAR balance after the trade, when it could be read. */
+  balanceLeft?: number | null;
+  txHash?: string | null;
+}
+
+export interface AlertToken {
+  tokenId: string;
+  symbol: string;
+  venue: "curve" | "ref";
+  graduated: boolean;
+  /** Bonding-curve progress in percent (pre-graduation). */
+  curvePct?: number | null;
+  /** Circulating supply in whole tokens (total minus burned). */
+  circulating?: number | null;
+  /** Floor (vault backing per token) in NEAR. */
+  floorNear?: number | null;
+  holders?: number | null;
+}
+
+export interface AlertLinks {
+  webUrl: string;
+  explorerUrl: string;
+}
+
+// ---------- size tiers ----------
+
+interface Tier {
+  min: number;
+  emoji: string;
+  name: string;
+}
+
+/** Buy size tiers by NEAR spent, smallest first. */
+export const TIERS: Tier[] = [
+  { min: 0, emoji: "🦐", name: "Shrimp" },
+  { min: 1, emoji: "🐟", name: "Fish" },
+  { min: 5, emoji: "🐬", name: "Dolphin" },
+  { min: 20, emoji: "🦈", name: "Shark" },
+  { min: 100, emoji: "🐋", name: "Whale" },
+];
+
+export function tierFor(near: number): Tier {
+  let t = TIERS[0];
+  for (const x of TIERS) if (near >= x.min) t = x;
+  return t;
+}
+
+/** A bar of dots that grows with trade size (1 dot for dust, up to 20 for whales). */
+export function sizeBar(near: number, isBuy: boolean): string {
+  const n = Math.max(1, Math.min(20, Math.round(Math.sqrt(Math.max(near, 0)) * 3)));
+  return (isBuy ? "🟢" : "🔴").repeat(n);
+}
+
+// ---------- number formatting ----------
+
+export function compactNum(v: number): string {
+  if (!Number.isFinite(v)) return "–";
+  const a = Math.abs(v);
+  if (a >= 1e12) return `${(v / 1e12).toFixed(2)}T`;
+  if (a >= 1e9) return `${(v / 1e9).toFixed(2)}B`;
+  if (a >= 1e6) return `${(v / 1e6).toFixed(2)}M`;
+  if (a >= 1e3) return `${(v / 1e3).toFixed(1)}K`;
+  return v.toFixed(a >= 1 ? 2 : 4).replace(/\.?0+$/, "") || "0";
+}
+
+export function fmtNear(v: number): string {
+  if (!Number.isFinite(v)) return "–";
+  if (v >= 1000) return compactNum(v);
+  if (v >= 1) return v.toFixed(2);
+  if (v >= 0.01) return v.toFixed(3);
+  return v.toPrecision(2);
+}
+
+/** Tiny prices without scientific notation: 0.0₆3132 style is unreadable in TG, so use plain digits. */
+export function fmtPrice(v: number): string {
+  if (!Number.isFinite(v) || v <= 0) return "–";
+  if (v >= 0.01) return v.toFixed(4);
+  const zeros = Math.floor(-Math.log10(v));
+  return v.toFixed(Math.min(zeros + 4, 20)).replace(/0+$/, "");
+}
+
+export function shortAccount(a: string, max = 24): string {
+  if (a.length <= max) return a;
+  const parts = a.split(".");
+  const tail = parts.length > 1 ? parts[parts.length - 1] : a.slice(-6);
+  return `${a.slice(0, Math.max(6, max - tail.length - 1))}…${tail}`;
+}
+
+export const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+// ---------- roasts ----------
+
+/**
+ * Sarcastic one-liners for buys, picked from the buy size and how much of the wallet it used.
+ * Playful, never financial advice, never promises returns. `{spent}`, `{left}`, `{pct}`, `{sym}`
+ * are filled in.
+ */
+const ROASTS = {
+  // spent at least 90% of the wallet
+  allIn: [
+    "{spent} NEAR in, {left} NEAR left. Rent is a social construct anyway.",
+    "Went {pct}% of the wallet in one click. Risk management has left the chat.",
+    "{left} NEAR left for gas. Hope you like walking.",
+    "That's not a position, that's a personality now.",
+    "Sold the couch for ${sym}? Bold. Sit on the floor, it's literally the theme.",
+  ],
+  // spent at least half the wallet
+  heavy: [
+    "{pct}% of the wallet on ${sym}. Diversification is for people with plans.",
+    "Half the bag in one buy. Your future self is already typing the group chat essay.",
+    "{spent} NEAR in, {left} left. Confidence or caffeine, we can't tell.",
+    "Bold allocation. The floor appreciates your sacrifice.",
+  ],
+  whale: [
+    "A whale has entered. Everyone act natural.",
+    "{spent} NEAR in one go. The chart just felt that.",
+    "Somebody check if the pool is still standing.",
+    "Big buy. Big feelings. Bigger screenshots incoming.",
+  ],
+  big: [
+    "{spent} NEAR. Not a whale yet, but definitely moist.",
+    "Solid buy. Someone's been reading the docs. Or not. Either way.",
+    "That's a real bag. Welcome to the floor, mind the slabs.",
+  ],
+  // wallet barely touched
+  pocketChange: [
+    "Used {pct}% of the wallet. Testing the water with a teaspoon, I see.",
+    "{left} NEAR still sitting there doing nothing. Interesting strategy.",
+    "Rich wallet, tiny buy. The hedge-fund-of-one approach.",
+  ],
+  shrimp: [
+    "{spent} NEAR. Every whale was a shrimp once. Most stayed shrimp.",
+    "Bought with what was under the sofa cushions. Respect.",
+    "A buy so small the chart needed glasses.",
+    "Dipping a toe. The floor is warm, come on in.",
+    "Shrimp buy detected. Small but brave.",
+  ],
+  mid: [
+    "{spent} NEAR on ${sym}. Neither shrimp nor whale. Just vibes.",
+    "Sensible-sized buy. Suspiciously responsible for this chain.",
+    "A perfectly average bag. The floor nods politely.",
+  ],
+};
+
+function pick<T>(list: T[], seed: string): T {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) h = Math.imul(h ^ seed.charCodeAt(i), 16777619);
+  return list[Math.abs(h) % list.length];
+}
+
+export function buyRoast(trade: AlertTrade, symbol: string, seed = ""): string {
+  const spent = trade.near;
+  const left = trade.balanceLeft ?? null;
+  const share = left !== null && spent + left > 0 ? spent / (spent + left) : null;
+  let pool: string[];
+  if (share !== null && share >= 0.9 && spent >= 0.2) pool = ROASTS.allIn;
+  else if (share !== null && share >= 0.5 && spent >= 0.2) pool = ROASTS.heavy;
+  else if (spent >= 100) pool = ROASTS.whale;
+  else if (spent >= 20) pool = ROASTS.big;
+  else if (share !== null && share < 0.02 && (left ?? 0) >= 50) pool = ROASTS.pocketChange;
+  else if (spent < 1) pool = ROASTS.shrimp;
+  else pool = ROASTS.mid;
+  const line = pick(pool, `${seed}|${trade.account}|${spent}`);
+  return line
+    .replace(/\{spent\}/g, fmtNear(spent))
+    .replace(/\{left\}/g, left === null ? "?" : fmtNear(left))
+    .replace(/\{pct\}/g, share === null ? "?" : String(Math.round(share * 100)))
+    .replace(/\{sym\}/g, symbol);
+}
+
+// ---------- message ----------
+
+export interface TelegramAlert {
+  text: string;
+  reply_markup: { inline_keyboard: { text: string; url: string }[][] };
+}
+
+export function formatTradeAlert(tok: AlertToken, trade: AlertTrade, links: AlertLinks): TelegramAlert {
+  const sym = esc(tok.symbol);
+  const tier = tierFor(trade.near);
+  const price = trade.tokens > 0 ? trade.near / trade.tokens : 0;
+  const mcap = tok.circulating && price > 0 ? tok.circulating * price : null;
+  const venue = tok.venue === "ref" ? "Ref Finance" : "Bonding curve";
+  const acct = esc(shortAccount(trade.account));
+  const acctUrl = `${links.explorerUrl}/address/${encodeURIComponent(trade.account)}`;
+
+  const lines: string[] = [];
+  if (trade.isBuy) {
+    lines.push(`${tier.emoji} <b>$${sym} BUY</b> · ${tier.name}`);
+  } else {
+    lines.push(`🔻 <b>$${sym} SELL</b>`);
+  }
+  lines.push(sizeBar(trade.near, trade.isBuy));
+  lines.push("");
+  lines.push(
+    trade.isBuy
+      ? `💸 <b>${fmtNear(trade.near)} NEAR</b> → <b>${compactNum(trade.tokens)}</b> $${sym}`
+      : `💸 <b>${compactNum(trade.tokens)}</b> $${sym} → <b>${fmtNear(trade.near)} NEAR</b>`,
+  );
+  lines.push(`🏷 Price  <code>${fmtPrice(price)}</code> NEAR`);
+  if (mcap !== null) lines.push(`📊 MCap  <b>${compactNum(mcap)} NEAR</b>`);
+  if (tok.floorNear && tok.floorNear > 0) lines.push(`🧱 Floor  <code>${fmtPrice(tok.floorNear)}</code> NEAR`);
+  lines.push(
+    `👤 <a href="${esc(acctUrl)}">${acct}</a>` +
+      (trade.balanceLeft !== null && trade.balanceLeft !== undefined ? ` · 👛 ${fmtNear(trade.balanceLeft)} NEAR left` : ""),
+  );
+  lines.push(
+    tok.graduated
+      ? `🎓 Graduated · ${venue} · LP locked`
+      : `📈 ${venue}${tok.curvePct !== null && tok.curvePct !== undefined ? ` · ${tok.curvePct.toFixed(1)}% to graduation` : ""}`,
+  );
+  if (tok.holders) lines[lines.length - 1] += ` · ${tok.holders} holders`;
+  if (trade.isBuy) {
+    lines.push("");
+    lines.push(`<i>${esc(buyRoast(trade, tok.symbol, trade.txHash ?? ""))}</i>`);
+  }
+
+  const tokenUrl = `${links.webUrl}/token/${encodeURIComponent(tok.tokenId)}`;
+  const row: { text: string; url: string }[] = [{ text: "📈 Chart & Trade", url: tokenUrl }];
+  if (trade.txHash) row.push({ text: "🧾 Tx", url: `${links.explorerUrl}/txns/${encodeURIComponent(trade.txHash)}` });
+  return { text: lines.join("\n"), reply_markup: { inline_keyboard: [row] } };
+}

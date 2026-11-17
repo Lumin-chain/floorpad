@@ -14,6 +14,7 @@ import path from "node:path";
 import { createHmac, randomBytes } from "node:crypto";
 import { getLatestPowerRemaining } from "./brrrain.js";
 import { allowAiReply, cleanLabel } from "./safety.js";
+import { formatTradeAlert, type AlertToken, type AlertTrade } from "./alerts.js";
 
 export interface AgentTokenInfo {
   token_id: string;
@@ -151,33 +152,25 @@ export async function postMilestone(t: AgentTokenInfo, headline: string) {
   await Promise.allSettled([postToTelegram(t, headline), postToX(t, headline, "milestone")]);
 }
 
-/** Live trade alert (buys and sells, curve and Ref). `venue` labels where it traded. */
-export async function sendTradeAlert(t: AgentTokenInfo, trade: TradeInfo, venue: "curve" | "ref" = "curve") {
+const EXPLORER_URL = (
+  process.env.EXPLORER_URL ??
+  ((process.env.NEAR_NETWORK ?? "testnet") === "mainnet" ? "https://nearblocks.io" : "https://testnet.nearblocks.io")
+).replace(/\/+$/, "");
+
+/** Live trade alert (buys and sells, curve and Ref), laid out by `formatTradeAlert`. */
+export async function sendTradeAlert(t: AgentTokenInfo, tok: AlertToken, trade: AlertTrade) {
   if (!TG_TOKEN) return;
   const targets = resolveTelegramTargets(t, true);
   if (targets.length === 0) return;
-  const nearAmt = Number(BigInt(trade.near) / 10n ** 18n) / 1e6;
-  const tokenAmt = Number(BigInt(trade.tokens) / 10n ** 18n);
-  const stage = String(t.stats.stage ?? "");
-  const where = venue === "ref" ? " on Ref Finance" : "";
-  const msg = [
-    trade.is_buy ? `🟢 NEW $${t.meta.symbol} BUY${where}!` : `🔴 $${t.meta.symbol} SELL${where}`,
-    trade.is_buy ? `Spent: ${nearAmt.toFixed(3)} NEAR` : `Received: ${nearAmt.toFixed(3)} NEAR`,
-    trade.is_buy
-      ? `Bought: ${tokenAmt.toLocaleString()} $${t.meta.symbol}`
-      : `Sold: ${tokenAmt.toLocaleString()} $${t.meta.symbol}`,
-    `${trade.is_buy ? "Buyer" : "Seller"}: ${trade.account}`,
-    `Status: ${stage}`,
-    `Floor: ${t.stats.floor_price_near ?? "–"} NEAR`,
-    `Chart & Trade: ${WEB_URL}/token/${t.token_id}`,
-  ].join("\n");
-
+  const alert = formatTradeAlert(tok, trade, { webUrl: WEB_URL, explorerUrl: EXPLORER_URL });
   for (const { chat_id, minBuyNear } of targets) {
-    if (nearAmt < minBuyNear) continue;
+    if (trade.near < minBuyNear) continue;
     await tgCall("sendMessage", {
       chat_id,
-      text: msg.slice(0, 4000),
-      disable_web_page_preview: true,
+      text: alert.text.slice(0, 4000),
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+      reply_markup: alert.reply_markup,
     });
   }
 }
