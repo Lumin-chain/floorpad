@@ -202,7 +202,7 @@ export default function Create() {
           </div>
           {taxMode === "auto" ? (
             <div className="xs muted">
-              Default: <strong>0.5% buy</strong> · <strong>1.0% sell</strong> · <strong>3.0% exit fee</strong> decaying over <strong>30 days</strong> (active on curve &amp; post-graduation DEX).
+              Default: <strong>0.5% buy</strong> · <strong>1.0% sell</strong> · <strong>3.0% exit fee</strong> decaying over <strong>30 days</strong> on the bonding curve, paid in NEAR. After graduation there is no token tax: a 1% Ref pool fee earns LiNEAR for the floor, and the token side of it is burned. Nothing is ever sold by the protocol.
             </div>
           ) : (
             <div className="grid half">

@@ -256,3 +256,98 @@ export function formatTradeAlert(tok: AlertToken, trade: AlertTrade, links: Aler
   if (trade.txHash) row.push({ text: "🧾 Tx", url: `${links.explorerUrl}/txns/${encodeURIComponent(trade.txHash)}` });
   return { text: lines.join("\n"), reply_markup: { inline_keyboard: [row] } };
 }
+
+// ---------- milestone posts (launch, graduation, harvests) ----------
+
+export type Milestone =
+  | { kind: "launch"; name: string; creator: string; gradMcapUsd: number }
+  | { kind: "graduated"; poolId: number | null; secsToGraduate: number | null }
+  | { kind: "lp_harvest"; burnedTokens: number; linearAdded: number; sinceSecs: number }
+  | {
+      kind: "tax_harvest";
+      burnedTokens: number | null;
+      /** Floor vault (NEAR) and floor per token (NEAR) just before and after the harvest. */
+      vaultBefore?: number | null;
+      vaultAfter?: number | null;
+      floorBefore?: number | null;
+      floorAfter?: number | null;
+    };
+
+export interface MilestonePost {
+  /** Telegram HTML. */
+  text: string;
+  /** Plain text for X. */
+  plain: string;
+  reply_markup: { inline_keyboard: { text: string; url: string }[][] };
+}
+
+const RULE = "━━━━━━━━━━━━━━";
+
+export function fmtDuration(secs: number): string {
+  const s = Math.max(0, Math.round(secs));
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+  return `${Math.floor(s / 86400)}d ${Math.floor((s % 86400) / 3600)}h`;
+}
+
+/** Platform-written milestone posts; only the token's validated name/ticker is interpolated. */
+export function formatMilestone(tok: AlertToken, m: Milestone, links: AlertLinks & { refUrl?: string }): MilestonePost {
+  const sym = esc(tok.symbol);
+  const tokenUrl = `${links.webUrl}/token/${encodeURIComponent(tok.tokenId)}`;
+  const vault = tok.vaultNear && tok.vaultNear > 0 ? usdAndNear(tok.vaultNear, tok.nearUsd) : null;
+  const mcap = tok.mcapNear ? usdAndNear(tok.mcapNear, tok.nearUsd) : null;
+  const lines: string[] = [];
+  const plain: string[] = [];
+  let buttons: { text: string; url: string }[] = [{ text: "📈 Chart & Trade", url: tokenUrl }];
+
+  if (m.kind === "launch") {
+    const name = esc(m.name);
+    lines.push("🚀 <b>NEW LAUNCH ON FLOORPAD</b>", `<b>${name}</b> · $${sym}`, RULE);
+    lines.push("🧱 Redeemable floor active from the first buy");
+    lines.push(`🎯 Graduates to Ref Finance at <b>$${m.gradMcapUsd}</b> market cap`);
+    lines.push("🔒 100% of LP locked forever on graduation");
+    lines.push(`👤 Creator <a href="${esc(`${links.explorerUrl}/address/${encodeURIComponent(m.creator)}`)}">${esc(shortAccount(m.creator))}</a>`);
+    buttons = [{ text: `🟢 Buy $${tok.symbol}`, url: tokenUrl }];
+    plain.push(`🚀 New launch on Floorpad: ${m.name} ($${tok.symbol})`, "Floor active from the first buy. 100% LP locked on graduation.", tokenUrl);
+  } else if (m.kind === "graduated") {
+    lines.push(`🎓 <b>$${sym} GRADUATED</b>`, "Bonding curve sold out → now trading on Ref Finance", RULE);
+    lines.push("🔒 100% of LP locked forever");
+    if (vault) lines.push(`🧱 Floor vault  ${vault} · earning staking yield`);
+    if (mcap) lines.push(`📊 MCap  ${mcap}`);
+    if (m.secsToGraduate !== null) lines.push(`⏱ Graduated <b>${fmtDuration(m.secsToGraduate)}</b> after launch`);
+    if (links.refUrl) buttons.push({ text: m.poolId !== null ? `🏊 Ref pool #${m.poolId}` : "🏊 Ref pool", url: links.refUrl });
+    plain.push(`🎓 $${tok.symbol} graduated to Ref Finance. 100% of LP locked forever, floor vault earning staking yield.`, tokenUrl);
+  } else if (m.kind === "lp_harvest") {
+    lines.push(`🔥 <b>$${sym} LP HARVEST</b>`, `Pool fees collected over the last ${fmtDuration(m.sinceSecs)}`, RULE);
+    lines.push(`🔥 Burned <b>${compactNum(m.burnedTokens)}</b> $${sym}`);
+    if (m.linearAdded > 0) lines.push(`💧 +<b>${fmtNear(m.linearAdded)}</b> LiNEAR to staking yield`);
+    if (tok.circulating) lines.push(`📉 Supply now ${compactNum(tok.circulating)} $${sym}`);
+    if (vault) lines.push(`🧱 Floor vault  ${vault}`);
+    lines.push("", "<i>Fees in, supply out. The floor only goes one way.</i>");
+    plain.push(`🔥 $${tok.symbol} LP harvest: ${compactNum(m.burnedTokens)} burned, fees added to the floor's staking yield.`, tokenUrl);
+  } else {
+    // The tax is burned, never sold: the vault stays the same, the supply shrinks, so every
+    // holder's floor per token rises.
+    lines.push(`🔥 <b>$${sym} TAX BURN</b>`, "Trading tax burned. Nothing sold on the pool.", RULE);
+    if (m.burnedTokens) lines.push(`🔥 Burned <b>${compactNum(m.burnedTokens)}</b> $${sym}`);
+    const fb = m.floorBefore ?? null;
+    const fa = m.floorAfter ?? null;
+    if (fb && fa) {
+      const pct = ((fa - fb) / fb) * 100;
+      lines.push(
+        `🏷 Floor per token  <code>${fmtPrice(fb)}</code> → <code>${fmtPrice(fa)}</code> NEAR` +
+          (fa > fb ? ` <b>(+${pct.toFixed(pct < 1 ? 3 : 2)}%)</b>` : ""),
+      );
+    }
+    if (tok.circulating) lines.push(`📉 Supply now ${compactNum(tok.circulating)} $${sym}`);
+    if (vault) lines.push(`🧱 Floor vault  ${vault} (stays in the vault)`);
+    lines.push("", "<i>Less supply, same vault: the floor per token goes up.</i>");
+    plain.push(
+      `🔥 $${tok.symbol} tax burn: ${m.burnedTokens ? `${compactNum(m.burnedTokens)} burned` : "burned"}, nothing sold.` +
+        (fb && fa && fa > fb ? ` Floor per token +${(((fa - fb) / fb) * 100).toFixed(2)}%.` : ""),
+      tokenUrl,
+    );
+  }
+  return { text: lines.join("\n"), plain: plain.join("\n"), reply_markup: { inline_keyboard: [buttons] } };
+}

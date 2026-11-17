@@ -14,7 +14,7 @@ import path from "node:path";
 import { createHmac, randomBytes } from "node:crypto";
 import { getLatestPowerRemaining } from "./brrrain.js";
 import { allowAiReply, cleanLabel } from "./safety.js";
-import { formatTradeAlert, type AlertToken, type AlertTrade } from "./alerts.js";
+import { formatMilestone, formatTradeAlert, type AlertToken, type AlertTrade, type Milestone } from "./alerts.js";
 
 export interface AgentTokenInfo {
   token_id: string;
@@ -60,7 +60,28 @@ const TG_CHAT_MAP: Record<string, string> = (() => {
 })();
 const TG_POLL = process.env.TELEGRAM_POLL !== "0";
 
-let tgOffset = 0;
+/**
+ * Last confirmed Telegram update, persisted next to the group state (the /data volume on
+ * Railway). Starting from 0 after every restart made Telegram resend the last unconfirmed
+ * batch, and the bot answered those commands again on each redeploy or crash-restart.
+ */
+const TG_OFFSET_PATH = path.join(path.dirname(path.resolve(TG_STATE_PATH)), "telegram-offset.json");
+let tgOffset = (() => {
+  try {
+    return Number(JSON.parse(fs.readFileSync(TG_OFFSET_PATH, "utf8")).offset) || 0;
+  } catch {
+    return 0;
+  }
+})();
+function saveTgOffset() {
+  try {
+    fs.writeFileSync(TG_OFFSET_PATH, JSON.stringify({ offset: tgOffset }));
+  } catch {
+    /* best effort */
+  }
+}
+/** Commands older than this (e.g. queued while the agent was down) are skipped, not answered late. */
+const TG_MAX_AGE_SECS = 120;
 let tgBotUsername = (process.env.TELEGRAM_BOT_USERNAME ?? "").replace(/^@/, "").toLowerCase();
 
 function loadGroups(): Record<string, GroupConfig> {
@@ -147,6 +168,24 @@ export async function postToTelegram(t: AgentTokenInfo, text: string) {
   }
 }
 
+/** Launch / graduation / harvest posts: Telegram gets the HTML card, X the plain line. */
+export async function postMilestoneCard(t: AgentTokenInfo, tok: AlertToken, m: Milestone, refUrl?: string) {
+  const post = formatMilestone(tok, m, { webUrl: WEB_URL, explorerUrl: EXPLORER_URL, refUrl });
+  const tg = async () => {
+    if (!TG_TOKEN) return;
+    for (const { chat_id } of resolveTelegramTargets(t, false)) {
+      await tgCall("sendMessage", {
+        chat_id,
+        text: post.text.slice(0, 4000),
+        parse_mode: "HTML",
+        link_preview_options: { is_disabled: true },
+        reply_markup: post.reply_markup,
+      });
+    }
+  };
+  await Promise.allSettled([tg(), postToX(t, post.plain, "milestone")]);
+}
+
 /** Platform-written milestone templates (only the validated ticker is interpolated). */
 export async function postMilestone(t: AgentTokenInfo, headline: string) {
   await Promise.allSettled([postToTelegram(t, headline), postToX(t, headline, "milestone")]);
@@ -179,6 +218,7 @@ interface TgUpdate {
   update_id: number;
   message?: {
     message_id: number;
+    date?: number;
     from?: { id: number; username?: string; first_name?: string };
     chat: { id: number; type: string; username?: string; title?: string };
     text?: string;
@@ -243,8 +283,10 @@ export async function pollTelegramCommands(
 
   for (const u of updates) {
     tgOffset = Math.max(tgOffset, u.update_id + 1);
+    saveTgOffset();
     const m = u.message;
     if (!m) continue;
+    if (m.date && Date.now() / 1000 - m.date > TG_MAX_AGE_SECS && !m.new_chat_members) continue;
 
     const chatKey = String(m.chat.id);
     const linkedCfg = groups[chatKey];

@@ -16,7 +16,7 @@
 import os from "node:os";
 import path from "node:path";
 import { connect, KeyPair, keyStores, type Account } from "near-api-js";
-import { pollTelegramCommands, postMilestone, postToTelegram, postToX, sendTradeAlert, type AgentTokenInfo, type TradeInfo } from "./social.js";
+import { pollTelegramCommands, postMilestoneCard, postToTelegram, postToX, sendTradeAlert, type AgentTokenInfo, type TradeInfo } from "./social.js";
 import { getLatestPowerRemaining, obtainBrrrainKey, setLatestPowerRemaining } from "./brrrain.js";
 import { allowAiReply, cleanLabel, cleanPublicText, personaBlock, POST_RULES } from "./safety.js";
 import type { AlertToken } from "./alerts.js";
@@ -49,8 +49,11 @@ const AI_MODEL = env(
     : "deepseek-ai/DeepSeek-V3.1"
 );
 const KEEPER_SECS = Number(env("KEEPER_INTERVAL_SECS", "60"));
+/** How often to look for curves that just filled (graduation fast path). */
+const GRAD_WATCH_SECS = Number(env("GRAD_WATCH_SECS", "5"));
 const POST_SECS = Number(env("POST_INTERVAL_SECS", "1800"));
-const TAX_HARVEST_MIN_NEAR = Number(env("TAX_HARVEST_MIN_NEAR", "2"));
+// Tax harvests only burn now (no swap, no market impact), so they can run on smaller amounts.
+const TAX_HARVEST_MIN_NEAR = Number(env("TAX_HARVEST_MIN_NEAR", "0.5"));
 const TAX_HARVEST_MIN_YOCTO = BigInt(Math.round(TAX_HARVEST_MIN_NEAR * 1e6)) * 10n ** 18n;
 const SOCIAL_API_URL = (process.env.SOCIAL_API_URL ?? "").replace(/\/+$/, "");
 const AGENT_SECRET = process.env.AGENT_SECRET ?? "";
@@ -100,6 +103,14 @@ interface TokenView {
   harvest_busy?: boolean;
   harvest_pending?: boolean;
   next_harvest_at?: number;
+  /** Cumulative meme tokens burned by LP harvests (raw). */
+  harvest_burned?: U128;
+  /** Cumulative LiNEAR added by LP harvests (raw). */
+  harvested_linear?: U128;
+  created_at: number;
+  graduated_at?: number;
+  creator: string;
+  grad_mcap_usd?: number;
   v_near: U128;
   v_tokens: U128;
   sold: U128;
@@ -210,7 +221,16 @@ async function displayNearUsd(): Promise<number | null> {
   return v;
 }
 
-async function call(method: string, args: object, gasTgas: bigint, deposit = 0n) {
+let signQueue: Promise<unknown> = Promise.resolve();
+
+/** Signs one launchpad call at a time (a shared access-key nonce can't take parallel sends). */
+async function call(method: string, args: object, gasTgas: bigint, deposit = 0n): Promise<boolean> {
+  const run = signQueue.then(() => callNow(method, args, gasTgas, deposit));
+  signQueue = run.catch(() => undefined);
+  return run;
+}
+
+async function callNow(method: string, args: object, gasTgas: bigint, deposit: bigint) {
   const res = await operator.functionCall({
     contractId: LAUNCHPAD,
     methodName: method,
@@ -240,7 +260,7 @@ async function keep(t: TokenView) {
     if (t.dao_stage === "Created") {
       await call("finalize_dao", { token_id: t.token_id }, 200n);
     }
-    if (t.grad_stage !== "Curve" && t.grad_stage !== "Graduated" && !t.grad_busy) {
+    if (t.grad_stage !== "Curve" && t.grad_stage !== "Graduated" && !t.grad_busy && !migrating.has(t.token_id)) {
       await call("advance_graduation", { token_id: t.token_id }, 300n);
     }
     const harvestDue = t.next_harvest_at !== undefined && (t.harvest_pending || now >= t.next_harvest_at);
@@ -249,10 +269,7 @@ async function keep(t: TokenView) {
         console.warn(`harvest ${t.token_id}:`, (e as Error).message);
         return false;
       });
-      if (ok) {
-        const info: AgentTokenInfo = { token_id: t.token_id, meta: t.meta, agent_persona: t.agent_persona, stats: stats(t) };
-        await postMilestone(info, `🔥 LP growth harvested for $${t.meta.symbol} — meme tokens burned & LiNEAR yield added to epoch.`);
-      }
+      if (ok) await maybePostHarvest(t.token_id);
     }
     if (t.grad_stage === "Graduated" && !t.epoch_busy && now >= t.next_epoch_at) {
       await call("settle_epoch", { token_id: t.token_id }, 300n);
@@ -287,13 +304,23 @@ async function keep(t: TokenView) {
           const linPrice = BigInt(t.last_linear_price || YOCTO.toString());
           const nearVal = (linOut * linPrice) / YOCTO;
           if (nearVal >= TAX_HARVEST_MIN_YOCTO) {
-            const ok = await call("harvest_token_tax", { token_id: t.token_id }, 300n).catch((e) => {
+            const linP = (await liveLinearPrice()) || BigInt(t.last_linear_price || YOCTO.toString());
+            const before = await floorSnapshot(t.token_id, linP);
+            const ok = await call("harvest_token_tax", { token_id: t.token_id }, 100n).catch((e) => {
               console.warn(`harvest_token_tax ${t.token_id}:`, (e as Error).message);
               return false;
             });
             if (ok) {
+              const after = await floorSnapshot(t.token_id, linP);
               const info: AgentTokenInfo = { token_id: t.token_id, meta: t.meta, agent_persona: t.agent_persona, stats: stats(t) };
-              await postMilestone(info, `🔥 DEX tax harvested for $${t.meta.symbol} — burn slice destroyed & Floor Vault topped up.`);
+              await postMilestoneCard(info, await alertToken(after?.t ?? t, "ref"), {
+                kind: "tax_harvest",
+                burnedTokens: before && after && after.burned > before.burned ? Number((after.burned - before.burned) / 10n ** 12n) / 1e6 : null,
+                vaultBefore: before?.vault ?? null,
+                vaultAfter: after?.vault ?? null,
+                floorBefore: before?.floor ?? null,
+                floorAfter: after?.floor ?? null,
+              });
             }
           }
         }
@@ -492,6 +519,110 @@ async function pushPrice() {
   await call("set_near_usd_price", { price_micro_usd: Math.round(live * 1e6).toString() }, 10n);
 }
 
+/**
+ * Floor vault (NEAR) and floor per token (NEAR) right now, valued at a fixed LiNEAR price so a
+ * before/after pair shows only what changed in the vault, not LiNEAR's rate moving meanwhile.
+ */
+async function floorSnapshot(tokenId: string, linP: bigint) {
+  const t = await view<TokenView | null>("get_token", { token_id: tokenId }).catch(() => null);
+  if (!t) return null;
+  const circ = BigInt(t.total_supply) - BigInt(t.burned);
+  const vaultYocto = t.grad_stage === "Graduated" ? (BigInt(t.linear_shares) * linP) / YOCTO : BigInt(t.backing_near);
+  return {
+    t,
+    burned: BigInt(t.burned),
+    vault: Number(vaultYocto / 10n ** 18n) / 1e6,
+    floor: circ > 0n ? Number((vaultYocto * 10n ** 12n) / circ) / 1e18 : null,
+  };
+}
+
+// ---------------- harvest posts (summarised, not per harvest) ----------------
+
+/**
+ * LP harvests can run every epoch (30s on testnet), so posting each one spammed the groups.
+ * Instead: one summary per token at most every HARVEST_POST_SECS, only when tokens were burned,
+ * covering everything harvested since the last post (from the contract's cumulative totals).
+ */
+const HARVEST_POST_SECS = Number(env("HARVEST_POST_SECS", "21600")); // 6h
+const harvestBase = new Map<string, { burned: bigint; linear: bigint; at: number }>();
+
+async function maybePostHarvest(tokenId: string) {
+  const t = await view<TokenView | null>("get_token", { token_id: tokenId }).catch(() => null);
+  if (!t) return;
+  const burned = BigInt(t.harvest_burned ?? "0");
+  const linear = BigInt(t.harvested_linear ?? "0");
+  const now = Date.now() / 1000;
+  const base = harvestBase.get(tokenId);
+  if (!base) {
+    harvestBase.set(tokenId, { burned, linear, at: now }); // first sight: start counting from here
+    return;
+  }
+  if (now - base.at < HARVEST_POST_SECS || burned <= base.burned) return;
+  harvestBase.set(tokenId, { burned, linear, at: now });
+  const info: AgentTokenInfo = { token_id: t.token_id, meta: t.meta, agent_persona: t.agent_persona, stats: stats(t) };
+  await postMilestoneCard(info, await alertToken(t, "ref"), {
+    kind: "lp_harvest",
+    burnedTokens: Number((burned - base.burned) / 10n ** 12n) / 1e6,
+    linearAdded: Number((linear - base.linear) / 10n ** 18n) / 1e6,
+    sinceSecs: now - base.at,
+  });
+}
+
+// ---------------- graduation fast path ----------------
+
+/**
+ * When a curve fills, trading is closed until the Ref pool exists. Graduation takes 4-5
+ * `advance_graduation` steps; running one per keeper tick left tokens untradeable for minutes.
+ * This drives the steps back to back (each call returns once its receipts have executed), so a
+ * token is on Ref within about a minute of selling out.
+ */
+const migrating = new Set<string>();
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+async function migrateNow(tokenId: string) {
+  if (migrating.has(tokenId)) return;
+  migrating.add(tokenId);
+  const started = Date.now();
+  try {
+    for (let step = 0; step < 10; step++) {
+      const t = await view<TokenView | null>("get_token", { token_id: tokenId }).catch(() => null);
+      if (!t || t.grad_stage === "Curve") return;
+      if (t.grad_stage === "Graduated") {
+        console.log(`🎓 ${tokenId} graduated in ${Math.round((Date.now() - started) / 1000)}s`);
+        return;
+      }
+      if (t.dao_stage === "Created") {
+        await call("finalize_dao", { token_id: tokenId }, 200n).catch((e) => console.warn(`finalize_dao ${tokenId}:`, (e as Error).message));
+      }
+      if (t.grad_busy) {
+        await sleep(2000); // a step's callbacks are still running
+        continue;
+      }
+      const ok = await call("advance_graduation", { token_id: tokenId }, 300n).catch((e) => {
+        console.warn(`advance_graduation ${tokenId} (${t.grad_stage}):`, (e as Error).message);
+        return false;
+      });
+      if (!ok) await sleep(4000);
+    }
+    console.warn(`${tokenId}: graduation not finished after 10 steps; the keeper tick keeps trying`);
+  } finally {
+    migrating.delete(tokenId);
+  }
+}
+
+async function watchGraduations() {
+  while (true) {
+    try {
+      for (const t of await allTokens()) {
+        if (t.grad_stage !== "Curve" && t.grad_stage !== "Graduated") void migrateNow(t.token_id);
+      }
+    } catch (e) {
+      console.warn("graduation watch:", (e as Error).message);
+    }
+    await sleep(GRAD_WATCH_SECS * 1000);
+  }
+}
+
 // ---------------- main loop ----------------
 
 const lastTradeCount = new Map<string, number>();
@@ -509,9 +640,19 @@ async function checkMilestones(t: TokenView) {
 
   const info: AgentTokenInfo = { token_id: t.token_id, meta: t.meta, agent_persona: t.agent_persona, stats: stats(t) };
   if (isNew) {
-    await postMilestone(info, `🚀 New launch on Floorpad: $${t.meta.symbol} ("${cleanLabel(t.meta.name)}") — redeemable floor active.`);
+    await postMilestoneCard(info, await alertToken(t, "curve"), {
+      kind: "launch",
+      name: cleanLabel(t.meta.name),
+      creator: t.creator,
+      gradMcapUsd: t.grad_mcap_usd ?? 15,
+    });
   } else if (prevGrad !== "Graduated" && t.grad_stage === "Graduated") {
-    await postMilestone(info, `🎓 $${t.meta.symbol} graduated to Ref Finance! 100% LP locked & Floor Vault earning staking yield.`);
+    await postMilestoneCard(
+      info,
+      await alertToken(t, "ref"),
+      { kind: "graduated", poolId: t.pool_id, secsToGraduate: t.graduated_at ? t.graduated_at - t.created_at : null },
+      `${NETWORK === "mainnet" ? "https://app.ref.finance" : "https://testnet.ref.finance"}/#${t.token_id}|${launchCfg.linear}`,
+    );
   }
 }
 
@@ -681,6 +822,7 @@ async function pollChatMentions(tokens: AgentTokenInfo[]) {
 console.log(`floorpad operator ${OPERATOR} on ${NETWORK}, launchpad ${LAUNCHPAD}`);
 await initBrrrainAuth().catch((e) => console.warn("brrrain auth init:", e.message));
 await checkSetup().catch((e) => console.warn("setup check:", (e as Error).message));
+if (!ONCE) void watchGraduations();
 if (!ONCE) {
   // Fast 3s Telegram & in-app @agent chat loop independent of the 60s on-chain keeper tick
   (async () => {

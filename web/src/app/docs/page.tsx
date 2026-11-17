@@ -229,7 +229,7 @@ export default function DocsPage() {
               </div>
               <div className="panel tight" style={{ background: "var(--panel-2)" }}>
                 <b>Sell Fee: 1.00% Platform + Token Tax (1.00% default) + Decaying Exit Fee</b>
-                <p className="small muted" style={{ margin: "4px 0 0" }}>Same split on the token tax, plus 100% of the decaying exit fee straight to the vault — enforced on-curve and on graduated DEX pairs while decay is active.</p>
+                <p className="small muted" style={{ margin: "4px 0 0" }}>Same split on the token tax on the curve (paid in NEAR), plus 100% of the decaying exit fee straight to the vault. After graduation there is no token tax on new tokens: the locked LP earns a 1% pool fee (LiNEAR on buys → floor yield; tokens on sells → burned). Older tokens' DEX tax is burned, never sold.</p>
               </div>
             </div>
 

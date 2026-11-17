@@ -1069,85 +1069,57 @@ fn reference_price_moves_at_most_the_hourly_cap() {
     assert!(!crate::guard::within_band(spot, reference));
 }
 
-fn tax_ok<T: near_sdk::serde::Serialize>(v: &T) -> PromiseResult {
-    PromiseResult::Successful(near_sdk::serde_json::to_vec(v).unwrap())
-}
-
 #[test]
-fn tax_harvest_credits_exactly_what_the_swap_returned() {
+fn tax_harvest_burns_everything_and_never_swaps() {
     let (mut c, _) = graduated();
-    let pool = opening_pool(&c);
     let in_flight0 = c.tok(0).tokens_in_flight;
-    let treasury0 = c.get_claimable_linear(acc("treasury.testnet")).0;
+    let burned0 = c.tok(0).burned;
     let shares0 = c.tok(0).linear_shares;
-
     ctx(&acc("anyone.testnet"), 0, T0 + 500);
     c.harvest_token_tax(token());
-    // token handed over 100 platform + 300 tax tokens (whole tokens), pool at the opening price
+    assert!(c.tax_state(0).busy);
     let (plat, tax) = (100 * TOK, 300 * TOK);
     ctx(&lp(), 0, T0 + 501);
-    let _ = c.on_tax_taken(0, Ok((U128(plat), U128(tax))), Ok(pool));
-    let burn = math::bps(tax, c.tok(0).tax_burn_bps as u128);
-    let held = plat + tax - burn;
-    assert_eq!(c.tax_state(0).held(), held);
-    assert_eq!(c.tok(0).tokens_in_flight, in_flight0 + plat + tax, "held + burning tokens are reserved");
-
-    // Ref took the full deposit
-    let p_part = math::mul_div(held, plat, held);
-    ctx_results(T0 + 502, vec![tax_ok(&U128(held))]);
-    let _ = c.on_tax_deposited(0, U128(p_part), U128(held - p_part), U128(1));
-    assert_eq!(c.tax_state(0).in_ref(), held);
-
-    // the swap produced exactly 7 LiNEAR, no matter what else moved in the launchpad's balance
-    let out = 7 * NEAR;
-    ctx(&lp(), 0, T0 + 503);
-    let _ = c.on_tax_swapped(0, U128(p_part), U128(held - p_part), Ok(U128(out)));
-    let st = c.tax_state(0);
-    assert_eq!(st.lin(), out);
-    assert_eq!(st.in_ref(), 0);
-
-    ctx(&lp(), 0, T0 + 504);
-    c.on_tax_withdrawn(0, Ok(()));
-    let plat_lin = math::mul_div(out, p_part, held);
-    let creator_lin = math::bps(out - plat_lin, c.tok(0).tax_creator_bps as u128);
-    assert_eq!(c.get_claimable_linear(acc("treasury.testnet")).0, treasury0 + plat_lin);
-    assert_eq!(c.get_claimable_linear(acc("alice.testnet")).0, creator_lin);
-    assert_eq!(c.tok(0).linear_shares, shares0 + out - plat_lin - creator_lin);
-    assert_eq!(c.tax_state(0), crate::guard::TaxState::default());
+    c.on_tax_taken(0, Ok((U128(plat), U128(tax))));
+    assert_eq!(c.tax_state(0), crate::guard::TaxState::default(), "nothing held, nothing to swap");
+    assert_eq!(c.tok(0).tokens_in_flight, in_flight0 + plat + tax, "reserved while the burn runs");
+    assert_eq!(c.tok(0).linear_shares, shares0, "no LiNEAR from tax: it is never sold");
+    ctx(&lp(), 0, T0 + 502);
+    c.on_tax_burned(0, U128(plat + tax), Ok(()));
+    assert_eq!(c.tok(0).burned, burned0 + plat + tax);
+    assert_eq!(c.tok(0).tokens_in_flight, in_flight0);
 }
 
 #[test]
-fn tax_swap_deferred_at_manipulated_price_and_tokens_stay_reserved() {
+fn failed_tax_burn_is_retried_by_the_next_harvest() {
     let (mut c, _) = graduated();
-    let t = c.tok(0).clone();
-    let dumped = pool_info(t.lp_tokens * 3, t.lp_shares / 3, NEAR);
+    let in_flight0 = c.tok(0).tokens_in_flight;
     ctx(&acc("anyone.testnet"), 0, T0 + 500);
     c.harvest_token_tax(token());
     ctx(&lp(), 0, T0 + 501);
-    let _ = c.on_tax_taken(0, Ok((U128(10 * TOK), U128(0))), Ok(dumped));
-    let st = c.tax_state(0);
-    assert_eq!(st.held(), 10 * TOK);
-    assert!(!st.busy, "free for a retry");
-    // a buyback burn sweep must not burn the held tax tokens
-    let reserved = c.tok(0).total_locked + c.tok(0).owed_tokens + c.tok(0).tokens_in_flight + c.tok(0).custody_total;
-    assert!(reserved >= 10 * TOK);
+    c.on_tax_taken(0, Ok((U128(0), U128(50 * TOK))));
+    ctx(&lp(), 0, T0 + 502);
+    c.on_tax_burned(0, U128(50 * TOK), Err(near_sdk::PromiseError::Failed));
+    assert_eq!(c.tax_state(0).held(), 50 * TOK, "kept for the next harvest");
+    assert_eq!(c.tok(0).tokens_in_flight, in_flight0 + 50 * TOK, "still reserved");
+    // next harvest: nothing new from the token, the held tokens are burned
+    ctx(&acc("anyone.testnet"), 0, T0 + 600);
+    c.harvest_token_tax(token());
+    ctx(&lp(), 0, T0 + 601);
+    c.on_tax_taken(0, Ok((U128(0), U128(0))));
+    assert_eq!(c.tax_state(0).held(), 0);
+    let burned0 = c.tok(0).burned;
+    ctx(&lp(), 0, T0 + 602);
+    c.on_tax_burned(0, U128(50 * TOK), Ok(()));
+    assert_eq!(c.tok(0).burned, burned0 + 50 * TOK);
+    assert_eq!(c.tok(0).tokens_in_flight, in_flight0);
 }
 
 #[test]
-fn failed_tax_withdrawal_keeps_linear_pending() {
-    let (mut c, _) = graduated();
-    let mut st = crate::guard::TaxState::default();
-    st.busy = true;
-    st.lin_plat = NEAR;
-    st.lin_vault = 2 * NEAR;
-    c.set_tax_state(0, &st);
-    let shares0 = c.tok(0).linear_shares;
-    ctx(&lp(), 0, T0 + 600);
-    c.on_tax_withdrawn(0, Err(near_sdk::PromiseError::Failed));
-    let st = c.tax_state(0);
-    assert_eq!(st.lin(), 3 * NEAR);
-    assert!(!st.busy);
-    assert_eq!(c.tok(0).linear_shares, shares0, "nothing credited without the LiNEAR");
+fn new_pools_use_the_one_percent_fee() {
+    let (c, _) = graduated();
+    assert_eq!(c.pool_fee_bps(), crate::guard::NEW_POOL_FEE_BPS.max(c.config.ref_pool_fee));
+    assert_eq!(c.get_config().ref_pool_fee, c.pool_fee_bps());
 }
 
 fn locked(days: u64) -> (Contract, u128) {

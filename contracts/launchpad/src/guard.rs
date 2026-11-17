@@ -15,6 +15,10 @@ use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 pub const MAX_SWAP_DEVIATION_BPS: u128 = 1_000; // 10%
 /// Minimum output below the quote (pool fee rounding and small moves between quote and swap).
 pub const SWAP_SLIPPAGE_BPS: u128 = 300; // 3%
+/// Ref pool fee for pools created from now on. LPs (the launchpad's locked position) earn it:
+/// in LiNEAR on buys, in tokens on sells; `harvest_lp` adds the LiNEAR to the floor's yield
+/// and burns the tokens. Ref simple pools accept fees up to 100%; 1% balances income and spread.
+pub const NEW_POOL_FEE_BPS: u32 = 100;
 /// Largest protocol swap per call, as a share of the input-side pool reserve.
 pub const MAX_SWAP_POOL_BPS: u128 = 500; // 5%
 
@@ -78,6 +82,11 @@ fn write<T: BorshSerialize>(k: &[u8], v: &T) {
 }
 
 impl Contract {
+    /// Pool fee used for new pools and for quoting protocol swaps (never below the configured one).
+    pub(crate) fn pool_fee_bps(&self) -> u32 {
+        self.config.ref_pool_fee.max(NEW_POOL_FEE_BPS)
+    }
+
     // ---------- reference pool price ----------
 
     pub(crate) fn ref_price(&self, idx: u32) -> Option<RefPrice> {

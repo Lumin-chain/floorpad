@@ -12,7 +12,6 @@
 //! price only rises, so a trade can't make the harvest take principal.
 use crate::curve::ONE_YOCTO;
 use crate::ext::{ext_ft, ext_linear, ext_ref, tgas, RefPoolInfo};
-use crate::guard::{cp_out, within_band, MAX_SWAP_POOL_BPS, SWAP_SLIPPAGE_BPS};
 use crate::math;
 use crate::*;
 use near_sdk::json_types::U128;
@@ -182,200 +181,51 @@ impl Contract {
         }
     }
 
-    /// Permissionless: claims accrued DEX pair taxes, burns the burn share and swaps the rest to
-    /// LiNEAR for the treasury, creator and vault.
+    /// Permissionless: claims accrued DEX pair taxes and burns all of them.
     ///
-    /// Every amount is exact: tokens are deposited into the launchpad's Ref account, `swap`
-    /// returns the LiNEAR it produced, and exactly that is withdrawn and credited. The swap only
-    /// runs when the pool price is within the band of the reference price, at most
-    /// `MAX_SWAP_POOL_BPS` of the pool per call, and with a real minimum output; anything not
-    /// swapped stays tracked and is retried on the next call. Attach 300 Tgas.
+    /// The protocol never sells collected tax on the pool: selling would dump the price holders
+    /// trade at. Burning instead raises every holder's floor per token (the vault is unchanged
+    /// while supply falls). LiNEAR income comes from the locked LP's pool fee via `harvest_lp`
+    /// and the epoch buyback. Attach 100 Tgas.
     pub fn harvest_token_tax(&mut self, token_id: AccountId) -> Promise {
         let idx = self.idx_of(&token_id);
-        let tok = self.tok(idx);
-        require!(tok.grad_stage == GradStage::Graduated, "ERR_NOT_GRADUATED");
-        let pool_id = tok.pool_id.expect("ERR_NO_POOL");
+        require!(self.tok(idx).grad_stage == GradStage::Graduated, "ERR_NOT_GRADUATED");
         let mut st = self.tax_state(idx);
         require!(!st.busy, "ERR_TAX_IN_FLIGHT");
         st.busy = true;
         self.set_tax_state(idx, &st);
-        if st.lin() > 0 {
-            return self.tax_withdraw(idx);
-        }
-        let me = env::current_account_id();
         ext_ft::ext(token_id)
             .with_static_gas(tgas(10))
             .tax_take()
-            .and(ext_ref::ext(self.config.ref_exchange.clone()).with_static_gas(tgas(5)).get_pool(pool_id))
-            .then(Self::ext(me).with_static_gas(tgas(230)).on_tax_taken(idx))
+            .then(Self::ext(env::current_account_id()).with_static_gas(tgas(40)).on_tax_taken(idx))
     }
 
     #[private]
-    pub fn on_tax_taken(
-        &mut self,
-        idx: u32,
-        #[callback_result] r: Result<(U128, U128), PromiseError>,
-        #[callback_result] pool: Result<RefPoolInfo, PromiseError>,
-    ) -> PromiseOrValue<()> {
+    pub fn on_tax_taken(&mut self, idx: u32, #[callback_result] r: Result<(U128, U128), PromiseError>) {
         let mut st = self.tax_state(idx);
-        let (token_id, burn_bps) = {
-            let t = self.tok(idx);
-            (t.token_id.clone(), t.tax_burn_bps)
-        };
-        if let Ok((plat, tax)) = r {
-            let burn_amt = math::bps(tax.0, burn_bps as u128);
-            st.held_plat += plat.0;
-            st.held_tax += tax.0 - burn_amt;
-            // held tokens are reserved (never mistaken for buyback output and burned)
-            self.tok_mut(idx).tokens_in_flight += plat.0 + tax.0;
-            if burn_amt > 0 {
-                self.log_mech(idx, "tax_burn", burn_amt, None);
-                ext_ft::ext(token_id.clone())
-                    .with_static_gas(tgas(10))
-                    .burn(U128(burn_amt))
-                    .then(
-                        Self::ext(env::current_account_id())
-                            .with_static_gas(tgas(5))
-                            .on_tax_burned(idx, U128(burn_amt)),
-                    )
-                    .detach();
-            }
-        }
-        if st.held() + st.in_ref() == 0 {
-            st.busy = false;
-            self.set_tax_state(idx, &st);
-            return PromiseOrValue::Value(());
-        }
-        let linear = self.config.linear.clone();
-        let reserves = pool.ok().and_then(|p| {
-            let m = p.token_account_ids.iter().position(|t| *t == token_id)?;
-            let l = p.token_account_ids.iter().position(|t| *t == linear)?;
-            Some((p.amounts.get(l)?.0, p.amounts.get(m)?.0))
-        });
-        let guarded = reserves.and_then(|(r_lin, r_meme)| {
-            let (reference, spot) = self.observe_pool_price(idx, r_lin, r_meme)?;
-            within_band(spot, reference).then_some((r_lin, r_meme, reference))
-        });
-        let Some((r_lin, r_meme, reference)) = guarded else {
-            env::log_str("tax swap deferred: pool price outside the reference band");
-            st.busy = false;
-            self.set_tax_state(idx, &st);
-            return PromiseOrValue::Value(());
-        };
-        let cap = math::mul_div(r_meme, MAX_SWAP_POOL_BPS, math::BPS);
-        let min_for = |amt: u128| {
-            let quoted = cp_out(amt, r_meme, r_lin, self.config.ref_pool_fee);
-            let at_ref = math::mul_div(amt, reference, math::PRICE_SCALE);
-            math::mul_div(quoted.min(at_ref), math::BPS - SWAP_SLIPPAGE_BPS, math::BPS)
-        };
-        // Tokens already in Ref (an earlier swap failed) go first; then held tokens are deposited.
-        if st.in_ref() > 0 {
-            let amt = st.in_ref().min(cap);
-            let p = math::mul_div(amt, st.in_ref_plat, st.in_ref());
-            let min = min_for(amt);
-            self.set_tax_state(idx, &st);
-            return self.tax_swap(idx, p, amt - p, min).into();
-        }
-        let amt = st.held().min(cap);
-        let p = math::mul_div(amt, st.held_plat, st.held());
-        let min = min_for(amt);
+        let taken = r.map(|(p, t)| p.0 + t.0).unwrap_or(0);
+        // tokens an earlier version held back for a swap are burned too (already reserved)
+        let held = st.held();
+        st.held_plat = 0;
+        st.held_tax = 0;
+        st.busy = false;
         self.set_tax_state(idx, &st);
-        if amt == 0 || min == 0 {
-            let mut st = self.tax_state(idx);
-            st.busy = false;
-            self.set_tax_state(idx, &st);
-            return PromiseOrValue::Value(());
+        let amount = taken + held;
+        if amount == 0 {
+            return;
         }
+        let token_id = self.tok(idx).token_id.clone();
+        self.tok_mut(idx).tokens_in_flight += taken;
+        self.log_mech(idx, "tax_burn", amount, None);
         ext_ft::ext(token_id)
-            .with_attached_deposit(ONE_YOCTO)
-            .with_static_gas(tgas(40))
-            .ft_transfer_call(self.config.ref_exchange.clone(), U128(amt), None, String::new())
+            .with_static_gas(tgas(10))
+            .burn(U128(amount))
             .then(
                 Self::ext(env::current_account_id())
-                    .with_static_gas(tgas(140))
-                    .on_tax_deposited(idx, U128(p), U128(amt - p), U128(min)),
+                    .with_static_gas(tgas(5))
+                    .on_tax_burned(idx, U128(amount)),
             )
-            .into()
-    }
-
-    #[private]
-    pub fn on_tax_deposited(&mut self, idx: u32, plat: U128, tax: U128, min_out: U128) -> PromiseOrValue<()> {
-        let amt = plat.0 + tax.0;
-        let used = match env::promise_result_checked(0, 64) {
-            Ok(v) => near_sdk::serde_json::from_slice::<U128>(&v).map(|u| u.0).unwrap_or(0),
-            Err(_) => 0,
-        };
-        let mut st = self.tax_state(idx);
-        if used != amt {
-            // refunded to the launchpad: still held, retried next time
-            st.busy = false;
-            self.set_tax_state(idx, &st);
-            return PromiseOrValue::Value(());
-        }
-        st.held_plat -= plat.0;
-        st.held_tax -= tax.0;
-        st.in_ref_plat += plat.0;
-        st.in_ref_tax += tax.0;
-        self.set_tax_state(idx, &st);
-        let tok = self.tok_mut(idx);
-        tok.tokens_in_flight = tok.tokens_in_flight.saturating_sub(amt);
-        self.tax_swap(idx, plat.0, tax.0, min_out.0).into()
-    }
-
-    #[private]
-    pub fn on_tax_swapped(
-        &mut self,
-        idx: u32,
-        plat: U128,
-        tax: U128,
-        #[callback_result] r: Result<U128, PromiseError>,
-    ) -> PromiseOrValue<()> {
-        let mut st = self.tax_state(idx);
-        let Ok(out) = r else {
-            // stays in the launchpad's Ref account; the next call retries the swap
-            st.busy = false;
-            self.set_tax_state(idx, &st);
-            return PromiseOrValue::Value(());
-        };
-        let amt = plat.0 + tax.0;
-        st.in_ref_plat -= plat.0;
-        st.in_ref_tax -= tax.0;
-        let plat_lin = if amt == 0 { 0 } else { math::mul_div(out.0, plat.0, amt) };
-        let tax_lin = out.0 - plat_lin;
-        let creator_lin = math::bps(tax_lin, self.tok(idx).tax_creator_bps as u128);
-        st.lin_plat += plat_lin;
-        st.lin_creator += creator_lin;
-        st.lin_vault += tax_lin - creator_lin;
-        self.set_tax_state(idx, &st);
-        if st.lin() == 0 {
-            let mut st = self.tax_state(idx);
-            st.busy = false;
-            self.set_tax_state(idx, &st);
-            return PromiseOrValue::Value(());
-        }
-        self.tax_withdraw(idx).into()
-    }
-
-    /// Credits exactly the withdrawn LiNEAR; a failed withdrawal stays pending for a retry.
-    #[private]
-    pub fn on_tax_withdrawn(&mut self, idx: u32, #[callback_result] r: Result<(), PromiseError>) {
-        let mut st = self.tax_state(idx);
-        st.busy = false;
-        if r.is_ok() {
-            let (plat, creator_lin, vault) = (st.lin_plat, st.lin_creator, st.lin_vault);
-            st.lin_plat = 0;
-            st.lin_creator = 0;
-            st.lin_vault = 0;
-            self.set_tax_state(idx, &st);
-            let treasury = self.config.treasury_id.clone();
-            self.credit_linear(&treasury, plat);
-            let creator = self.tok(idx).creator.clone();
-            self.credit_linear(&creator, creator_lin);
-            self.tok_mut(idx).linear_shares += vault;
-            self.log_mech(idx, "tax_harvest", vault, None);
-        } else {
-            self.set_tax_state(idx, &st);
-        }
+            .detach();
     }
 
     #[private]
@@ -385,51 +235,18 @@ impl Contract {
         if r.is_ok() {
             tok.burned += amount.0;
         } else {
-            env::log_str("tax burn failed; tokens remain held by launchpad");
+            env::log_str("tax burn failed; tokens remain with the launchpad and are burned by the next harvest");
+            let mut st = self.tax_state(idx);
+            st.held_tax += amount.0;
+            self.tok_mut(idx).tokens_in_flight += amount.0;
+            self.set_tax_state(idx, &st);
         }
     }
 
-    /// Tax harvest progress for a token (meme held / in Ref, LiNEAR awaiting withdrawal).
+    /// Tax tokens waiting to be burned (only after a failed burn), and whether a harvest is running.
     pub fn get_tax_harvest(&self, token_id: AccountId) -> (U128, U128, U128, bool) {
         let st = self.tax_state(self.idx_of(&token_id));
         (U128(st.held()), U128(st.in_ref()), U128(st.lin()), st.busy)
-    }
-}
-
-impl Contract {
-    fn tax_swap(&mut self, idx: u32, plat: u128, tax: u128, min_out: u128) -> Promise {
-        let cfg = self.config.clone();
-        let tok = self.tok(idx);
-        let action = near_sdk::serde_json::json!({
-            "pool_id": tok.pool_id.expect("ERR_NO_POOL"),
-            "token_in": tok.token_id,
-            "amount_in": U128(plat + tax),
-            "token_out": cfg.linear,
-            "min_amount_out": U128(min_out),
-        });
-        ext_ref::ext(cfg.ref_exchange)
-            .with_attached_deposit(ONE_YOCTO)
-            .with_static_gas(tgas(30))
-            .swap(vec![action], None)
-            .then(
-                Self::ext(env::current_account_id())
-                    .with_static_gas(tgas(70))
-                    .on_tax_swapped(idx, U128(plat), U128(tax)),
-            )
-    }
-
-    fn tax_withdraw(&mut self, idx: u32) -> Promise {
-        let cfg = self.config.clone();
-        let total = self.tax_state(idx).lin();
-        ext_ref::ext(cfg.ref_exchange)
-            .with_attached_deposit(ONE_YOCTO)
-            .with_static_gas(tgas(40))
-            .withdraw(cfg.linear, U128(total), None, Some(true))
-            .then(
-                Self::ext(env::current_account_id())
-                    .with_static_gas(tgas(20))
-                    .on_tax_withdrawn(idx),
-            )
     }
 }
 

@@ -550,7 +550,15 @@ function RefTrade({ t, balance, holdingSince, linearPrice, reload, initialSide, 
     [side, out.toString()],
     8000,
   );
-  const sellNearOut = side === "sell" ? (hop2NearStr ? BigInt(hop2NearStr) : (out * linP) / YOCTO) : out;
+  // Sells can pay out in NEAR (2nd hop through the LiNEAR/wNEAR pool) or in LiNEAR (1 hop).
+  // Buys stake NEAR into LiNEAR at the fair rate, so when that pool is thin the NEAR leg loses
+  // value buys never paid; on Auto the panel pays LiNEAR then (redeemable for NEAR via LiNEAR).
+  const [payout, setPayout] = useState<"auto" | "near" | "linear">("auto");
+  const linValueNear = (out * linP) / YOCTO;
+  const hop2Near = hop2NearStr ? BigInt(hop2NearStr) : linValueNear;
+  const nearLegLossBps = linValueNear > 0n && hop2Near < linValueNear ? Number(((linValueNear - hop2Near) * 10000n) / linValueNear) : 0;
+  const payLinear = side === "sell" && (payout === "linear" || (payout === "auto" && nearLegLossBps > 100));
+  const sellNearOut = side === "sell" ? (payLinear ? linValueNear : hop2Near) : out;
   // What the buyer's wallet actually receives after the token's buy tax.
   const buyNetOut = side === "buy" && buyTaxBps < 10000n ? (out * (10000n - buyTaxBps)) / 10000n : out;
   const taxPct = Number(side === "buy" ? buyTaxBps : sellTaxBps) / 100;
@@ -608,6 +616,19 @@ function RefTrade({ t, balance, holdingSince, linearPrice, reload, initialSide, 
             deposit: "1",
           },
         ],
+      });
+    } else if (payLinear) {
+      // 1-hop sell paid in LiNEAR (no LiNEAR -> wNEAR leg).
+      const regLin = await storageCallIfNeeded(LINEAR, accountId);
+      if (regLin) txs.push(regLin);
+      const minLin = (out * (10000n - SLIPPAGE_BPS)) / 10000n;
+      const msg = JSON.stringify({
+        actions: [{ pool_id: t.pool_id, token_in: t.token_id, token_out: LINEAR, min_amount_out: minLin.toString() }],
+        swap_out_recipient: accountId,
+      });
+      txs.push({
+        receiverId: t.token_id,
+        calls: [{ method: "ft_transfer_call", args: { receiver_id: REF, amount: base.toString(), msg }, gas: 200, deposit: "1" }],
       });
     } else {
       // 1. Quote exact 2nd-hop wNEAR output so 1% slippage applies to the native NEAR received
@@ -762,9 +783,37 @@ function RefTrade({ t, balance, holdingSince, linearPrice, reload, initialSide, 
         </div>
       )}
 
-      <Kv k="You receive (est.)" v={side === "buy" ? `${fmtTok(buyNetOut.toString())} $${t.meta.symbol}` : `${fmtNear(sellNearOut.toString())} NEAR`} />
+      {side === "sell" && (
+        <div className="row between">
+          <span className="small muted">Receive</span>
+          <div className="seg">
+            {(["auto", "near", "linear"] as const).map((o) => (
+              <button key={o} className={payout === o ? "active" : ""} onClick={() => setPayout(o)}>
+                {o === "auto" ? "Auto" : o === "near" ? "NEAR" : "LiNEAR"}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      <Kv
+        k="You receive (est.)"
+        v={
+          side === "buy"
+            ? `${fmtTok(buyNetOut.toString())} $${t.meta.symbol}`
+            : payLinear
+              ? `${fmtNear(out.toString())} LiNEAR (≈ ${fmtNear(linValueNear.toString())} NEAR)`
+              : `${fmtNear(sellNearOut.toString())} NEAR`
+        }
+      />
+      {side === "sell" && nearLegLossBps > 100 && (
+        <div className="notice small" style={{ margin: 0 }}>
+          {payLinear
+            ? `Paying out in LiNEAR: converting to NEAR right now would lose ${(nearLegLossBps / 100).toFixed(1)}% in the thin LiNEAR/NEAR pool (you'd get ${fmtNear(hop2Near.toString())} NEAR). LiNEAR is staked NEAR: unstake it on LiNEAR or swap it later.`
+            : `The LiNEAR/NEAR pool is thin: taking NEAR loses ${(nearLegLossBps / 100).toFixed(1)}% vs. ${fmtNear(linValueNear.toString())} NEAR in LiNEAR. Choose LiNEAR to keep it.`}
+        </div>
+      )}
       <Kv k="Token tax" v={`${taxPct.toFixed(2)}%${taxView ? "" : " (max)"}`} />
-      <Kv k="Route" v={side === "buy" ? "NEAR → LiNEAR (stake) → Ref swap" : "Ref 2-hop swap + unwrap → NEAR"} />
+      <Kv k="Route" v={side === "buy" ? "NEAR → LiNEAR (stake) → Ref swap" : payLinear ? "Ref swap → LiNEAR" : "Ref 2-hop swap + unwrap → NEAR"} />
       <Kv k="Slippage limit" v="1%" />
       {side === "sell" && (
         <div className="notice small stack" style={{ gap: 4 }}>

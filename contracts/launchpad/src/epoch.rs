@@ -88,7 +88,7 @@ impl Contract {
                         split[BUCKET_FLOOR] += split[BUCKET_BUYBACK] - cap;
                         split[BUCKET_BUYBACK] = cap;
                     }
-                    let quoted = cp_out(split[BUCKET_BUYBACK], r_lin, r_meme, cfg.ref_pool_fee);
+                    let quoted = cp_out(split[BUCKET_BUYBACK], r_lin, r_meme, self.pool_fee_bps());
                     let at_ref = math::mul_div(split[BUCKET_BUYBACK], math::PRICE_SCALE, reference);
                     buyback_min = math::mul_div(quoted.min(at_ref), math::BPS - SWAP_SLIPPAGE_BPS, math::BPS);
                 }
