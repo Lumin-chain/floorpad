@@ -93,6 +93,8 @@ interface TokenView {
   grad_stage: "Curve" | "CreatePool" | "Stake" | "Deposit" | "AddLiquidity" | "Graduated";
   grad_busy: boolean;
   pool_id: number | null;
+  /** Curve FDV in yoctoNEAR (circulating supply at the curve price). */
+  fdv_near: U128;
   epoch_busy: boolean;
   next_epoch_at: number;
   harvest_busy?: boolean;
@@ -146,7 +148,67 @@ const operator: Account = await near.account(OPERATOR);
 const view = <T>(method: string, args: object = {}) =>
   operator.viewFunction({ contractId: LAUNCHPAD, methodName: method, args }) as Promise<T>;
 
-const launchCfg = await view<{ ref_exchange: string; linear: string }>("get_config");
+const launchCfg = await view<{ ref_exchange: string; linear: string; max_price_age_secs: number }>("get_config");
+
+/**
+ * Startup self-check, printed loudly: without a working operator key nothing on-chain happens
+ * (no price feed, graduations, epochs or AI posts), and that is easy to miss in the logs.
+ */
+async function checkSetup() {
+  const pub = await near.connection.signer.getPublicKey(OPERATOR, NETWORK).catch(() => null);
+  if (!pub) {
+    console.error(
+      `✗ SETUP: no signing key for ${OPERATOR}. Set OPERATOR_PRIVATE_KEY (ed25519:...) for this account. ` +
+        "Until then the NEAR/USD price feed, graduations, epochs (floor growth, agent budgets) and AI posts are OFF.",
+    );
+  } else {
+    const keys = await operator.getAccessKeys().catch(() => []);
+    if (!keys.some((k) => k.public_key === pub.toString())) {
+      console.error(
+        `✗ SETUP: OPERATOR_PRIVATE_KEY's public key ${pub.toString()} is not an access key of ${OPERATOR}. ` +
+          "Use the private key of this exact account; every transaction will fail with this one.",
+      );
+    } else {
+      console.log(`✓ SETUP: signing as ${OPERATOR} (${pub.toString()})`);
+    }
+  }
+  const bal = await operator.getAccountBalance().catch(() => null);
+  if (bal) {
+    const avail = Number(BigInt(bal.available) / 10n ** 21n) / 1000;
+    (avail < 0.5 ? console.warn : console.log)(`${avail < 0.5 ? "⚠" : "✓"} SETUP: operator balance ${avail.toFixed(3)} NEAR (gas + 0.01 NEAR per AI post)`);
+  }
+  const [micro, at] = await view<[string, number]>("get_near_usd_price").catch(() => ["0", 0] as [string, number]);
+  const ageH = (Date.now() / 1000 - at) / 3600;
+  console.log(`${ageH * 3600 > launchCfg.max_price_age_secs ? "⚠" : "✓"} SETUP: on-chain NEAR/USD $${(Number(micro) / 1e6).toFixed(3)}, ${ageH.toFixed(1)}h old`);
+  console.log(AI_KEY ? `✓ SETUP: AI enabled (${AI_BASE}, ${AI_MODEL})` : "⚠ SETUP: no AI key: AI posts and @agent replies are off (set BRRRAIN_API_KEY or AI_API_KEY, or OPERATOR_PRIVATE_KEY for BRRRAIN auto-auth)");
+  console.log(SOCIAL_API_URL ? `✓ SETUP: social API ${SOCIAL_API_URL}${AGENT_SECRET ? "" : " (no AGENT_SECRET: in-app @agent replies off)"}` : "⚠ SETUP: SOCIAL_API_URL not set: graduated-token trade alerts and in-app @agent replies are off");
+}
+
+// ---------- market numbers, computed exactly like the website ----------
+
+const YOCTO_N = 10n ** 24n;
+let linCache = { at: 0, v: 0n };
+/** Live LiNEAR price (yoctoNEAR per LiNEAR), cached for a minute. */
+async function liveLinearPrice(): Promise<bigint> {
+  if (Date.now() - linCache.at < 60_000 && linCache.v > 0n) return linCache.v;
+  const v = await operator
+    .viewFunction({ contractId: launchCfg.linear, methodName: "ft_price", args: {} })
+    .then((x) => BigInt(x as string))
+    .catch(() => 0n);
+  if (v > 0n) linCache = { at: Date.now(), v };
+  return v;
+}
+
+let usdCache = { at: 0, v: null as number | null };
+/** NEAR/USD for display: the on-chain price while fresh (< 2h), otherwise a live market price. */
+async function displayNearUsd(): Promise<number | null> {
+  if (Date.now() - usdCache.at < 120_000) return usdCache.v;
+  const [micro, at] = await view<[string, number]>("get_near_usd_price").catch(() => ["0", 0] as [string, number]);
+  const onchain = Number(micro) / 1e6;
+  const v = onchain > 0 && Date.now() / 1000 - at < 7200 ? onchain : ((await liveNearUsd().catch(() => null)) ?? (onchain || null));
+  usdCache = { at: Date.now(), v };
+  return v;
+}
 
 async function call(method: string, args: object, gasTgas: bigint, deposit = 0n) {
   const res = await operator.functionCall({
@@ -478,12 +540,31 @@ async function nearBalance(account: string): Promise<number | null> {
   }
 }
 
-function alertToken(t: TokenView, venue: "curve" | "ref"): AlertToken {
+/** Alert numbers with the website's formulas (`tokenSpotPrice`, `tokenFdvNear`, `vaultNear`). */
+async function alertToken(t: TokenView, venue: "curve" | "ref"): Promise<AlertToken> {
   const graduated = t.grad_stage === "Graduated";
   const circ = BigInt(t.total_supply) - BigInt(t.burned);
-  const backing = graduated
-    ? (BigInt(t.linear_shares) * BigInt(t.last_linear_price || "1000000000000000000000000")) / YOCTO
-    : BigInt(t.backing_near);
+  const linP = (await liveLinearPrice()) || BigInt(t.last_linear_price || YOCTO_N.toString());
+  const toN = (y: bigint) => Number(y / 10n ** 18n) / 1e6;
+  let spot: number | null = null;
+  let mcapYocto = BigInt(t.fdv_near);
+  if (graduated && t.pool_id !== null) {
+    const pool = await operator
+      .viewFunction({ contractId: launchCfg.ref_exchange, methodName: "get_pool", args: { pool_id: t.pool_id } })
+      .catch(() => null) as { token_account_ids: string[]; amounts: string[] } | null;
+    if (pool && pool.amounts.length >= 2) {
+      const iMeme = Math.max(0, pool.token_account_ids.indexOf(t.token_id));
+      const rMeme = BigInt(pool.amounts[iMeme] || "0");
+      const rLin = BigInt(pool.amounts[1 - iMeme] || "0");
+      if (rMeme > 0n) {
+        spot = Number(((rLin * linP) / YOCTO_N) * 10n ** 12n / rMeme) / 1e18;
+        mcapYocto = (rLin * linP * circ) / rMeme / YOCTO_N;
+      }
+    }
+  } else if (BigInt(t.v_tokens) > 0n) {
+    spot = Number((BigInt(t.v_near) * 10n ** 12n) / BigInt(t.v_tokens)) / 1e18;
+  }
+  const vault = graduated ? (BigInt(t.linear_shares) * linP) / YOCTO_N : BigInt(t.backing_near);
   return {
     tokenId: t.token_id,
     symbol: t.meta.symbol,
@@ -491,7 +572,10 @@ function alertToken(t: TokenView, venue: "curve" | "ref"): AlertToken {
     graduated,
     curvePct: graduated ? null : Number((BigInt(t.sold) * 10000n) / BigInt(t.curve_supply)) / 100,
     circulating: Number(circ / 10n ** 18n),
-    floorNear: circ > 0n ? Number((backing * 10n ** 12n) / circ) / 1e18 : null,
+    spotPriceNear: spot,
+    mcapNear: toN(mcapYocto),
+    vaultNear: toN(vault),
+    nearUsd: await displayNearUsd(),
     holders: t.holders,
   };
 }
@@ -502,7 +586,7 @@ const toTokens = (raw: string) => Number(BigInt(raw) / 10n ** 12n) / 1e6;
 async function checkTradeAlerts(t: TokenView) {
   const info: AgentTokenInfo = { token_id: t.token_id, meta: t.meta, agent_persona: t.agent_persona, stats: stats(t) };
   const alert = async (tr: { account: string; is_buy: boolean; near: string; tokens: string; tx?: string }, venue: "curve" | "ref") =>
-    sendTradeAlert(info, alertToken(t, venue), {
+    sendTradeAlert(info, await alertToken(t, venue), {
       isBuy: tr.is_buy,
       near: toNear(tr.near),
       tokens: toTokens(tr.tokens),
@@ -596,6 +680,7 @@ async function pollChatMentions(tokens: AgentTokenInfo[]) {
 
 console.log(`floorpad operator ${OPERATOR} on ${NETWORK}, launchpad ${LAUNCHPAD}`);
 await initBrrrainAuth().catch((e) => console.warn("brrrain auth init:", e.message));
+await checkSetup().catch((e) => console.warn("setup check:", (e as Error).message));
 if (!ONCE) {
   // Fast 3s Telegram & in-app @agent chat loop independent of the 60s on-chain keeper tick
   (async () => {

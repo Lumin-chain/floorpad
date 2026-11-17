@@ -26,8 +26,14 @@ export interface AlertToken {
   curvePct?: number | null;
   /** Circulating supply in whole tokens (total minus burned). */
   circulating?: number | null;
-  /** Floor (vault backing per token) in NEAR. */
-  floorNear?: number | null;
+  /** Spot price after the trade, NEAR per token: Ref pool (graduated) or curve, as the website shows it. */
+  spotPriceNear?: number | null;
+  /** Market cap in NEAR, computed exactly like the website's (`tokenFdvNear`). */
+  mcapNear?: number | null;
+  /** Floor vault in NEAR (the website's "Floor (vault)" chip). */
+  vaultNear?: number | null;
+  /** NEAR/USD used for the USD figures (the same fresh price the website uses). */
+  nearUsd?: number | null;
   holders?: number | null;
 }
 
@@ -91,6 +97,19 @@ export function fmtPrice(v: number): string {
   if (v >= 0.01) return v.toFixed(4);
   const zeros = Math.floor(-Math.log10(v));
   return v.toFixed(Math.min(zeros + 4, 20)).replace(/0+$/, "");
+}
+
+export function fmtUsd(v: number): string {
+  if (!Number.isFinite(v)) return "–";
+  if (v >= 1000) return `$${compactNum(v)}`;
+  if (v >= 1) return `$${v.toFixed(2)}`;
+  if (v >= 0.01) return `$${v.toFixed(3)}`;
+  return `$${fmtPrice(v)}`;
+}
+
+/** "$1.2K · 380 NEAR", or just the NEAR figure when no USD price is known. */
+function usdAndNear(near: number, usd: number | null | undefined): string {
+  return usd ? `<b>${fmtUsd(near * usd)}</b> · ${fmtNear(near)} NEAR` : `<b>${fmtNear(near)} NEAR</b>`;
 }
 
 export function shortAccount(a: string, max = 24): string {
@@ -192,8 +211,9 @@ export interface TelegramAlert {
 export function formatTradeAlert(tok: AlertToken, trade: AlertTrade, links: AlertLinks): TelegramAlert {
   const sym = esc(tok.symbol);
   const tier = tierFor(trade.near);
-  const price = trade.tokens > 0 ? trade.near / trade.tokens : 0;
-  const mcap = tok.circulating && price > 0 ? tok.circulating * price : null;
+  const fillPrice = trade.tokens > 0 ? trade.near / trade.tokens : 0;
+  const price = tok.spotPriceNear && tok.spotPriceNear > 0 ? tok.spotPriceNear : fillPrice;
+  const mcap = tok.mcapNear ?? (tok.circulating && price > 0 ? tok.circulating * price : null);
   const venue = tok.venue === "ref" ? "Ref Finance" : "Bonding curve";
   const acct = esc(shortAccount(trade.account));
   const acctUrl = `${links.explorerUrl}/address/${encodeURIComponent(trade.account)}`;
@@ -211,9 +231,11 @@ export function formatTradeAlert(tok: AlertToken, trade: AlertTrade, links: Aler
       ? `💸 <b>${fmtNear(trade.near)} NEAR</b> → <b>${compactNum(trade.tokens)}</b> $${sym}`
       : `💸 <b>${compactNum(trade.tokens)}</b> $${sym} → <b>${fmtNear(trade.near)} NEAR</b>`,
   );
-  lines.push(`🏷 Price  <code>${fmtPrice(price)}</code> NEAR`);
-  if (mcap !== null) lines.push(`📊 MCap  <b>${compactNum(mcap)} NEAR</b>`);
-  if (tok.floorNear && tok.floorNear > 0) lines.push(`🧱 Floor  <code>${fmtPrice(tok.floorNear)}</code> NEAR`);
+  lines.push(
+    `🏷 Price  <code>${fmtPrice(price)}</code> NEAR` + (tok.nearUsd ? ` (${fmtUsd(price * tok.nearUsd)})` : ""),
+  );
+  if (mcap !== null) lines.push(`📊 MCap  ${usdAndNear(mcap, tok.nearUsd)}`);
+  if (tok.vaultNear && tok.vaultNear > 0) lines.push(`🧱 Floor vault  ${usdAndNear(tok.vaultNear, tok.nearUsd)}`);
   lines.push(
     `👤 <a href="${esc(acctUrl)}">${acct}</a>` +
       (trade.balanceLeft !== null && trade.balanceLeft !== undefined ? ` · 👛 ${fmtNear(trade.balanceLeft)} NEAR left` : ""),

@@ -21,7 +21,7 @@ import {
   type Quote,
   type TradingAccount,
 } from "@/lib/near";
-import { storageCallIfNeeded, useView, useWallet, type Tx } from "@/lib/wallet";
+import { storageCallIfNeeded, tokenBalanceError, useView, useWallet, type Tx } from "@/lib/wallet";
 import { isSocialConfigured, postTrade } from "@/lib/social";
 import { Kv } from "./ui";
 import type { TokenCtx } from "@/app/token/[id]/page";
@@ -499,7 +499,7 @@ interface TokenTax {
 }
 
 function RefTrade({ t, balance, holdingSince, linearPrice, reload, initialSide, onDone }: TradeProps) {
-  const { send, busy, accountId, nearBalance } = useWallet();
+  const { send, busy, accountId, nearBalance, setToast } = useWallet();
   const [side, setSide] = useState<"buy" | "sell">(initialSide ?? "buy");
   const [amt, setAmt] = useState("");
   const { data: pool } = useView(() => view<RefPool>(REF, "get_pool", { pool_id: t.pool_id }), [t.pool_id], 6000);
@@ -558,6 +558,14 @@ function RefTrade({ t, balance, holdingSince, linearPrice, reload, initialSide, 
 
   async function submit() {
     if (!accountId || out === 0n) return;
+    if (side === "sell") {
+      const err = await tokenBalanceError(t.token_id, accountId, base, t.meta.symbol);
+      if (err) {
+        setToast({ kind: "err", text: err });
+        reload();
+        return;
+      }
+    }
     const txs: Tx[] = [];
 
     // Ensure account has storage registered on Ref Finance exchange
@@ -771,8 +779,16 @@ function RefTrade({ t, balance, holdingSince, linearPrice, reload, initialSide, 
           </div>
         </div>
       )}
-      <button className={`btn block trade-submit ${side === "buy" ? "buy" : "danger-solid"}`} disabled={busy || out === 0n} onClick={submit}>
-        {busy ? "Waiting for wallet…" : `${side === "buy" ? "Buy" : "Sell"} $${t.meta.symbol}`}
+      <button
+        className={`btn block trade-submit ${side === "buy" ? "buy" : "danger-solid"}`}
+        disabled={busy || out === 0n || (side === "sell" && base > balance)}
+        onClick={submit}
+      >
+        {busy
+          ? "Waiting for wallet…"
+          : side === "sell" && base > balance
+            ? `Not enough $${t.meta.symbol}`
+            : `${side === "buy" ? "Buy" : "Sell"} $${t.meta.symbol}`}
       </button>
     </div>
   );

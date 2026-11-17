@@ -215,7 +215,9 @@ export default function Create() {
         </div>
         {isPriceStale && (
           <div className="notice warn" style={{ marginBottom: 12 }}>
-            The on-chain NEAR/USD price feed is currently stale (&gt;24h old). Feeder update required before creating tokens.
+            Launches are paused: the launchpad&apos;s NEAR/USD price was last updated{" "}
+            {priceData ? `${Math.floor((Date.now() / 1000 - Number(priceData[1])) / 3600)}h ago` : "over 24h ago"}. The keeper
+            refreshes it automatically; launching works again as soon as it does.
           </div>
         )}
         {accountId && !hasEnoughBalance && (

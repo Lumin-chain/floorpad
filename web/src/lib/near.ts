@@ -446,9 +446,25 @@ export function getReferrer(self: string | null): string | null {
 }
 
 /** NEAR/USD as stored on-chain by the price feeder (used to size every launch). */
+/**
+ * NEAR/USD for display. Uses the launchpad's on-chain price while it is fresh (< 2h); when the
+ * feeder is behind, a live market price instead, so USD figures (market caps, floors) stay
+ * right. Contracts always use their own on-chain price.
+ */
 export async function nearUsd(): Promise<number> {
-  const [micro] = await lp<[string, number]>("get_near_usd_price");
-  return Number(micro) / 1e6;
+  const [micro, at] = await lp<[string, number]>("get_near_usd_price");
+  const onchain = Number(micro) / 1e6;
+  if (onchain > 0 && Date.now() / 1000 - at < 7200) return onchain;
+  try {
+    const r = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=near&vs_currencies=usd", {
+      signal: AbortSignal.timeout(5000),
+    });
+    const live = Number(((await r.json()) as { near?: { usd?: number } }).near?.usd);
+    if (live > 0) return live;
+  } catch {
+    /* fall back to the on-chain price */
+  }
+  return onchain;
 }
 
 /** yoctoNEAR -> USD number */
