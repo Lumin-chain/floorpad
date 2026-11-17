@@ -489,6 +489,18 @@ impl Contract {
         self.price_updated_at = now_secs();
     }
 
+    /// Testnet (feeder mode) only, and only callable by the launchpad account itself: set the
+    /// graduation market cap (USD) for tokens launched from now on. Existing curves keep the
+    /// target they launched with. With an on-chain price pool (mainnet) the config stays immutable.
+    #[private]
+    pub fn set_grad_mcap_usd(&mut self, usd: u64) {
+        require!(env::predecessor_account_id() == env::current_account_id(), "ERR_NOT_LAUNCHPAD");
+        require!(self.config.price_pool.is_none(), "ERR_CONFIG_IMMUTABLE");
+        require!((10..=1_000_000).contains(&usd), "ERR_GRAD_MCAP_BOUNDS");
+        self.config.grad_mcap_usd = usd;
+        env::log_str(&format!("graduation market cap for new launches: ${usd}"));
+    }
+
     /// (NEAR/USD in micro-USD, updated_at secs)
     pub fn get_near_usd_price(&self) -> (U128, u64) {
         (U128(self.near_usd_micro), self.price_updated_at)
