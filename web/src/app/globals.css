@@ -3534,3 +3534,23 @@ tr.click-row:hover td {
   border-radius: var(--radius-inner);
   background: var(--panel-2);
 }
+
+/* Explore tabs: counts and what the tab shows */
+.tab-count {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+}
+
+.filter-hint {
+  margin: 6px 2px 10px;
+}
+
+/* Side column scrolls; its panels keep their natural height (the chat was squeezed to 23px) */
+.token-aside > * {
+  flex-shrink: 0;
+}
