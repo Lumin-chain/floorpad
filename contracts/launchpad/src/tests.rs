@@ -1234,7 +1234,9 @@ fn queue_buys_once_on_the_pool_and_splits_pro_rata() {
     ctx(&acc("keeper.testnet"), 0, T0 + 606);
     let _ = c.process_migration_buys(token());
     ctx(&lp(), 0, T0 + 607);
-    c.on_mq_withdrawn(0, Ok(()));
+    let _ = c.on_mq_out_checked(0, Ok(U128(out)));
+    ctx_results(T0 + 608, vec![mq_ok(&U128(out))]);
+    c.on_mq_withdrawn(0);
     let q = c.mq(0);
     assert_eq!(q.total, 0);
     assert_eq!(q.stage, 0);
@@ -1279,9 +1281,57 @@ fn manipulated_pool_defers_the_queue_then_refunds_in_linear() {
     let _ = c.process_migration_buys(token());
     ctx(&lp(), 0, T0 + 605 + 90_000);
     let _ = c.on_mq_pool(0, Ok(pumped));
-    c.on_mq_refunded(0, Ok(()));
+    ctx_results(T0 + 606 + 90_000, vec![mq_ok(&U128(shares))]);
+    c.on_mq_refunded(0);
     assert_eq!(c.mq(0).total, 0);
     assert_eq!(c.get_claimable_linear(acc("whale.testnet")).0, shares);
+}
+
+/// The bug that stuck POT: the withdraw callback panicked, leaving the step busy with the
+/// tokens already in the launchpad. The step must become retryable and split without a 2nd withdraw.
+#[test]
+fn stuck_withdraw_step_recovers_and_splits_without_withdrawing_again() {
+    let (mut c, _) = graduated();
+    let total = c.mq(0).total;
+    let shares = total * 10 / 12;
+    let out = 50_000_000 * TOK;
+    let mut q = c.mq(0);
+    q.shares = shares;
+    q.out = out;
+    q.stage = 3;
+    q.busy = true; // callback panicked: never cleared, and no step time recorded (old code)
+    c.set_mq(0, &q);
+    let owed0 = c.tok(0).owed_tokens;
+
+    ctx(&acc("keeper.testnet"), 0, T0 + 700);
+    let _ = c.process_migration_buys(token()); // stale (no start time): allowed
+    assert!(!c.step_is_stale(0), "a fresh step is not stale");
+
+    // Ref holds none of them any more: split straight away
+    ctx(&lp(), 0, T0 + 702);
+    let r = c.on_mq_out_checked(0, Ok(U128(0)));
+    assert!(matches!(r, PromiseOrValue::Value(())));
+    let q = c.mq(0);
+    assert!(!q.busy);
+    assert_eq!(q.stage, 0);
+    assert_eq!(q.deliveries.iter().map(|d| d.1).sum::<u128>(), out);
+    assert_eq!(c.tok(0).owed_tokens, owed0 + out);
+}
+
+#[test]
+fn failed_withdraw_keeps_the_step_for_a_retry() {
+    let (mut c, _) = graduated();
+    let mut q = c.mq(0);
+    q.out = 7 * TOK;
+    q.stage = 3;
+    q.busy = true;
+    c.set_mq(0, &q);
+    ctx_results(T0 + 700, vec![mq_ok(&U128(0))]);
+    c.on_mq_withdrawn(0);
+    let q = c.mq(0);
+    assert!(!q.busy);
+    assert_eq!(q.stage, 3);
+    assert!(q.deliveries.is_empty());
 }
 
 #[test]
