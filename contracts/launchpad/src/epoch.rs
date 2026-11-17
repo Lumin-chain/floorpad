@@ -136,7 +136,11 @@ impl Contract {
 
         let treasury = cfg.treasury_id.clone();
         self.credit_linear(&treasury, platform_cut);
-        self.log_mech(idx, "epoch", yield_shares, None);
+        // Empty epochs (no new yield) aren't logged: on short testnet epochs they filled the
+        // 100-entry log and pushed out the burns and harvests people want to see.
+        if yield_shares > 0 {
+            self.log_mech(idx, "epoch", yield_shares, None);
+        }
         self.epochs.insert(
             (idx, epoch % MAX_EPOCHS),
             EpochReport {

@@ -285,7 +285,8 @@ impl Contract {
     }
 
     /// Buy on the bonding curve. Attach NEAR; first buy of a token also pays
-    /// 0.00125 NEAR storage. Excess past the graduation cap is refunded.
+    /// 0.00125 NEAR storage. NEAR past the graduation cap, and any buy made while the token
+    /// migrates to Rhea, is queued and bought on the pool as soon as it is live (see migration.rs).
     #[payable]
     pub fn buy(&mut self, token_id: AccountId, min_tokens_out: U128, referrer: Option<AccountId>) -> U128 {
         let idx = self.idx_of(&token_id);
@@ -294,6 +295,16 @@ impl Contract {
         let new_holder = !self.known_holders.contains_key(&(idx, buyer.clone()));
         let storage_fee = if new_holder { STORAGE_FEE } else { 0 };
         require!(deposit > storage_fee, "ERR_BELOW_MIN_TRADE");
+        if self.is_migrating(idx) {
+            let near = deposit - storage_fee;
+            require!(near >= self.config.min_trade.as_yoctonear(), "ERR_BELOW_MIN_TRADE");
+            if new_holder {
+                self.known_holders.insert((idx, buyer.clone()), true);
+                self.tok_mut(idx).holders += 1;
+            }
+            require!(self.enqueue_migration_buy(idx, &buyer, near, new_holder), "ERR_BELOW_MIN_TRADE");
+            return U128(0);
+        }
         let (out, refund) = self.curve_buy_core(idx, &buyer, deposit - storage_fee, min_tokens_out.0, referrer);
         self.tok_mut(idx).tokens_in_flight += out;
 
@@ -317,7 +328,12 @@ impl Contract {
                 .on_tokens_delivered(idx, buyer.clone(), U128(out)),
         ).detach();
         if refund > 0 {
-            Promise::new(buyer).transfer(NearToken::from_yoctonear(refund)).detach();
+            // This buy sold out the curve: the rest is bought on Rhea once the pool is live,
+            // instead of being refunded (dust under MIN_QUEUED is still refunded).
+            let queued = self.is_migrating(idx) && self.enqueue_migration_buy(idx, &buyer, refund, false);
+            if !queued {
+                Promise::new(buyer).transfer(NearToken::from_yoctonear(refund)).detach();
+            }
         }
         U128(out)
     }

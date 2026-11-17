@@ -22,6 +22,7 @@ mod graduation;
 mod guard;
 mod harvest;
 mod migrate;
+mod migration;
 mod trading;
 mod ve;
 mod vault;
