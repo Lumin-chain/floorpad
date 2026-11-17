@@ -686,8 +686,18 @@ impl FungibleTokenReceiver for Contract {
         require!(amount.0 > 0, "ERR_ZERO");
         // LiNEAR sent with {"fund_yield":"<meme token>"} tops up that token's yield pool:
         // it is split by the next epoch's holder vote like staking yield (never principal).
+        // LiNEAR sent with {"fund_agent":"<meme token>"} goes straight into that token's AI
+        // agent budget (anyone may pay for the agent's posts).
         if token_id == self.config.linear {
-            let f: FundYieldMsg = serde_json::from_str(&msg).expect("ERR_BAD_MSG");
+            let v: serde_json::Value = serde_json::from_str(&msg).expect("ERR_BAD_MSG");
+            if let Some(target) = v.get("fund_agent").and_then(|x| x.as_str()) {
+                let target: AccountId = target.parse().expect("ERR_BAD_MSG");
+                let idx = self.idx_of(&target);
+                self.tok_mut(idx).agent_budget_shares += amount.0;
+                self.log_mech(idx, "agent_funded", amount.0, Some(sender_id));
+                return PromiseOrValue::Value(U128(0));
+            }
+            let f: FundYieldMsg = serde_json::from_value(v).expect("ERR_BAD_MSG");
             let idx = self.idx_of(&f.fund_yield);
             let tok = self.tok_mut(idx);
             require!(tok.grad_stage == GradStage::Graduated, "ERR_NOT_GRADUATED");

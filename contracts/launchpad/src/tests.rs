@@ -384,10 +384,15 @@ fn epoch_without_votes_compounds_into_floor() {
     let pool = pool_info(c.tok(0).lp_tokens, c.tok(0).lp_shares, NEAR);
     c.on_epoch_price(0, Ok(U128(NEAR * 15 / 10)), Ok(pool));
     let t = c.tok(0);
-    // only the 10% platform cut of the yield leaves; the rest compounds
+    // the 10% platform cut leaves; with no votes 10% of the rest funds the AI agent and
+    // everything else compounds into the floor
     let platform = c.get_claimable_linear(acc("treasury.testnet")).0;
     assert!(platform > 0);
-    assert_eq!(t.linear_shares, shares0 - platform);
+    assert!(t.agent_budget_shares > 0, "default agent share without votes");
+    assert_eq!(t.linear_shares, shares0 - platform - t.agent_budget_shares);
+    // platform takes 10% of the yield; the agent 10% of the remaining 90% (9% of the yield)
+    assert!(t.agent_budget_shares < platform, "agent share stays small");
+    assert!(t.agent_budget_shares * 10 >= platform * 8, "agent gets ~9% of the yield");
     assert!(math::shares_to_near(t.linear_shares, NEAR * 15 / 10) >= t.principal_near);
 }
 
@@ -1139,6 +1144,15 @@ fn grad_mcap_setter_has_bounds() {
     let mut c = launched();
     ctx(&lp(), 0, T0 + 50);
     c.set_grad_mcap_usd(5);
+}
+
+#[test]
+fn anyone_can_fund_a_tokens_agent_budget() {
+    let (mut c, _) = graduated();
+    let before = c.tok(0).agent_budget_shares;
+    ctx(&acc("linear-protocol.testnet"), 0, T0 + 900);
+    let _ = c.ft_on_transfer(acc("fan.testnet"), U128(NEAR), format!(r#"{{"fund_agent":"{}"}}"#, token()));
+    assert_eq!(c.tok(0).agent_budget_shares, before + NEAR);
 }
 
 #[test]
