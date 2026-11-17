@@ -261,6 +261,7 @@ export function formatTradeAlert(tok: AlertToken, trade: AlertTrade, links: Aler
 
 export type Milestone =
   | { kind: "launch"; name: string; creator: string; gradMcapUsd: number }
+  | { kind: "boost"; account: string; nearValue: number; target: "yield" | "agent" }
   | { kind: "graduated"; poolId: number | null; secsToGraduate: number | null }
   | { kind: "lp_harvest"; burnedTokens: number; linearAdded: number; sinceSecs: number }
   | {
@@ -313,7 +314,20 @@ export function formatMilestone(tok: AlertToken, m: Milestone, links: AlertLinks
   const plain: string[] = [];
   let buttons: { text: string; url: string }[] = [{ text: "📈 Chart & Trade", url: tokenUrl }];
 
-  if (m.kind === "launch") {
+  if (m.kind === "boost") {
+    const who = `<a href="${esc(`${links.explorerUrl}/address/${encodeURIComponent(m.account)}`)}">${esc(shortAccount(m.account))}</a>`;
+    lines.push(`🙌 <b>$${sym} BOOSTED</b>`, RULE);
+    lines.push(
+      m.target === "agent"
+        ? `${who} funded $${sym}'s AI agent with <b>${fmtNear(m.nearValue)} NEAR</b> (≈ ${Math.floor(m.nearValue / 0.01).toLocaleString()} posts)`
+        : `${who} added <b>${fmtNear(m.nearValue)} NEAR</b> to $${sym}'s yield`,
+    );
+    if (tok.nearUsd) lines.push(`💵 ≈ ${fmtUsd(m.nearValue * tok.nearUsd)}`);
+    if (m.target === "yield") lines.push("It's split at the next epoch by the holders' vote: floor, buyback & burn, lockers, agent, treasury.");
+    lines.push("", "<i>Thank you for building the floor.</i>");
+    plain.push(`🙌 $${tok.symbol} boosted: ${fmtNear(m.nearValue)} NEAR added to ${m.target === "agent" ? "its AI agent" : "holder yield"}.`, tokenUrl);
+    buttons = [{ text: `📈 $${tok.symbol}`, url: tokenUrl }];
+  } else if (m.kind === "launch") {
     const name = esc(m.name);
     lines.push("🚀 <b>NEW LAUNCH ON FLOORPAD</b>", `<b>${name}</b> · $${sym}`, RULE);
     lines.push("🧱 Redeemable floor active from the first buy");
