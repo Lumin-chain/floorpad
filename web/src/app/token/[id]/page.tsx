@@ -348,6 +348,7 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
           spotPriceNear={spotPriceNear}
           floorPriceNear={floorPrice(t, linearPrice)}
           nearUsd={nearUsdPrice}
+          linearPrice={linearPrice}
           onClose={() => setShowPnl(false)}
         />
       )}

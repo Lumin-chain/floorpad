@@ -514,8 +514,13 @@ async function handle(req: NextRequest, context: { params: Promise<{ path: strin
       }
       if (method === "GET") {
         await backend.ensureIndexedRecent();
-        const limit = clampInt(q.get("limit"), 1, 100, 50);
-        return NextResponse.json(backend.tradesForToken(tokenId, limit));
+        // ?account=: one wallet's full history (PnL), so a higher cap
+        const account = q.get("account");
+        if (account && !isValidNearAccount(account)) {
+          return NextResponse.json({ error: "invalid account" }, { status: 400 });
+        }
+        const limit = clampInt(q.get("limit"), 1, account ? 500 : 100, 50);
+        return NextResponse.json(backend.tradesForToken(tokenId, limit, account ?? undefined));
       }
       if (method === "POST") {
         // Trigger authoritative on-chain indexing instead of trusting client-supplied trade amounts/prices.

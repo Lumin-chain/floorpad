@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { lp, priceParam, pricePerToken, type TokenView, type Trade } from "@/lib/near";
-import { getIndexedTrades } from "@/lib/social";
+import { fmtNear, priceParam, type TokenView } from "@/lib/near";
+import { heldAmount, positionSummary, type PositionSummary } from "@/lib/pnl";
 import { useWallet } from "@/lib/wallet";
 import { SlabIcon, Moji } from "./Brand";
 
@@ -13,6 +13,8 @@ interface PnlModalProps {
   spotPriceNear: number;
   floorPriceNear: number;
   nearUsd: number;
+  /** Live LiNEAR price (yocto NEAR per LiNEAR), to value LiNEAR payouts in NEAR. */
+  linearPrice: bigint;
   onClose: () => void;
 }
 
@@ -23,86 +25,38 @@ export function PnlModal({
   spotPriceNear,
   floorPriceNear,
   nearUsd,
+  linearPrice,
   onClose,
 }: PnlModalProps) {
   const { accountId, setToast } = useWallet();
   const [downloading, setDownloading] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // Position calculations
+  // Position: full trade history (average cost), holdings incl. custody and locks, and the value
+  // the holding actually returns if exited now (best of market sell and floor redemption).
   const usdPrice = nearUsd || 3.6;
-  const tokensNum = Number(balance / 10n ** 14n) / 1e4;
-  const currentValNear = tokensNum * spotPriceNear;
-  const currentValUsd = currentValNear * usdPrice;
-  const floorValNear = tokensNum * floorPriceNear;
-
-  const [userTrades, setUserTrades] = useState<Trade[]>([]);
-  const [showNetworth, setShowNetworth] = useState<boolean>(true);
-
-  // Fetch user's real buy trades for this token to calculate actual average entry price
+  const [summary, setSummary] = useState<PositionSummary | null>(null);
+  const [summaryErr, setSummaryErr] = useState(false);
   useEffect(() => {
     if (!accountId) return;
     let active = true;
-    Promise.all([
-      lp<Trade[]>("get_trades", { token_id: t.token_id, limit: 200 }).catch(() => [] as Trade[]),
-      getIndexedTrades(t.token_id, 200).catch(() => []),
-    ]).then(([chainTrades, indexed]) => {
-      if (!active) return;
-      const mappedIndexed: Trade[] = (indexed || []).map((r) => ({
-        ts: r.ts,
-        account: r.account,
-        is_buy: Boolean(r.is_buy),
-        near: r.near,
-        tokens: r.tokens,
-        v_near: r.v_near,
-        v_tokens: r.v_tokens,
-      }));
-      const combined = [...(chainTrades || []), ...mappedIndexed].filter(
-        (tr) => tr.account === accountId && tr.is_buy,
-      );
-      const seen = new Set<string>();
-      const unique: Trade[] = [];
-      for (const tr of combined) {
-        const key = `${Math.floor(tr.ts)}-${tr.near}-${tr.tokens}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          unique.push(tr);
-        }
-      }
-      setUserTrades(unique);
-    });
+    const age = holdingSince ? Math.max(0, Math.floor(Date.now() / 1000) - holdingSince) : 0;
+    heldAmount(t, accountId, balance)
+      .then((h) => positionSummary(t, accountId, h.total, age, linearPrice))
+      .then((s) => active && setSummary(s))
+      .catch(() => active && setSummaryErr(true));
     return () => {
       active = false;
     };
-  }, [t.token_id, accountId]);
+  }, [t, accountId, balance, holdingSince, linearPrice]);
+  const [showNetworth, setShowNetworth] = useState<boolean>(true);
 
-  const { entryPriceNear, pnlPct } = useMemo(() => {
-    let totalBuyNear = 0n;
-    let totalBuyTokens = 0n;
-    for (const tr of userTrades) {
-      try {
-        totalBuyNear += BigInt(tr.near);
-        totalBuyTokens += BigInt(tr.tokens);
-      } catch {
-        // ignore malformed trade record
-      }
-    }
-
-    const realEntry =
-      totalBuyTokens > 0n
-        ? pricePerToken(totalBuyNear, totalBuyTokens)
-        : floorPriceNear > 0
-          ? floorPriceNear
-          : spotPriceNear;
-
-    const pct =
-      realEntry > 0
-        ? ((spotPriceNear - realEntry) / realEntry) * 100
-        : 0;
-
-    return { entryPriceNear: realEntry, pnlPct: pct };
-  }, [userTrades, floorPriceNear, spotPriceNear]);
-
+  const toN = (y: bigint) => Number(y / 10n ** 18n) / 1e6;
+  const currentValNear = summary ? toN(summary.value.near) : 0;
+  const currentValUsd = currentValNear * usdPrice;
+  const floorValNear = summary ? toN(summary.value.floor) : 0;
+  const pnlPct = summary?.pnlPct ?? 0;
+  const entryPriceNear = summary?.entryPriceNear ?? (floorPriceNear > 0 ? floorPriceNear : spotPriceNear);
   const entryPriceUsd = entryPriceNear * usdPrice;
   const spotPriceUsd = spotPriceNear * usdPrice;
   const isProfit = pnlPct >= 0;
@@ -236,15 +190,29 @@ export function PnlModal({
             position: "relative",
           }}
         >
-          {!cardLoaded && <span className="skeleton" style={{ position: "absolute", inset: 0, borderRadius: 0 }} />}
+          {(!cardLoaded || !summary) && <span className="skeleton" style={{ position: "absolute", inset: 0, borderRadius: 0 }} />}
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
+          {summary && <img
             src={cardUrl}
             alt={`${t.meta.symbol} PNL card`}
             onLoad={() => setCardLoaded(true)}
             style={{ width: "100%", height: "100%", display: "block", objectFit: "cover" }}
-          />
+          />}
         </div>
+
+        {summaryErr && <div className="notice warn small" style={{ marginTop: 10 }}>Could not load your trade history; try again in a moment.</div>}
+        {summary && (
+          <div className="pnl-breakdown small">
+            <div><span className="muted">Invested</span><b>{fmtNear(summary.basis.invested, 3)} N</b><span className="muted">{summary.basis.buys} buy{summary.basis.buys === 1 ? "" : "s"}</span></div>
+            <div><span className="muted">Taken out</span><b>{fmtNear(summary.basis.returned, 3)} N</b><span className="muted">{summary.basis.sells} sell{summary.basis.sells === 1 ? "" : "s"}</span></div>
+            <div><span className="muted">Worth now</span><b>{fmtNear(summary.value.near, 3)} N</b><span className="muted">{summary.value.via === "floor" ? "via floor redemption" : "if sold now"}</span></div>
+            <div>
+              <span className="muted">PnL</span>
+              <b className={summary.pnlNear >= 0n ? "green" : "red"}>{summary.pnlNear >= 0n ? "+" : "−"}{fmtNear(summary.pnlNear < 0n ? -summary.pnlNear : summary.pnlNear, 3)} N</b>
+              <span className="muted">{summary.pnlPct === null ? "no buys found" : `${summary.pnlPct >= 0 ? "+" : ""}${summary.pnlPct.toFixed(2)}%`}</span>
+            </div>
+          </div>
+        )}
 
         {/* Privacy Toggle: Show Networth vs Percentage Only */}
         <div
