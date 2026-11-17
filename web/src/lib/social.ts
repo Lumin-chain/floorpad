@@ -73,7 +73,13 @@ export async function api<T>(path: string, init: RequestInit & { session?: Sessi
   const r = await fetch(`${SOCIAL_API}${path}`, { ...init, headers: { ...headers, ...(init.headers as object) } });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) {
-    if (r.status === 401) clearSession();
+    if (r.status === 401 && init.session) {
+      // The server no longer knows this sign-in (e.g. its store was reset): sign out of chat
+      // everywhere on the page so the "Sign in to chat" button comes back.
+      clearSession();
+      if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("floorpad:chat-signed-out"));
+      throw new Error("Your chat sign-in expired. Sign in again (free, no gas).");
+    }
     throw new Error((j as { error?: string }).error ?? `HTTP ${r.status}`);
   }
   return j as T;

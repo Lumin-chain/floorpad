@@ -313,8 +313,15 @@ class SocialBackend {
   }
 
   private resolvePath(): string | null {
+    // Durable first: an explicit file, then a Railway volume if one is attached (a file inside
+    // the container is wiped by every redeploy, taking calls, chat and sign-ins with it).
+    const volume = process.env.RAILWAY_VOLUME_MOUNT_PATH;
+    if (!process.env.SOCIAL_DB_FILE && !volume) {
+      console.warn("social store: no SOCIAL_DB_FILE or volume; calls and chat reset on every redeploy");
+    }
     const candidates = [
       process.env.SOCIAL_DB_FILE,
+      volume ? path.join(volume, "floorpad-social.json") : undefined,
       path.join(process.cwd(), ".floorpad-social.json"),
       path.join("/tmp", "floorpad-social.json"),
     ].filter(Boolean) as string[];
