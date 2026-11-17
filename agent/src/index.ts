@@ -16,7 +16,7 @@
 import os from "node:os";
 import path from "node:path";
 import { connect, KeyPair, keyStores, type Account } from "near-api-js";
-import { pollTelegramCommands, postMilestone, postToTelegram, postToX, sendBuyAlert, type AgentTokenInfo, type TradeInfo } from "./social.js";
+import { pollTelegramCommands, postMilestone, postToTelegram, postToX, sendTradeAlert, type AgentTokenInfo, type TradeInfo } from "./social.js";
 import { getLatestPowerRemaining, obtainBrrrainKey, setLatestPowerRemaining } from "./brrrain.js";
 import { allowAiReply, cleanLabel, cleanPublicText, personaBlock, POST_RULES } from "./safety.js";
 
@@ -452,15 +452,42 @@ async function checkMilestones(t: TokenView) {
   }
 }
 
-async function checkBuyAlerts(t: TokenView) {
+/** Ref swaps the social indexer stores get ids from here up (curve trades keep their on-chain index). */
+const REF_TRADE_ID_BASE = 1_000_000_000;
+const lastRefTradeId = new Map<string, number>();
+
+async function checkTradeAlerts(t: TokenView) {
+  const info: AgentTokenInfo = { token_id: t.token_id, meta: t.meta, agent_persona: t.agent_persona, stats: stats(t) };
+
+  // Bonding-curve trades: the launchpad's own trade log.
   const prev = lastTradeCount.get(t.token_id);
   lastTradeCount.set(t.token_id, t.trade_count);
-  if (prev === undefined || t.trade_count <= prev) return;
-  const delta = Math.min(20, t.trade_count - prev);
-  const recent = await view<TradeInfo[]>("get_trades", { token_id: t.token_id, limit: delta }).catch(() => []);
-  const info: AgentTokenInfo = { token_id: t.token_id, meta: t.meta, agent_persona: t.agent_persona, stats: stats(t) };
-  for (const tr of [...recent].reverse()) {
-    if (tr.is_buy) await sendBuyAlert(info, tr);
+  if (prev !== undefined && t.trade_count > prev) {
+    const delta = Math.min(20, t.trade_count - prev);
+    const recent = await view<TradeInfo[]>("get_trades", { token_id: t.token_id, limit: delta }).catch(() => []);
+    for (const tr of [...recent].reverse()) await sendTradeAlert(info, tr, "curve");
+  }
+
+  // After graduation, trades happen on the Ref pool and never reach the launchpad's log. The
+  // social service indexes them from the chain; read them from there.
+  if (t.grad_stage !== "Graduated" || !SOCIAL_API_URL) return;
+  try {
+    const r = await fetch(`${SOCIAL_API_URL}/tokens/${t.token_id}/trades?limit=20`, { signal: AbortSignal.timeout(6000) });
+    if (!r.ok) return;
+    const rows = ((await r.json()) as { id: number; ts: number; account: string; is_buy: number; near: string; tokens: string }[])
+      .filter((x) => x.id >= REF_TRADE_ID_BASE);
+    const maxId = rows.reduce((m, x) => Math.max(m, x.id), 0);
+    const last = lastRefTradeId.get(t.token_id);
+    if (maxId > 0) lastRefTradeId.set(t.token_id, Math.max(maxId, last ?? 0));
+    if (last === undefined) {
+      if (maxId === 0) lastRefTradeId.set(t.token_id, REF_TRADE_ID_BASE - 1); // no Ref trades yet: alert the first one
+      return; // first sight: don't replay history
+    }
+    for (const x of rows.filter((x) => x.id > last).sort((a, b) => a.id - b.id)) {
+      await sendTradeAlert(info, { ts: x.ts, account: x.account, is_buy: Boolean(x.is_buy), near: x.near, tokens: x.tokens }, "ref");
+    }
+  } catch (e) {
+    console.warn(`ref trade alerts ${t.token_id}:`, (e as Error).message);
   }
 }
 
@@ -476,7 +503,7 @@ async function tick() {
   for (const t of tokens) {
     await checkMilestones(t);
     await keep(t);
-    await checkBuyAlerts(t);
+    await checkTradeAlerts(t);
     await agent(t);
   }
   milestonesPrimed = true;

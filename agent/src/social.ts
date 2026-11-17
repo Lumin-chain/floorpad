@@ -151,25 +151,29 @@ export async function postMilestone(t: AgentTokenInfo, headline: string) {
   await Promise.allSettled([postToTelegram(t, headline), postToX(t, headline, "milestone")]);
 }
 
-export async function sendBuyAlert(t: AgentTokenInfo, trade: TradeInfo) {
-  if (!TG_TOKEN || !trade.is_buy) return;
+/** Live trade alert (buys and sells, curve and Ref). `venue` labels where it traded. */
+export async function sendTradeAlert(t: AgentTokenInfo, trade: TradeInfo, venue: "curve" | "ref" = "curve") {
+  if (!TG_TOKEN) return;
   const targets = resolveTelegramTargets(t, true);
   if (targets.length === 0) return;
-  const nearSpent = Number(BigInt(trade.near) / 10n ** 18n) / 1e6;
-  const tokensBought = Number(BigInt(trade.tokens) / 10n ** 18n);
+  const nearAmt = Number(BigInt(trade.near) / 10n ** 18n) / 1e6;
+  const tokenAmt = Number(BigInt(trade.tokens) / 10n ** 18n);
   const stage = String(t.stats.stage ?? "");
+  const where = venue === "ref" ? " on Ref Finance" : "";
   const msg = [
-    `🟢 NEW $${t.meta.symbol} BUY!`,
-    `Spent: ${nearSpent.toFixed(3)} NEAR`,
-    `Bought: ${tokensBought.toLocaleString()} $${t.meta.symbol}`,
-    `Buyer: ${trade.account}`,
+    trade.is_buy ? `🟢 NEW $${t.meta.symbol} BUY${where}!` : `🔴 $${t.meta.symbol} SELL${where}`,
+    trade.is_buy ? `Spent: ${nearAmt.toFixed(3)} NEAR` : `Received: ${nearAmt.toFixed(3)} NEAR`,
+    trade.is_buy
+      ? `Bought: ${tokenAmt.toLocaleString()} $${t.meta.symbol}`
+      : `Sold: ${tokenAmt.toLocaleString()} $${t.meta.symbol}`,
+    `${trade.is_buy ? "Buyer" : "Seller"}: ${trade.account}`,
     `Status: ${stage}`,
     `Floor: ${t.stats.floor_price_near ?? "–"} NEAR`,
     `Chart & Trade: ${WEB_URL}/token/${t.token_id}`,
   ].join("\n");
 
   for (const { chat_id, minBuyNear } of targets) {
-    if (nearSpent < minBuyNear) continue;
+    if (nearAmt < minBuyNear) continue;
     await tgCall("sendMessage", {
       chat_id,
       text: msg.slice(0, 4000),
@@ -214,8 +218,8 @@ const HELP_TEXT = (botName: string) =>
     "",
     "Group Admin Setup:",
     "• /link <SYMBOL or token_id> — link this group to a Floorpad token",
-    "• /buyalerts on|off — toggle live buy alerts",
-    "• /setminbuy <NEAR> — minimum NEAR buy size to alert",
+    "• /buyalerts on|off — toggle live buy & sell alerts",
+    "• /setminbuy <NEAR> — minimum trade size (NEAR) to alert",
     "• /setrules <text> — set community group rules",
     "• /setwelcome <text> — set welcome message for new members",
     "• /unlink — disconnect this group",
