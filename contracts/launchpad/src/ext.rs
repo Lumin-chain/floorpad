@@ -68,7 +68,9 @@ pub trait ExtRef {
         amount: U128,
         unregister: Option<bool>,
         skip_unwrap_near: Option<bool>,
-    );
+    ) -> U128;
+    /// The caller's balance of `token_id` inside Ref.
+    fn get_deposit(&self, account_id: AccountId, token_id: AccountId) -> U128;
 }
 
 /// The fields of Ref's `get_pool` answer that the launchpad reads.

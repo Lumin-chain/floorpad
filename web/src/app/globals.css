@@ -3554,3 +3554,6 @@ tr.click-row:hover td {
 .token-aside > * {
   flex-shrink: 0;
 }
+
+/* protocol events in the trades list */
+.protocol-row td { background: rgba(127, 184, 230, 0.04); }

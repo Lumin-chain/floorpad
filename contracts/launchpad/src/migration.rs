@@ -35,6 +35,8 @@ pub const MIN_QUEUED: u128 = 10_000_000_000_000_000_000_000; // 0.01 NEAR
 const REFUND_AFTER_SECS: u64 = 86_400;
 /// Deliveries per `deliver_migration_buys` call.
 const DELIVER_BATCH: u32 = 8;
+/// A step still marked busy after this long lost its callback; it may be run again.
+const STALE_STEP_SECS: u64 = 600;
 
 const STAGE_QUEUED: u8 = 0;
 const STAGE_STAKED: u8 = 1;
@@ -84,6 +86,21 @@ fn mq_key(idx: u32) -> Vec<u8> {
     k
 }
 
+/// When the current step started (own key, so `MigrationQueue` keeps its layout).
+fn mq_step_key(idx: u32) -> Vec<u8> {
+    let mut k = b"g:mqt".to_vec();
+    k.extend_from_slice(&idx.to_le_bytes());
+    k
+}
+
+/// Amount from a Ref `withdraw` result: 0 when it failed (Ref keeps the deposit).
+fn withdrawn_amount() -> u128 {
+    match env::promise_result_checked(0, 64) {
+        Ok(v) => near_sdk::serde_json::from_slice::<U128>(&v).map(|u| u.0).unwrap_or(0),
+        Err(_) => 0,
+    }
+}
+
 impl Contract {
     pub(crate) fn mq(&self, idx: u32) -> MigrationQueue {
         env::storage_read(&mq_key(idx))
@@ -125,6 +142,37 @@ impl Contract {
         q.busy = false;
         self.set_mq(idx, &q);
     }
+
+    /// A busy step whose callback never landed (no start time recorded, or too old).
+    pub(crate) fn step_is_stale(&self, idx: u32) -> bool {
+        match env::storage_read(&mq_step_key(idx)) {
+            Some(v) if v.len() == 8 => {
+                let started = u64::from_le_bytes(v.try_into().unwrap());
+                now_secs() > started + STALE_STEP_SECS
+            }
+            _ => true,
+        }
+    }
+
+    /// The bought tokens are in the launchpad: split them pro rata by NEAR for delivery.
+    fn distribute_bought(&mut self, idx: u32, mut q: MigrationQueue) {
+        let out = q.out;
+        let mut given = 0u128;
+        let n = q.entries.len();
+        for (i, (who, near, storage)) in q.entries.drain(..).enumerate() {
+            let share = if i + 1 == n { out - given } else { math::mul_div(out, near, q.total) };
+            given += share;
+            q.deliveries.push((who, share, storage));
+        }
+        self.tok_mut(idx).owed_tokens += out; // reserved until delivered
+        self.log_mech(idx, "migration_buys", out, None);
+        q.total = 0;
+        q.shares = 0;
+        q.out = 0;
+        q.stage = STAGE_QUEUED;
+        q.since = 0;
+        self.finish_step(idx, q);
+    }
 }
 
 #[near]
@@ -152,14 +200,15 @@ impl Contract {
         let idx = self.idx_of(&token_id);
         require!(self.tok(idx).grad_stage == GradStage::Graduated, "ERR_NOT_GRADUATED");
         let mut q = self.mq(idx);
-        require!(!q.busy, "ERR_QUEUE_STEP_IN_FLIGHT");
+        require!(!q.busy || self.step_is_stale(idx), "ERR_QUEUE_STEP_IN_FLIGHT");
         require!(q.total > 0, "ERR_QUEUE_EMPTY");
+        env::storage_write(&mq_step_key(idx), &now_secs().to_le_bytes());
         if q.since == 0 {
             q.since = now_secs();
         }
         q.busy = true;
         let stage = q.stage;
-        let (shares, out) = (q.shares, q.out);
+        let shares = q.shares;
         self.set_mq(idx, &q);
         let me = env::current_account_id();
         let cfg = self.config.clone();
@@ -179,12 +228,35 @@ impl Contract {
                 .with_static_gas(tgas(5))
                 .get_pool(pool_id)
                 .then(Self::ext(me).with_static_gas(tgas(150)).on_mq_pool(idx)),
+            // check first: a retried step must not withdraw twice
             _ => ext_ref::ext(cfg.ref_exchange)
-                .with_attached_deposit(ONE_YOCTO)
-                .with_static_gas(tgas(40))
-                .withdraw(token_id, U128(out), None, Some(true))
-                .then(Self::ext(me).with_static_gas(tgas(60)).on_mq_withdrawn(idx)),
+                .with_static_gas(tgas(5))
+                .get_deposit(me.clone(), token_id)
+                .then(Self::ext(me).with_static_gas(tgas(130)).on_mq_out_checked(idx)),
         }
+    }
+
+    /// Withdraw the bought tokens, or split them right away if an earlier attempt already did.
+    #[private]
+    pub fn on_mq_out_checked(&mut self, idx: u32, #[callback_result] dep: Result<U128, PromiseError>) -> PromiseOrValue<()> {
+        let q = self.mq(idx);
+        let Ok(dep) = dep else {
+            self.finish_step(idx, q);
+            return PromiseOrValue::Value(());
+        };
+        if dep.0 < q.out {
+            // Ref no longer holds them: the earlier withdrawal landed in the launchpad
+            env::log_str("migration queue: tokens already withdrawn, splitting");
+            self.distribute_bought(idx, q);
+            return PromiseOrValue::Value(());
+        }
+        let token_id = self.tok(idx).token_id.clone();
+        ext_ref::ext(self.config.ref_exchange.clone())
+            .with_attached_deposit(ONE_YOCTO)
+            .with_static_gas(tgas(40))
+            .withdraw(token_id, U128(q.out), None, Some(true))
+            .then(Self::ext(env::current_account_id()).with_static_gas(tgas(60)).on_mq_withdrawn(idx))
+            .into()
     }
 
     #[private]
@@ -272,36 +344,21 @@ impl Contract {
 
     /// Tokens arrived: split pro rata by NEAR and queue them for delivery.
     #[private]
-    pub fn on_mq_withdrawn(&mut self, idx: u32, #[callback_result] r: Result<(), PromiseError>) {
-        let mut q = self.mq(idx);
-        if r.is_err() {
+    pub fn on_mq_withdrawn(&mut self, idx: u32) {
+        let q = self.mq(idx);
+        // Ref's `withdraw` returns the amount sent (0 if the transfer bounced back into Ref)
+        if withdrawn_amount() == 0 {
             self.finish_step(idx, q); // retry the withdrawal
             return;
         }
-        // Tokens may arrive net of an older token's DEX tax: split what actually came in.
-        let out = q.out;
-        let mut given = 0u128;
-        let n = q.entries.len();
-        for (i, (who, near, storage)) in q.entries.drain(..).enumerate() {
-            let share = if i + 1 == n { out - given } else { math::mul_div(out, near, q.total) };
-            given += share;
-            q.deliveries.push((who, share, storage));
-        }
-        self.tok_mut(idx).owed_tokens += out; // reserved until delivered
-        self.log_mech(idx, "migration_buys", out, None);
-        q.total = 0;
-        q.shares = 0;
-        q.out = 0;
-        q.stage = STAGE_QUEUED;
-        q.since = 0;
-        self.finish_step(idx, q);
+        self.distribute_bought(idx, q);
     }
 
     /// Price never came back into the band: refund the queue in LiNEAR (claimable).
     #[private]
-    pub fn on_mq_refunded(&mut self, idx: u32, #[callback_result] r: Result<(), PromiseError>) {
+    pub fn on_mq_refunded(&mut self, idx: u32) {
         let mut q = self.mq(idx);
-        if r.is_err() {
+        if withdrawn_amount() == 0 {
             self.finish_step(idx, q);
             return;
         }

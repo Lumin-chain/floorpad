@@ -13,6 +13,7 @@ import {
   REF,
   tokenSpotPrice,
   view,
+  type MechEvent,
   type TokenView,
   type Trade,
 } from "@/lib/near";
@@ -112,17 +113,45 @@ export function PriceChart({ t, linearPrice }: TokenCtx) {
   return <TokenChart t={t} trades={trades} spot={tokenSpotPrice(t, refPool, linearPrice)} floor={floorPrice(t, linearPrice)} />;
 }
 
+/**
+ * Protocol events shown in the trades list. `unit` says what the logged amount is:
+ * tokens (burns) or LiNEAR (harvested pool fees, staking yield).
+ */
+const PROTOCOL_ROW: Record<string, { label: string; tone: string; unit: "tok" | "lin"; hint: string }> = {
+  lp_harvest_burn: { label: "🔥 LP BURN", tone: "warn", unit: "tok", hint: "Token side of the harvested pool fees, burned" },
+  lp_harvest: { label: "💧 LP HARVEST", tone: "green", unit: "lin", hint: "LiNEAR side of the harvested pool fees, added to the floor" },
+  epoch: { label: "💧 YIELD", tone: "green", unit: "lin", hint: "Staking yield paid out this epoch" },
+  yield_funded: { label: "💧 YIELD BOOST", tone: "green", unit: "lin", hint: "LiNEAR contributed to holder rewards" },
+  tax_burn: { label: "🔥 TAX BURN", tone: "warn", unit: "tok", hint: "DEX tax burned" },
+  buyback_burn: { label: "🔥 BUYBACK", tone: "warn", unit: "tok", hint: "Tokens bought back and burned" },
+  graduation_burn: { label: "🎓 GRAD BURN", tone: "warn", unit: "tok", hint: "Unsold supply burned at graduation" },
+  redeem_burn: { label: "🧱 REDEEM", tone: "", unit: "tok", hint: "Tokens redeemed at the floor and burned" },
+  migration_buys: { label: "🚚 QUEUED BUYS", tone: "", unit: "tok", hint: "Buys queued during migration, filled on Rhea" },
+};
+
+type Row = { kind: "trade"; ts: number; tr: Trade } | { kind: "event"; ts: number; ev: MechEvent };
+
 export function TradesTable({ t, trades: given, limit = 50 }: { t: TokenView; trades?: Trade[]; limit?: number }) {
   const fetched = useTrades(t);
   const trades = given ?? fetched;
-  const [filter, setFilter] = useState<"all" | "buy" | "sell">("all");
+  const [filter, setFilter] = useState<"all" | "buy" | "sell" | "protocol">("all");
+  const { data: mech } = useView(() => lp<MechEvent[]>("get_mech_log", { token_id: t.token_id, limit: 100 }), [t.token_id, t.mech_count], 30000);
 
-  const filtered = useMemo(() => {
-    if (!trades) return [];
-    if (filter === "buy") return trades.filter((x) => x.is_buy);
-    if (filter === "sell") return trades.filter((x) => !x.is_buy);
-    return trades;
-  }, [trades, filter]);
+  const events = useMemo(
+    () => (mech ?? []).filter((e) => PROTOCOL_ROW[e.kind] && BigInt(e.amount || "0") > 0n),
+    [mech],
+  );
+
+  const rows = useMemo<Row[]>(() => {
+    const tr: Row[] = (trades ?? [])
+      .filter((x) => (filter === "buy" ? x.is_buy : filter === "sell" ? !x.is_buy : filter === "all"))
+      .map((x) => ({ kind: "trade", ts: x.ts, tr: x }));
+    const ev: Row[] = filter === "all" || filter === "protocol" ? events.map((e) => ({ kind: "event", ts: e.ts, ev: e })) : [];
+    return [...tr, ...ev].sort((a, b) => b.ts - a.ts);
+  }, [trades, events, filter]);
+
+  const nTrades = rows.filter((r) => r.kind === "trade").length;
+  const nEvents = rows.length - nTrades;
 
   return (
     <div className="stack" style={{ gap: 8 }}>
@@ -136,9 +165,16 @@ export function TradesTable({ t, trades: given, limit = 50 }: { t: TokenView; tr
             <button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>All</button>
             <button className={filter === "buy" ? "active" : ""} onClick={() => setFilter("buy")}>Buys</button>
             <button className={filter === "sell" ? "active" : ""} onClick={() => setFilter("sell")}>Sells</button>
+            <button className={filter === "protocol" ? "active" : ""} onClick={() => setFilter("protocol")} title="LP burns, harvests, yield and other protocol events">
+              Burns &amp; yield
+            </button>
           </div>
         </div>
-        <span className="small muted mono">{filtered.length} trades recorded</span>
+        <span className="small muted mono">
+          {nTrades > 0 || filter !== "protocol" ? `${nTrades} trades` : ""}
+          {nTrades > 0 && nEvents > 0 ? " · " : ""}
+          {nEvents > 0 ? `${nEvents} protocol events` : ""}
+        </span>
       </div>
 
       <div className="table-scroll">
@@ -154,13 +190,31 @@ export function TradesTable({ t, trades: given, limit = 50 }: { t: TokenView; tr
             </tr>
           </thead>
           <tbody>
-            {filtered.slice(0, limit).map((tr, i) => {
+            {rows.slice(0, limit).map((r, i) => {
+              if (r.kind === "event") {
+                const st = PROTOCOL_ROW[r.ev.kind];
+                return (
+                  <tr key={`e${i}`} className="protocol-row" title={st.hint}>
+                    <td>
+                      <span className={`badge ${st.tone}`}>{st.label}</span>
+                    </td>
+                    <td className="muted">–</td>
+                    <td className="mono">{st.unit === "lin" ? `${fmtNear(r.ev.amount, 3)} LiNEAR` : <span className="muted">–</span>}</td>
+                    <td className="mono">{st.unit === "tok" ? fmtTok(r.ev.amount, 0) : <span className="muted">–</span>}</td>
+                    <td className="mono small ellipsis" style={{ maxWidth: 130 }} title={r.ev.account ?? LAUNCHPAD}>
+                      {r.ev.account && r.ev.account !== LAUNCHPAD ? r.ev.account : <span className="badge">Floorpad protocol</span>}
+                    </td>
+                    <td className="muted nowrap">{ago(r.ts)}</td>
+                  </tr>
+                );
+              }
+              const tr = r.tr;
               const p =
                 tr.v_tokens && BigInt(tr.v_tokens) > 0n
                   ? pricePerToken(BigInt(tr.v_near), BigInt(tr.v_tokens))
                   : (Number(BigInt(tr.near) / 10n ** 18n) / 1e6) / Math.max(0.000001, Number(BigInt(tr.tokens) / 10n ** 18n));
               return (
-                <tr key={i}>
+                <tr key={`t${i}`}>
                   <td className={tr.is_buy ? "green" : "bad"}>
                     <strong>{tr.is_buy ? "BUY" : "SELL"}</strong>
                   </td>
@@ -179,10 +233,10 @@ export function TradesTable({ t, trades: given, limit = 50 }: { t: TokenView; tr
                 </tr>
               );
             })}
-            {filtered.length === 0 && (
+            {rows.length === 0 && (
               <tr>
                 <td colSpan={6} className="muted" style={{ textAlign: "center", padding: 18 }}>
-                  No trades found.
+                  {filter === "protocol" ? "No burns or harvests yet. They appear here as the protocol runs." : "No trades found."}
                 </td>
               </tr>
             )}
