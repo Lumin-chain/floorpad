@@ -146,7 +146,9 @@ export function DaoPanel({ t }: TokenCtx) {
           const pct = (v: bigint) => (totalW > 0n ? Number((v * 10000n) / totalW) / 100 : 0);
           const voted = accountId ? p.votes[accountId] : undefined;
           const expires = Number(BigInt(p.submission_time) / 1_000_000_000n) + Number(BigInt(policy?.proposal_period ?? "0") / 1_000_000_000n);
-          const expired = p.status === "InProgress" && Date.now() / 1000 > expires;
+          // 2 min margin: the chain's clock decides, and a device clock running ahead made
+          // Finalize fail with ERR_PROPOSAL_NOT_EXPIRED_OR_FAILED
+          const expired = p.status === "InProgress" && Date.now() / 1000 > expires + 120;
           return (
             <div className="proposal" key={p.id}>
               <div className="row between">

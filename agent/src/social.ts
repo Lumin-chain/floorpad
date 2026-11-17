@@ -14,7 +14,7 @@ import path from "node:path";
 import { createHmac, randomBytes } from "node:crypto";
 import { getLatestPowerRemaining } from "./brrrain.js";
 import { allowAiReply, cleanLabel } from "./safety.js";
-import { formatMilestone, formatTradeAlert, type AlertToken, type AlertTrade, type Milestone } from "./alerts.js";
+import { esc, formatMilestone, formatTradeAlert, type AlertToken, type AlertTrade, type Milestone } from "./alerts.js";
 
 export interface AgentTokenInfo {
   token_id: string;
@@ -159,12 +159,15 @@ export async function postToTelegram(t: AgentTokenInfo, text: string) {
   if (!TG_TOKEN) return;
   const targets = resolveTelegramTargets(t, false);
   if (targets.length === 0) return;
-  const msg = `$${t.meta.symbol} (${cleanLabel(t.meta.name)})\n\n${text}\n\n${WEB_URL}/token/${t.token_id}`;
+  // Agent posts as a card: header, the post, and a button (no bare link line).
+  const msg = `🤖 <b>$${esc(t.meta.symbol)} agent</b> · ${esc(cleanLabel(t.meta.name))}\n\n${esc(text)}`;
   for (const { chat_id } of targets) {
     await tgCall("sendMessage", {
       chat_id,
       text: msg.slice(0, 4000),
-      disable_web_page_preview: true,
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+      reply_markup: { inline_keyboard: [[{ text: "📈 Chart & Trade", url: `${WEB_URL}/token/${t.token_id}` }]] },
     });
   }
 }

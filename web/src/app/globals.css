@@ -3523,3 +3523,14 @@ tr.click-row:hover td {
     height: 300px;
   }
 }
+
+/* Contribute to yield: where the NEAR goes */
+.fy-split {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-inner);
+  background: var(--panel-2);
+}

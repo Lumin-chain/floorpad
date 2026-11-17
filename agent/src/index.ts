@@ -20,7 +20,7 @@ import { connect, KeyPair, keyStores, type Account } from "near-api-js";
 import { pollTelegramCommands, postMilestoneCard, postToTelegram, postToX, sendTradeAlert, type AgentTokenInfo, type TradeInfo } from "./social.js";
 import { getLatestPowerRemaining, obtainBrrrainKey, setLatestPowerRemaining } from "./brrrain.js";
 import { allowAiReply, cleanLabel, cleanPublicText, personaBlock, POST_RULES } from "./safety.js";
-import type { AlertToken } from "./alerts.js";
+import { compactNum, fmtNear, fmtPrice, type AlertToken } from "./alerts.js";
 
 try {
   process.loadEnvFile?.(".env");
@@ -323,6 +323,7 @@ async function keep(t: TokenView) {
     if (t.grad_stage === "Graduated" && !migrating.has(t.token_id)) await drainMigrationQueue(t.token_id);
     // periodic floor report (harvests, burns, buybacks, yield), not only after an LP harvest
     if (t.grad_stage === "Graduated") await maybePostHarvest(t.token_id).catch(() => {});
+    await maybePostBoosts(t).catch(() => {});
     if (t.grad_stage === "Graduated" && !t.epoch_busy && now >= t.next_epoch_at) {
       await call("settle_epoch", { token_id: t.token_id }, 300n);
     }
@@ -414,15 +415,23 @@ function stats(t: TokenView) {
 
 /** Plain, factual stats for when no AI is available (posts and @agent replies). */
 function statsText(symbol: string, s: Record<string, unknown>): string {
-  const parts = [
-    s.stage ? `Stage: ${s.stage}` : "",
-    s.floor_price_near ? `floor ${s.floor_price_near} NEAR/token` : "",
-    s.vault_backing_near ? `vault ${s.vault_backing_near} NEAR` : "",
-    s.holders !== undefined ? `${s.holders} holders` : "",
-    s.lockers !== undefined ? `${s.lockers} lockers` : "",
-    s.burned_tokens ? `${s.burned_tokens} burned` : "",
+  const num = (v: unknown) => {
+    const n = Number(String(v ?? "").replace(/[^0-9.eE+-]/g, ""));
+    return Number.isFinite(n) ? n : 0;
+  };
+  const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+  const stage = String(s.stage ?? "");
+  const floor = num(s.floor_price_near);
+  const vault = num(s.vault_backing_near);
+  const burned = num(s.burned_tokens);
+  const lines = [
+    `📊 $${symbol} check-in`,
+    stage.startsWith("graduated") ? "🎓 Trading on Rhea · liquidity locked forever · vault earning staking yield" : `📈 ${stage.replace(/^./, (c) => c.toUpperCase())}`,
+    floor > 0 ? `🧱 Floor: ${fmtPrice(floor)} NEAR per token (vault ${fmtNear(vault)} NEAR)` : "",
+    burned > 0 ? `🔥 Burned so far: ${compactNum(burned)} $${symbol}` : "",
+    `👥 ${plural(num(s.holders), "holder")} · ${plural(num(s.lockers), "locker")}`,
   ].filter(Boolean);
-  return `📊 $${symbol} update: ${parts.join(" · ")}.`;
+  return lines.join("\n");
 }
 
 async function writePost(t: TokenView, recent: Post[]): Promise<string | null> {
@@ -665,6 +674,36 @@ async function maybePostHarvest(tokenId: string) {
     floorBefore: base.floor,
     floorAfter: cur.floor,
   });
+}
+
+// ---------------- boost shout-outs ----------------
+
+/** Last mech-log timestamp seen per token (first sight: start from now, don't replay history). */
+const boostSeen = new Map<string, number>();
+
+/** Thank contributors publicly: yield contributions and agent funding, from the on-chain log. */
+async function maybePostBoosts(t: TokenView) {
+  if (t.grad_stage !== "Graduated") return;
+  const log = await view<{ ts: number; kind: string; amount: string; account: string | null }[]>("get_mech_log", {
+    token_id: t.token_id,
+    limit: 30,
+  }).catch(() => []);
+  const newest = log.reduce((m, e) => Math.max(m, e.ts), 0);
+  const last = boostSeen.get(t.token_id);
+  boostSeen.set(t.token_id, Math.max(newest, last ?? 0));
+  if (last === undefined) return;
+  const fresh = log
+    .filter((e) => e.ts > last && e.account && (e.kind === "yield_funded" || e.kind === "agent_funded"))
+    .sort((a, b) => a.ts - b.ts);
+  if (fresh.length === 0) return;
+  const linP = (await liveLinearPrice()) || BigInt(t.last_linear_price || YOCTO.toString());
+  const info: AgentTokenInfo = { token_id: t.token_id, meta: t.meta, agent_persona: t.agent_persona, stats: stats(t) };
+  const tok = await alertToken(t, "ref");
+  for (const e of fresh) {
+    const nearValue = Number(((BigInt(e.amount) * linP) / YOCTO) / 10n ** 18n) / 1e6;
+    if (nearValue < 0.1) continue; // dust
+    await postMilestoneCard(info, tok, { kind: "boost", account: e.account!, nearValue, target: e.kind === "agent_funded" ? "agent" : "yield" });
+  }
 }
 
 // ---------------- graduation fast path ----------------
