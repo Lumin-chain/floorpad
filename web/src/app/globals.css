@@ -3233,3 +3233,54 @@ tr.click-row:hover td {
   .brand-grid.five { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .brand-grid.assets { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ---------- floor explainer (Floor tab) ---------- */
+.chip-link {
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chip-link:hover,
+.chip-link:focus-visible {
+  border-color: var(--primary);
+}
+
+.floor-explainer {
+  border: 1px solid var(--primary);
+}
+
+.floor-facts,
+.floor-why {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.floor-facts > div,
+.floor-why > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-inner);
+  background: var(--panel-2);
+  min-width: 0;
+}
+
+.floor-facts b {
+  overflow-wrap: anywhere;
+}
+
+.floor-why {
+  margin-top: 10px;
+}
+
+@media (max-width: 767px) {
+  .floor-facts,
+  .floor-why {
+    grid-template-columns: 1fr;
+  }
+}

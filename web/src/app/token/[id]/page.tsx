@@ -186,7 +186,18 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
 
       <div className="chips">
         <div className="chip"><span>Market cap</span><b>{nearUsdPrice ? fmtUsd(mcapUsd) : "–"}</b></div>
-        <div className="chip"><span>Floor (vault)</span><b className="green">{nearUsdPrice ? fmtUsd(yoctoToUsd(vaultNear(t, linearPrice), nearUsdPrice)) : `${fmtPrice(floorPrice(t, linearPrice))} N`}</b></div>
+        <button
+          type="button"
+          className="chip chip-link"
+          onClick={() => {
+            setTab("Floor");
+            setTimeout(() => document.querySelector(".token-main .tabs")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+          }}
+          title="What is the floor? Open the Floor tab"
+        >
+          <span>Floor (vault) ⓘ</span>
+          <b className="green">{nearUsdPrice ? fmtUsd(yoctoToUsd(vaultNear(t, linearPrice), nearUsdPrice)) : `${fmtPrice(floorPrice(t, linearPrice))} N`}</b>
+        </button>
         <div className="chip"><span>Floor / mcap</span><b>{mcapUsd > 0 && nearUsdPrice ? `${((yoctoToUsd(vaultNear(t, linearPrice), nearUsdPrice) / mcapUsd) * 100).toFixed(1)}%` : "–"}</b></div>
         <div className="chip"><span>Holders</span><b>{t.holders}</b></div>
         <div className="chip"><span>Locked</span><b>{fmtTok(t.total_locked, 0)}</b></div>
@@ -284,7 +295,7 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
           {tab === "Chat" && <div className="panel flush"><Chat t={t} /></div>}
           {tab === "Calls" && <TokenCallouts t={t} usdMcap={mcapUsd} />}
           {tab === "Trades" && <div className="panel"><TradesTable t={t} /></div>}
-          {tab === "Floor" && <VaultPanel {...ctx} />}
+          {tab === "Floor" && <VaultPanel {...ctx} spotPriceNear={spotPriceNear} nearUsd={nearUsdPrice} />}
           {tab === "Lock & vote" && <LockPanel {...ctx} />}
           {tab === "DAO" && <DaoPanel {...ctx} />}
           {tab === "Treasury" && <TreasuryPanel {...ctx} />}
