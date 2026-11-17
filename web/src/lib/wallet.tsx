@@ -38,6 +38,7 @@ function outcomeFailure(o: unknown): string | null {
   };
   const describe = (f: unknown) => {
     const text = typeof f === "string" ? f : JSON.stringify(f);
+    if (/doesn't have enough balance|not enough balance/i.test(text)) return "Not enough tokens in your wallet for this amount. Your balance changed; check it and try again.";
     if (/E68|slippage|min_amount_out/i.test(text)) return "Swap did not go through: the price moved past your slippage limit, so it was refunded (on a buy, you keep the staked LiNEAR).";
     return `Transaction failed: ${text.slice(0, 220)}`;
   };
@@ -329,6 +330,22 @@ export function useView<T>(fetcher: (() => Promise<T>) | null, key: unknown[], i
     return () => clearInterval(t);
   }, [k, intervalMs, load]);
   return { data, error, reload: load };
+}
+
+/**
+ * Fresh on-chain token balance check right before signing. A typed or "Max" amount can go stale
+ * when tokens leave the wallet another way (a floor redeem, a transfer, another tab).
+ * Returns an error message, or null when `amount` is covered.
+ */
+export async function tokenBalanceError(ft: string, account: string, amount: bigint, symbol: string): Promise<string | null> {
+  const raw = await view<string>(ft, "ft_balance_of", { account_id: account }).catch(() => null);
+  if (raw === null) return null; // can't read: let the chain decide
+  const have = BigInt(raw);
+  if (amount <= have) return null;
+  const whole = have / 10n ** 18n;
+  return have === 0n
+    ? `You have no $${symbol} in your wallet.`
+    : `You only have ${whole.toLocaleString("en-US")} $${symbol}. Lower the amount or press Max again.`;
 }
 
 /** Returns storage_deposit call if `account` is not registered on `ft`. */

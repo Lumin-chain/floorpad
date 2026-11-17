@@ -2,12 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { floorPrice, fmtNear, fmtPrice, fmtTok, isGraduated, LAUNCHPAD, LINEAR, lp, parseUnits, vaultNear, YOCTO, type Quote } from "@/lib/near";
-import { storageCallIfNeeded, useView, useWallet, type Tx } from "@/lib/wallet";
+import { storageCallIfNeeded, tokenBalanceError, useView, useWallet, type Tx } from "@/lib/wallet";
 import { Kv, Stat } from "./ui";
 import type { TokenCtx } from "@/app/token/[id]/page";
 
 export function VaultPanel({ t, linearPrice, balance, holdingSince, reload }: TokenCtx) {
-  const { send, busy, accountId } = useWallet();
+  const { send, busy, accountId, setToast } = useWallet();
   const [amt, setAmt] = useState("");
   const [q, setQ] = useState<Quote | null>(null);
   const grad = isGraduated(t);
@@ -24,7 +24,13 @@ export function VaultPanel({ t, linearPrice, balance, holdingSince, reload }: To
   }, [base, t.token_id, age, t.linear_shares, t.backing_near]);
 
   async function redeem() {
-    if (!q) return;
+    if (!q || !accountId) return;
+    const err = await tokenBalanceError(t.token_id, accountId, base, t.meta.symbol);
+    if (err) {
+      setToast({ kind: "err", text: err });
+      reload();
+      return;
+    }
     const min = (BigInt(q.amount_out) * 99n) / 100n;
     const ok = await send([{
       receiverId: t.token_id,
