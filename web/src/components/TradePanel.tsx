@@ -81,13 +81,22 @@ function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: T
   const walletAge = useAge(holdingSince);
   const age = tradeMode === "instant" && custodySince > 0 ? Math.max(0, Math.floor(Date.now() / 1000) - custodySince) : walletAge;
   const closed = t.grad_stage !== "Curve";
+  // While the token migrates to Rhea, buying stays open: the NEAR is queued on-chain and bought
+  // on the pool at its opening price as soon as it is live (contract: migration.rs).
+  const migrating = closed && t.grad_stage !== "Graduated";
+  const queueBuy = migrating && side === "buy";
+  const { data: queued } = useView(
+    accountId ? () => lp<{ queued_near: string; tokens_to_deliver: string }>("get_queued_buy", { token_id: t.token_id, account_id: accountId }).catch(() => null) : null,
+    [accountId, t.token_id, busy, t.grad_stage],
+    10000,
+  );
 
   const effectiveBal = tradeMode === "instant" ? (side === "buy" ? tradingNearBal : custodyTokensBal) : (side === "buy" ? 0n : balance);
 
   const base = side === "buy" ? parseUnits(amt, 24) : parseUnits(amt, 18);
 
   useEffect(() => {
-    if (base === 0n) return setQ(null);
+    if (base === 0n || closed) return setQ(null);
     const h = setTimeout(async () => {
       const r =
         side === "buy"
@@ -158,7 +167,18 @@ function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: T
   }
 
   async function submit() {
-    if (!q || !accountId) return;
+    if (!accountId) return;
+    if (queueBuy) {
+      // queued on-chain; delivered after the pool opens (wallet buy, the instant account can't queue)
+      const ok = await send([{ receiverId: LAUNCHPAD, calls: [{ method: "buy", args: { token_id: t.token_id, min_tokens_out: "0", referrer: getReferrer(accountId) }, gas: 100, deposit: base }] }]);
+      if (ok) {
+        setAmt("");
+        reload();
+        setToast({ kind: "ok", text: "Buy queued: it executes on Rhea as soon as the pool opens, then the tokens arrive in your wallet." });
+      }
+      return;
+    }
+    if (!q) return;
     const min = (BigInt(q.amount_out) * (10000n - SLIPPAGE_BPS)) / 10000n;
 
     if (tradeMode === "instant") {
@@ -398,7 +418,19 @@ function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: T
         </span>
       </div>
 
-      {closed && <div className="notice warn">The curve sold out. Graduation to Ref is in progress.</div>}
+      {migrating && (
+        <div className="notice">
+          {side === "buy"
+            ? "Moving to Rhea: buying stays open. Your NEAR is queued and bought on the pool at its opening price as soon as it is live (usually under a minute), then sent to your wallet."
+            : "Moving to Rhea: selling reopens on the pool in about a minute."}
+        </div>
+      )}
+      {queued && BigInt(queued.queued_near) > 0n && (
+        <div className="notice small">Your queued buy: <b>{fmtNear(queued.queued_near, 3)} NEAR</b>, executes when the pool opens.</div>
+      )}
+      {queued && BigInt(queued.tokens_to_deliver) > 0n && (
+        <div className="notice small">On the way to your wallet: <b>{fmtTok(queued.tokens_to_deliver)} ${t.meta.symbol}</b></div>
+      )}
 
       {/* Amount Input */}
       <div className="input-suffix">
@@ -459,7 +491,9 @@ function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: T
               );
             })()}
             {side === "sell" && <Kv k={`Exit fee (${exitPct.toFixed(1)}%, to floor)`} v={`${fmtNear(q.exit_fee)} N`} />}
-            {BigInt(q.refund) > 0n && <Kv k="Refund (curve sold out)" v={`${fmtNear(q.refund)} N`} />}
+            {BigInt(q.refund) > 0n && (
+              <Kv k="Completes the curve · rest bought on Rhea after migration" v={`${fmtNear(q.refund)} N`} />
+            )}
           </div>
         ) : base > 0n ? (
           <div className="small muted" style={{ padding: "8px 0" }}>Fetching optimal quote…</div>
@@ -478,10 +512,12 @@ function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: T
 
       <button
         className={`btn block trade-submit ${side === "buy" ? "buy" : "danger-solid"}`}
-        disabled={busy || !q || closed || BigInt(q?.amount_out ?? 0) === 0n}
+        disabled={busy || (queueBuy ? base < 10n ** 23n : !q || closed || BigInt(q?.amount_out ?? 0) === 0n)}
         onClick={submit}
       >
-        {busy ? "Waiting for wallet…" : (
+        {busy ? "Waiting for wallet…" : queueBuy ? (
+          `Queue buy on Rhea`
+        ) : (
           <>
             {tradeMode === "instant" ? "⚡ Quick " : ""}
             {side === "buy" ? "Buy" : "Sell"} ${t.meta.symbol}
@@ -501,6 +537,11 @@ interface TokenTax {
 
 function RefTrade({ t, balance, holdingSince, linearPrice, reload, initialSide, onDone }: TradeProps) {
   const { send, busy, accountId, nearBalance, setToast } = useWallet();
+  const { data: arriving } = useView(
+    accountId ? () => lp<{ tokens_to_deliver: string }>("get_queued_buy", { token_id: t.token_id, account_id: accountId }).catch(() => null) : null,
+    [accountId, t.token_id, busy],
+    10000,
+  );
   const [side, setSide] = useState<"buy" | "sell">(initialSide ?? "buy");
   const [amt, setAmt] = useState("");
   const { data: pool } = useView(() => view<RefPool>(REF, "get_pool", { pool_id: t.pool_id }), [t.pool_id], 6000);
@@ -734,6 +775,11 @@ function RefTrade({ t, balance, holdingSince, linearPrice, reload, initialSide, 
         Ref pool #{t.pool_id}: {fmtTok(rMeme.toString(), 0)} ${t.meta.symbol} / {fmtNear(rLin.toString(), 2)} LiNEAR. LP is 100% locked
         forever and earns staking yield. Spot ≈ {fmtPrice(spot)} N.
       </div>
+      {arriving && BigInt(arriving.tokens_to_deliver) > 0n && (
+        <div className="notice small">
+          Your buy from the migration is on the way: <b>{fmtTok(arriving.tokens_to_deliver)} ${t.meta.symbol}</b>
+        </div>
+      )}
 
       <div className="input-suffix">
         <input className="input" inputMode="decimal" placeholder="0.0" value={amt} onChange={(e) => setAmt(e.target.value)} />

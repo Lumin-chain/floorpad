@@ -168,6 +168,8 @@ export interface TokenMeta {
 }
 
 export interface TokenView {
+  /** Number of entries in the token's on-chain mechanics log (burns, harvests, epochs). */
+  mech_count?: number;
   index: number;
   token_id: string;
   creator: string;

@@ -211,9 +211,9 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
             <div className="row" style={{ gap: 10 }}>
               <Moji face="hero" size={28} />
               <div>
-                <strong>Bonding Curve 100% Filled! Migration to Ref Finance in Progress</strong>
+                <strong>Bonding curve filled · moving to Rhea (about a minute)</strong>
                 <div className="small muted">
-                  Step: <span className="warn mono bold">{t.grad_stage}</span> · Sizing Ref pool at final curve price with 100% permanent LP lock
+                  Step: <span className="warn mono bold">{t.grad_stage}</span> · Buying stays open: buys are queued and filled on the pool at its opening price
                 </div>
               </div>
             </div>

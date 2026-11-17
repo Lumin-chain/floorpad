@@ -18,13 +18,13 @@ export function OpsBar({ t, reload, menu = false }: { t: TokenView; reload: () =
     ops.push({ label: `Graduate: ${t.grad_stage}`, method: "advance_graduation", gas: 300 });
   if (
     t.grad_stage === "Graduated" && t.next_harvest_at !== undefined && !t.harvest_busy &&
-    (t.harvest_pending || now >= t.next_harvest_at)
+    // the keeper does these on its own; offer them only when it is clearly behind (>10 min)
+    (t.harvest_pending || now >= t.next_harvest_at + 600)
   )
     ops.push({ label: t.harvest_pending ? "Finish LP harvest" : "Harvest LP", method: "harvest_lp", gas: 300 });
-  if (t.grad_stage === "Graduated" && !t.epoch_busy && now >= t.next_epoch_at)
+  if (t.grad_stage === "Graduated" && !t.epoch_busy && now >= t.next_epoch_at + 600)
     ops.push({ label: "Settle epoch", method: "settle_epoch", gas: 300 });
-  if (t.grad_stage === "Graduated")
-    ops.push({ label: "Burn DEX tax", method: "harvest_token_tax", gas: 100 });
+
   if (!ops.length) return null;
 
   if (menu) {

@@ -178,10 +178,11 @@ export function VaultPanel({
               <div>
                 <h3 style={{ margin: 0 }}>LP Yield Harvest</h3>
                 <p className="muted small" style={{ margin: "4px 0 0" }}>
-                  Ref swap fees &amp; LiNEAR appreciation above locked depth are harvested each epoch: LiNEAR becomes epoch yield; meme tokens are permanently burned.
+                  Runs automatically every epoch: pool fees and LiNEAR appreciation above the locked depth are harvested, the LiNEAR becomes floor yield and the tokens are burned.
                 </p>
               </div>
-              {t.next_harvest_at && Math.floor(Date.now() / 1000) >= t.next_harvest_at && !t.harvest_busy && (
+              {/* fallback only: the keeper harvests on its own; offer the button when it is >10 min behind */}
+              {t.next_harvest_at && Math.floor(Date.now() / 1000) >= t.next_harvest_at + 600 && !t.harvest_busy && (
                 <button
                   className="btn sm"
                   disabled={busy}
@@ -193,7 +194,7 @@ export function VaultPanel({
                     reload();
                   }}
                 >
-                  Harvest LP now
+                  Keeper is behind: harvest now
                 </button>
               )}
             </div>

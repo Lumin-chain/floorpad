@@ -272,6 +272,10 @@ async function keep(t: TokenView) {
       });
       if (ok) await maybePostHarvest(t.token_id);
     }
+    // buys queued during migration (or past the curve cap): execute and deliver any left over
+    if (t.grad_stage === "Graduated" && !migrating.has(t.token_id)) await drainMigrationQueue(t.token_id);
+    // periodic floor report (harvests, burns, buybacks, yield), not only after an LP harvest
+    if (t.grad_stage === "Graduated") await maybePostHarvest(t.token_id).catch(() => {});
     if (t.grad_stage === "Graduated" && !t.epoch_busy && now >= t.next_epoch_at) {
       await call("settle_epoch", { token_id: t.token_id }, 300n);
     }
@@ -361,10 +365,26 @@ function stats(t: TokenView) {
   };
 }
 
+/** Plain, factual stats for when no AI is available (posts and @agent replies). */
+function statsText(symbol: string, s: Record<string, unknown>): string {
+  const parts = [
+    s.stage ? `Stage: ${s.stage}` : "",
+    s.floor_price_near ? `floor ${s.floor_price_near} NEAR/token` : "",
+    s.vault_backing_near ? `vault ${s.vault_backing_near} NEAR` : "",
+    s.holders !== undefined ? `${s.holders} holders` : "",
+    s.lockers !== undefined ? `${s.lockers} lockers` : "",
+    s.burned_tokens ? `${s.burned_tokens} burned` : "",
+  ].filter(Boolean);
+  return `📊 $${symbol} update: ${parts.join(" · ")}.`;
+}
+
 async function writePost(t: TokenView, recent: Post[]): Promise<string | null> {
   if (!AI_KEY) {
-    console.warn("AI_API_KEY not set; skipping post generation");
-    return null;
+    // No AI configured: still post a factual on-chain update instead of staying silent.
+    const text = statsText(t.meta.symbol, stats(t));
+    if (recent[0]?.text === text) return null; // nothing changed since the last post
+    console.warn(`${t.token_id}: no AI key, posting a plain stats update`);
+    return text;
   }
   const system = [
     `You are the community AI agent of the meme token $${t.meta.symbol} ("${cleanLabel(t.meta.name)}") on Floorpad (NEAR).`,
@@ -441,7 +461,7 @@ async function replyToQuestion(info: AgentTokenInfo, question: string): Promise<
     return `⚡ BRRRAIN Staking-for-Inference: $${info.meta.symbol} AI runs on api.brrrain.fun (${AI_MODEL}). Current daily power: ${curPower ? `${curPower.toLocaleString()} ⚡` : "1,000+ ⚡"}. Yield from staking vaults perpetually backs $BRRRAIN holdings, eliminating credit cards!`;
   }
   if (!AI_KEY) {
-    return `$${info.meta.symbol}: ${JSON.stringify(info.stats)}`;
+    return statsText(info.meta.symbol, info.stats);
   }
   const res = await fetch(`${AI_BASE}/chat/completions`, {
     method: "POST",
@@ -467,7 +487,7 @@ async function replyToQuestion(info: AgentTokenInfo, question: string): Promise<
       temperature: 0.7,
     }),
   }).catch(() => null);
-  if (!res?.ok) return `$${info.meta.symbol} stats: ${JSON.stringify(info.stats)}`;
+  if (!res?.ok) return statsText(info.meta.symbol, info.stats);
   const replyPower = res.headers.get("x-brrrain-power-remaining");
   if (replyPower) {
     notifyPower(info.token_id, replyPower);
@@ -475,7 +495,7 @@ async function replyToQuestion(info: AgentTokenInfo, question: string): Promise<
   }
   const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
   const raw = data.choices?.[0]?.message?.content?.trim() ?? "";
-  return cleanPublicText(raw, [info.token_id], 400) ?? `$${info.meta.symbol} stats: ${JSON.stringify(info.stats)}`;
+  return cleanPublicText(raw, [info.token_id], 400) ?? statsText(info.meta.symbol, info.stats);
 }
 
 // ---------------- NEAR/USD price feed ----------------
@@ -545,27 +565,55 @@ async function floorSnapshot(tokenId: string, linP: bigint) {
  * covering everything harvested since the last post (from the contract's cumulative totals).
  */
 const HARVEST_POST_SECS = Number(env("HARVEST_POST_SECS", "21600")); // 6h
-const harvestBase = new Map<string, { burned: bigint; linear: bigint; at: number }>();
+interface FloorBase {
+  at: number;
+  burned: bigint; // all burns (LP harvest, tax, buyback, redemptions, graduation)
+  lpBurned: bigint;
+  linear: bigint; // LiNEAR harvested from pool fees
+  vault: number; // NEAR
+  floor: number; // NEAR per token
+}
+const floorBase = new Map<string, FloorBase>();
 
+/**
+ * Floor report: at most one per token every HARVEST_POST_SECS, covering everything that moved
+ * the floor since the last one (harvests, burns, buybacks, yield), from cumulative on-chain totals.
+ * Posted only when the floor or the burned supply actually changed.
+ */
 async function maybePostHarvest(tokenId: string) {
   const t = await view<TokenView | null>("get_token", { token_id: tokenId }).catch(() => null);
-  if (!t) return;
-  const burned = BigInt(t.harvest_burned ?? "0");
-  const linear = BigInt(t.harvested_linear ?? "0");
+  if (!t || t.grad_stage !== "Graduated") return;
+  const linP = (await liveLinearPrice()) || BigInt(t.last_linear_price || YOCTO.toString());
+  const snap = await floorSnapshot(tokenId, linP);
+  if (!snap || snap.floor === null) return;
   const now = Date.now() / 1000;
-  const base = harvestBase.get(tokenId);
+  const cur: FloorBase = {
+    at: now,
+    burned: BigInt(t.burned),
+    lpBurned: BigInt(t.harvest_burned ?? "0"),
+    linear: BigInt(t.harvested_linear ?? "0"),
+    vault: snap.vault,
+    floor: snap.floor,
+  };
+  const base = floorBase.get(tokenId);
   if (!base) {
-    harvestBase.set(tokenId, { burned, linear, at: now }); // first sight: start counting from here
+    floorBase.set(tokenId, cur); // first sight: start counting from here
     return;
   }
-  if (now - base.at < HARVEST_POST_SECS || burned <= base.burned) return;
-  harvestBase.set(tokenId, { burned, linear, at: now });
+  if (now - base.at < HARVEST_POST_SECS) return;
+  if (cur.burned <= base.burned && cur.floor <= base.floor) return; // nothing moved
+  floorBase.set(tokenId, cur);
   const info: AgentTokenInfo = { token_id: t.token_id, meta: t.meta, agent_persona: t.agent_persona, stats: stats(t) };
   await postMilestoneCard(info, await alertToken(t, "ref"), {
-    kind: "lp_harvest",
-    burnedTokens: Number((burned - base.burned) / 10n ** 12n) / 1e6,
-    linearAdded: Number((linear - base.linear) / 10n ** 18n) / 1e6,
+    kind: "floor_report",
     sinceSecs: now - base.at,
+    burnedTokens: Number((cur.burned - base.burned) / 10n ** 12n) / 1e6,
+    lpBurnedTokens: Number((cur.lpBurned - base.lpBurned) / 10n ** 12n) / 1e6,
+    linearHarvested: Number((cur.linear - base.linear) / 10n ** 18n) / 1e6,
+    vaultBefore: base.vault,
+    vaultAfter: cur.vault,
+    floorBefore: base.floor,
+    floorAfter: cur.floor,
   });
 }
 
@@ -590,6 +638,7 @@ async function migrateNow(tokenId: string) {
       if (!t || t.grad_stage === "Curve") return;
       if (t.grad_stage === "Graduated") {
         console.log(`🎓 ${tokenId} graduated in ${Math.round((Date.now() - started) / 1000)}s`);
+        await drainMigrationQueue(tokenId);
         return;
       }
       if (t.dao_stage === "Created") {
@@ -608,6 +657,41 @@ async function migrateNow(tokenId: string) {
     console.warn(`${tokenId}: graduation not finished after 10 steps; the keeper tick keeps trying`);
   } finally {
     migrating.delete(tokenId);
+  }
+}
+
+interface MigrationQueueView {
+  queued_near: string;
+  buyers: number;
+  stage: number;
+  busy: boolean;
+  pending_deliveries: number;
+}
+
+/**
+ * Buys made during migration (and NEAR past the curve cap) wait in the launchpad's queue until
+ * the pool is live. Run the queue's steps (stake, deposit, guarded swap, split) and deliver.
+ * Contracts without the queue: the view fails and this does nothing.
+ */
+async function drainMigrationQueue(tokenId: string) {
+  for (let i = 0; i < 12; i++) {
+    const q = await view<MigrationQueueView>("get_migration_queue", { token_id: tokenId }).catch(() => null);
+    if (!q || q.busy) return;
+    if (BigInt(q.queued_near) > 0n) {
+      const ok = await call("process_migration_buys", { token_id: tokenId }, 300n).catch((e) => {
+        console.warn(`migration queue ${tokenId}:`, (e as Error).message);
+        return false;
+      });
+      if (!ok) return;
+      continue;
+    }
+    if (q.pending_deliveries > 0) {
+      const ok = await call("deliver_migration_buys", { token_id: tokenId, max: 8 }, 300n).catch(() => false);
+      if (!ok) return;
+      continue;
+    }
+    if (i > 0) console.log(`✓ ${tokenId}: migration buys executed and delivered`);
+    return;
   }
 }
 

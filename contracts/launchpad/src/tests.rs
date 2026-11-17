@@ -1155,6 +1155,135 @@ fn anyone_can_fund_a_tokens_agent_budget() {
     assert_eq!(c.tok(0).agent_budget_shares, before + NEAR);
 }
 
+/// The launchpad holds the queued NEAR on-chain; give the mocked account a balance to match.
+fn ctx_rich(pred: &AccountId, ts: u64) {
+    testing_env!(VMContextBuilder::new()
+        .current_account_id(lp())
+        .predecessor_account_id(pred.clone())
+        .account_balance(NearToken::from_near(100_000))
+        .block_timestamp(ts * 1_000_000_000)
+        .prepaid_gas(Gas::from_tgas(300))
+        .build());
+}
+
+fn mq_ok<T: near_sdk::serde::Serialize>(v: &T) -> PromiseResult {
+    PromiseResult::Successful(near_sdk::serde_json::to_vec(v).unwrap())
+}
+
+#[test]
+fn oversized_final_buy_queues_the_excess_instead_of_refunding() {
+    let mut c = launched();
+    buy(&mut c, "bob.testnet", 5 * NEAR, T0 + 200);
+    buy(&mut c, "whale.testnet", 2_500 * NEAR, T0 + 201);
+    assert_eq!(c.tok(0).grad_stage, GradStage::CreatePool);
+    let q = c.get_queued_buy(token(), acc("whale.testnet"));
+    assert!(q.queued_near.0 > 1_000 * NEAR, "the NEAR past the cap waits to buy on Rhea");
+    assert_eq!(c.get_migration_queue(token()).queued_near, q.queued_near);
+}
+
+#[test]
+fn buys_during_migration_are_queued_not_rejected() {
+    let mut c = launched();
+    buy(&mut c, "bob.testnet", 5 * NEAR, T0 + 200);
+    buy(&mut c, "whale.testnet", 2_500 * NEAR, T0 + 201);
+    let holders = c.tok(0).holders;
+    let out = buy(&mut c, "carol.testnet", 10 * NEAR, T0 + 210);
+    assert_eq!(out, 0, "no tokens yet: bought on the pool once it is live");
+    let q = c.get_queued_buy(token(), acc("carol.testnet"));
+    assert_eq!(q.queued_near.0, 10 * NEAR - crate::curve::STORAGE_FEE);
+    assert_eq!(c.tok(0).holders, holders + 1);
+    // a second buy from the same wallet adds to its entry
+    buy(&mut c, "carol.testnet", NEAR, T0 + 211);
+    assert_eq!(c.get_queued_buy(token(), acc("carol.testnet")).queued_near.0, 11 * NEAR - crate::curve::STORAGE_FEE);
+}
+
+#[test]
+fn queue_buys_once_on_the_pool_and_splits_pro_rata() {
+    let (mut c, _) = graduated();
+    // whale's excess is queued by the sell-out buy; add a second buyer
+    assert!(c.enqueue_migration_buy(0, &acc("carol.testnet"), 100 * NEAR, true));
+    let whale_near = c.get_queued_buy(token(), acc("whale.testnet")).queued_near.0;
+    let total = c.mq(0).total;
+    assert_eq!(total, whale_near + 100 * NEAR);
+
+    // 0 -> stake
+    ctx_rich(&acc("keeper.testnet"), T0 + 600);
+    let _ = c.process_migration_buys(token());
+    assert!(c.mq(0).busy);
+    let shares = total * 10 / 12; // 1.2 NEAR per LiNEAR
+    ctx(&lp(), 0, T0 + 601);
+    c.on_mq_staked(0, Ok(U128(shares)));
+    assert_eq!(c.mq(0).stage, 1);
+    // 1 -> deposit into Ref
+    ctx(&acc("keeper.testnet"), 0, T0 + 602);
+    let _ = c.process_migration_buys(token());
+    ctx_results(T0 + 603, vec![mq_ok(&U128(shares))]);
+    c.on_mq_deposited(0);
+    assert_eq!(c.mq(0).stage, 2);
+    // 2 -> guarded swap at the opening price
+    ctx(&acc("keeper.testnet"), 0, T0 + 604);
+    let _ = c.process_migration_buys(token());
+    ctx(&lp(), 0, T0 + 605);
+    let pool = opening_pool(&c);
+    let _ = c.on_mq_pool(0, Ok(pool));
+    let out = 50_000_000 * TOK;
+    c.on_mq_swapped(0, Ok(U128(out)));
+    assert_eq!(c.mq(0).stage, 3);
+    // 3 -> withdraw and split
+    let owed0 = c.tok(0).owed_tokens;
+    ctx(&acc("keeper.testnet"), 0, T0 + 606);
+    let _ = c.process_migration_buys(token());
+    ctx(&lp(), 0, T0 + 607);
+    c.on_mq_withdrawn(0, Ok(()));
+    let q = c.mq(0);
+    assert_eq!(q.total, 0);
+    assert_eq!(q.stage, 0);
+    assert_eq!(q.deliveries.iter().map(|d| d.1).sum::<u128>(), out, "every token bought is handed out");
+    let carol = c.get_queued_buy(token(), acc("carol.testnet")).tokens_to_deliver.0;
+    // pro rata; the last buyer also gets the rounding remainder so the split is exact
+    assert!(carol.abs_diff(math::mul_div(out, 100 * NEAR, total)) <= 1);
+    assert_eq!(c.tok(0).owed_tokens, owed0 + out, "reserved until delivered");
+
+    // deliver
+    ctx(&acc("anyone.testnet"), 0, T0 + 700);
+    let sent = c.deliver_migration_buys(token(), None);
+    assert_eq!(sent, 2);
+    assert_eq!(c.tok(0).owed_tokens, owed0);
+    assert!(c.mq(0).deliveries.is_empty());
+}
+
+#[test]
+fn manipulated_pool_defers_the_queue_then_refunds_in_linear() {
+    let (mut c, _) = graduated();
+    let total = c.mq(0).total;
+    let shares = total * 10 / 12;
+    ctx_rich(&acc("keeper.testnet"), T0 + 600);
+    let _ = c.process_migration_buys(token());
+    ctx(&lp(), 0, T0 + 601);
+    c.on_mq_staked(0, Ok(U128(shares)));
+    ctx(&acc("keeper.testnet"), 0, T0 + 602);
+    let _ = c.process_migration_buys(token());
+    ctx_results(T0 + 603, vec![mq_ok(&U128(shares))]);
+    c.on_mq_deposited(0);
+    // pumped pool: way above the opening price -> no swap, stays queued
+    let t = c.tok(0).clone();
+    let pumped = pool_info(t.lp_tokens / 3, t.lp_shares * 3, NEAR);
+    ctx(&acc("keeper.testnet"), 0, T0 + 604);
+    let _ = c.process_migration_buys(token());
+    ctx(&lp(), 0, T0 + 605);
+    let _ = c.on_mq_pool(0, Ok(pumped.clone()));
+    assert_eq!(c.mq(0).stage, 2);
+    assert!(!c.mq(0).busy);
+    // a day later, still out of band: refund in LiNEAR
+    ctx(&acc("keeper.testnet"), 0, T0 + 604 + 90_000);
+    let _ = c.process_migration_buys(token());
+    ctx(&lp(), 0, T0 + 605 + 90_000);
+    let _ = c.on_mq_pool(0, Ok(pumped));
+    c.on_mq_refunded(0, Ok(()));
+    assert_eq!(c.mq(0).total, 0);
+    assert_eq!(c.get_claimable_linear(acc("whale.testnet")).0, shares);
+}
+
 #[test]
 fn new_pools_use_the_one_percent_fee() {
     let (c, _) = graduated();

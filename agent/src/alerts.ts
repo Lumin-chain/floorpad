@@ -264,6 +264,18 @@ export type Milestone =
   | { kind: "graduated"; poolId: number | null; secsToGraduate: number | null }
   | { kind: "lp_harvest"; burnedTokens: number; linearAdded: number; sinceSecs: number }
   | {
+      /** Everything that moved the floor since the last report (harvests, burns, buybacks, yield). */
+      kind: "floor_report";
+      sinceSecs: number;
+      burnedTokens: number;
+      lpBurnedTokens: number;
+      linearHarvested: number;
+      vaultBefore: number;
+      vaultAfter: number;
+      floorBefore: number;
+      floorAfter: number;
+    }
+  | {
       kind: "tax_harvest";
       burnedTokens: number | null;
       /** Floor vault (NEAR) and floor per token (NEAR) just before and after the harvest. */
@@ -318,6 +330,29 @@ export function formatMilestone(tok: AlertToken, m: Milestone, links: AlertLinks
     if (m.secsToGraduate !== null) lines.push(`⏱ Graduated <b>${fmtDuration(m.secsToGraduate)}</b> after launch`);
     if (links.refUrl) buttons.push({ text: m.poolId !== null ? `🏊 Ref pool #${m.poolId}` : "🏊 Ref pool", url: links.refUrl });
     plain.push(`🎓 $${tok.symbol} graduated to Ref Finance. 100% of LP locked forever, floor vault earning staking yield.`, tokenUrl);
+  } else if (m.kind === "floor_report") {
+    const up = m.floorBefore > 0 ? ((m.floorAfter - m.floorBefore) / m.floorBefore) * 100 : 0;
+    lines.push(`🧱 <b>$${sym} FLOOR REPORT</b>`, `What moved the floor in the last ${fmtDuration(m.sinceSecs)}`, RULE);
+    lines.push(
+      `🏷 Floor per token  <code>${fmtPrice(m.floorBefore)}</code> → <code>${fmtPrice(m.floorAfter)}</code> NEAR` +
+        (m.floorAfter > m.floorBefore ? ` <b>(+${up.toFixed(up < 1 ? 3 : 2)}%)</b>` : ""),
+    );
+    lines.push(`🧱 Vault  ${fmtNear(m.vaultBefore)} → <b>${fmtNear(m.vaultAfter)}</b> NEAR` + (tok.nearUsd ? ` (${fmtUsd(m.vaultAfter * tok.nearUsd)})` : ""));
+    if (m.burnedTokens > 0) {
+      lines.push(
+        `🔥 Burned <b>${compactNum(m.burnedTokens)}</b> $${sym}` +
+          (m.lpBurnedTokens > 0 ? ` (${compactNum(m.lpBurnedTokens)} from LP fees, rest from tax, buybacks and redemptions)` : ""),
+      );
+    }
+    if (m.linearHarvested > 0) lines.push(`💧 +<b>${fmtNear(m.linearHarvested)}</b> LiNEAR harvested from pool fees into yield`);
+    if (tok.circulating) lines.push(`📉 Supply now ${compactNum(tok.circulating)} $${sym}`);
+    lines.push("", "<i>Fees in, supply out. The floor only goes one way.</i>");
+    plain.push(
+      `🧱 $${tok.symbol} floor report: floor per token ${m.floorAfter > m.floorBefore ? `+${up.toFixed(2)}%` : "steady"}` +
+        (m.burnedTokens > 0 ? `, ${compactNum(m.burnedTokens)} burned` : "") +
+        ".",
+      tokenUrl,
+    );
   } else if (m.kind === "lp_harvest") {
     lines.push(`🔥 <b>$${sym} LP HARVEST</b>`, `Pool fees collected over the last ${fmtDuration(m.sinceSecs)}`, RULE);
     lines.push(`🔥 Burned <b>${compactNum(m.burnedTokens)}</b> $${sym}`);
