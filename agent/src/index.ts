@@ -38,17 +38,49 @@ const NETWORK = env("NEAR_NETWORK", "testnet");
 const RPC = env("NEAR_RPC", `https://rpc.${NETWORK}.fastnear.com`);
 const LAUNCHPAD = env("LAUNCHPAD_ID");
 const OPERATOR = env("OPERATOR_ID");
-const AI_BASE = env(
-  "AI_BASE_URL",
-  process.env.BRRRAIN_API_KEY ? "https://api.brrrain.fun/v1" : "https://cloud-api.near.ai/v1"
-);
+// A BRRRAIN key only ever goes to BRRRAIN: AI_BASE_URL / AI_MODEL apply to other providers
+// (a leftover AI_BASE_URL would otherwise send the BRRRAIN key elsewhere).
+const BRRRAIN_BASE = "https://api.brrrain.fun/v1";
+const AI_BASE = process.env.BRRRAIN_API_KEY
+  ? BRRRAIN_BASE
+  : env("AI_BASE_URL", process.env.OPERATOR_PRIVATE_KEY ? BRRRAIN_BASE : "https://cloud-api.near.ai/v1");
 let AI_KEY = process.env.BRRRAIN_API_KEY || process.env.AI_API_KEY || "";
-const AI_MODEL = env(
-  "AI_MODEL",
-  process.env.BRRRAIN_API_KEY || AI_BASE.includes("brrrain.fun")
-    ? "z-ai/glm-5.3-flash"
-    : "deepseek-ai/DeepSeek-V3.1"
-);
+const AI_IS_BRRRAIN = AI_BASE.includes("brrrain.fun");
+const AI_MODEL = AI_IS_BRRRAIN
+  ? (process.env.BRRRAIN_MODEL ?? "z-ai/glm-5.3-flash")
+  : env("AI_MODEL", "deepseek-ai/DeepSeek-V3.1");
+/** BRRRAIN Power to keep for @agent replies; scheduled posts only use AI above this. */
+const POST_POWER_RESERVE = Number(process.env.BRRRAIN_POST_RESERVE ?? "10");
+/** Below this, skip AI (a message costs ~4.5 Power on the default model). */
+const MIN_CALL_POWER = 5;
+/** When BRRRAIN said the day's Power is used up: no AI calls until this time (ms). */
+let aiPausedUntil = 0;
+
+/** Reads a BRRRAIN error (quota, rate limit) and pauses AI calls when it says so. */
+async function noteAiFailure(res: Response) {
+  const body = await res.text().catch(() => "");
+  let code = "";
+  try {
+    const e = (JSON.parse(body) as { error?: { code?: string; resets_at?: string } }).error;
+    code = e?.code ?? "";
+    if (code === "quota_exhausted") aiPausedUntil = e?.resets_at ? Date.parse(e.resets_at) : Date.now() + 3_600_000;
+    if (code === "rate_limited" || code === "upstream_unavailable") aiPausedUntil = Date.now() + 60_000;
+  } catch {
+    /* not JSON */
+  }
+  console.warn(`AI request failed ${res.status}${code ? ` (${code})` : ""}: ${body.slice(0, 200)}`);
+}
+
+/** Whether an AI call should be made now, given BRRRAIN Power (reserve applies to posts). */
+function aiAffordable(reserve: number): boolean {
+  if (!AI_KEY || Date.now() < aiPausedUntil) return false;
+  if (!AI_IS_BRRRAIN) return true;
+  const power = getLatestPowerRemaining();
+  return power === null || power >= reserve;
+}
+
+/** Reasoning models spend hidden thinking from max_tokens: let BRRRAIN size it to the Power left. */
+const aiLength = (n: number) => (AI_IS_BRRRAIN ? {} : { max_tokens: n });
 const KEEPER_SECS = Number(env("KEEPER_INTERVAL_SECS", "60"));
 /** How often to look for curves that just filled (graduation fast path). */
 const GRAD_WATCH_SECS = Number(env("GRAD_WATCH_SECS", "5"));
@@ -193,6 +225,21 @@ async function checkSetup() {
   const ageH = (Date.now() / 1000 - at) / 3600;
   console.log(`${ageH * 3600 > launchCfg.max_price_age_secs ? "⚠" : "✓"} SETUP: on-chain NEAR/USD $${(Number(micro) / 1e6).toFixed(3)}, ${ageH.toFixed(1)}h old`);
   console.log(AI_KEY ? `✓ SETUP: AI enabled (${AI_BASE}, ${AI_MODEL})` : "⚠ SETUP: no AI key: AI posts and @agent replies are off (set BRRRAIN_API_KEY or AI_API_KEY, or OPERATOR_PRIVATE_KEY for BRRRAIN auto-auth)");
+  if (AI_KEY && AI_IS_BRRRAIN) {
+    // today's Power, so the budget applies from the first call (read-only, costs nothing)
+    const me = await fetch(`${BRRRAIN_BASE}/me`, { headers: { authorization: `Bearer ${AI_KEY}` }, signal: AbortSignal.timeout(8000) })
+      .then((r) => (r.ok ? (r.json() as Promise<{ power_left?: number; resets_at?: string }>) : null))
+      .catch(() => null);
+    if (me?.power_left !== undefined) {
+      setLatestPowerRemaining(me.power_left);
+      console.log(
+        `${me.power_left >= MIN_CALL_POWER ? "✓" : "⚠"} SETUP: BRRRAIN Power today ${me.power_left.toFixed(2)} (~${Math.floor(me.power_left / 4.5)} AI messages; resets ${me.resets_at ?? "00:00 UTC"}). ` +
+          `Posts use AI only above ${POST_POWER_RESERVE} Power; replies get the rest.`,
+      );
+    } else {
+      console.warn("⚠ SETUP: BRRRAIN key check failed (invalid key or BRRRAIN unreachable)");
+    }
+  }
   console.log(SOCIAL_API_URL ? `✓ SETUP: social API ${SOCIAL_API_URL}${AGENT_SECRET ? "" : " (no AGENT_SECRET: in-app @agent replies off)"}` : "⚠ SETUP: SOCIAL_API_URL not set: graduated-token trade alerts and in-app @agent replies are off");
 }
 
@@ -379,11 +426,11 @@ function statsText(symbol: string, s: Record<string, unknown>): string {
 }
 
 async function writePost(t: TokenView, recent: Post[]): Promise<string | null> {
-  if (!AI_KEY) {
-    // No AI configured: still post a factual on-chain update instead of staying silent.
+  if (!aiAffordable(POST_POWER_RESERVE)) {
+    // No AI (or saving BRRRAIN Power for replies): post a factual on-chain update instead.
     const text = statsText(t.meta.symbol, stats(t));
     if (recent[0]?.text === text) return null; // nothing changed since the last post
-    console.warn(`${t.token_id}: no AI key, posting a plain stats update`);
+    console.warn(`${t.token_id}: ${AI_KEY ? "saving AI Power" : "no AI key"}, posting a plain stats update`);
     return text;
   }
   const system = [
@@ -407,13 +454,13 @@ async function writePost(t: TokenView, recent: Post[]): Promise<string | null> {
         { role: "system", content: system },
         { role: "user", content: user },
       ],
-      max_tokens: 200,
+      ...aiLength(200),
       temperature: 0.9,
     }),
-  });
-  if (!res.ok) {
-    console.warn(`inference failed ${res.status}: ${await res.text()}`);
-    return null;
+  }).catch(() => null);
+  if (!res?.ok) {
+    if (res) await noteAiFailure(res);
+    return statsText(t.meta.symbol, stats(t)); // still post something factual
   }
   const brrrainPower = res.headers.get("x-brrrain-power-remaining");
   if (brrrainPower) {
@@ -460,7 +507,7 @@ async function replyToQuestion(info: AgentTokenInfo, question: string): Promise<
     const curPower = getLatestPowerRemaining();
     return `⚡ BRRRAIN Staking-for-Inference: $${info.meta.symbol} AI runs on api.brrrain.fun (${AI_MODEL}). Current daily power: ${curPower ? `${curPower.toLocaleString()} ⚡` : "1,000+ ⚡"}. Yield from staking vaults perpetually backs $BRRRAIN holdings, eliminating credit cards!`;
   }
-  if (!AI_KEY) {
+  if (!aiAffordable(MIN_CALL_POWER)) {
     return statsText(info.meta.symbol, info.stats);
   }
   const res = await fetch(`${AI_BASE}/chat/completions`, {
@@ -483,11 +530,14 @@ async function replyToQuestion(info: AgentTokenInfo, question: string): Promise<
           content: `Live stats: ${JSON.stringify(info.stats)}\nUser message: ${question}`,
         },
       ],
-      max_tokens: 220,
+      ...aiLength(220),
       temperature: 0.7,
     }),
   }).catch(() => null);
-  if (!res?.ok) return statsText(info.meta.symbol, info.stats);
+  if (!res?.ok) {
+    if (res) await noteAiFailure(res);
+    return statsText(info.meta.symbol, info.stats);
+  }
   const replyPower = res.headers.get("x-brrrain-power-remaining");
   if (replyPower) {
     notifyPower(info.token_id, replyPower);
