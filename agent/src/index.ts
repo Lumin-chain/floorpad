@@ -19,6 +19,7 @@ import { connect, KeyPair, keyStores, type Account } from "near-api-js";
 import { pollTelegramCommands, postMilestone, postToTelegram, postToX, sendTradeAlert, type AgentTokenInfo, type TradeInfo } from "./social.js";
 import { getLatestPowerRemaining, obtainBrrrainKey, setLatestPowerRemaining } from "./brrrain.js";
 import { allowAiReply, cleanLabel, cleanPublicText, personaBlock, POST_RULES } from "./safety.js";
+import type { AlertToken } from "./alerts.js";
 
 try {
   process.loadEnvFile?.(".env");
@@ -256,7 +257,7 @@ function stats(t: TokenView) {
   const backing = graduated
     ? (BigInt(t.linear_shares) * BigInt(t.last_linear_price || "1000000000000000000000000")) / YOCTO
     : BigInt(t.backing_near);
-  const floor = Number((backing * 10n ** 12n) / (circ === 0n ? 1n : circ)) / 1e18 / 1e6;
+  const floor = Number((backing * 10n ** 12n) / (circ === 0n ? 1n : circ)) / 1e18; // NEAR per whole token
   const progress = Number((BigInt(t.sold) * 10000n) / BigInt(t.curve_supply)) / 100;
   return {
     stage: graduated ? "graduated (trading on Ref, LP locked, earning staking yield)" : `bonding curve ${progress}% sold`,
@@ -456,8 +457,59 @@ async function checkMilestones(t: TokenView) {
 const REF_TRADE_ID_BASE = 1_000_000_000;
 const lastRefTradeId = new Map<string, number>();
 
+/** Wallet NEAR balance (liquid), or null if it can't be read. */
+async function nearBalance(account: string): Promise<number | null> {
+  try {
+    const r = await fetch(RPC, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "bal",
+        method: "query",
+        params: { request_type: "view_account", finality: "final", account_id: account },
+      }),
+      signal: AbortSignal.timeout(6000),
+    });
+    const j = (await r.json()) as { result?: { amount?: string } };
+    return j.result?.amount ? Number(BigInt(j.result.amount) / 10n ** 18n) / 1e6 : null;
+  } catch {
+    return null;
+  }
+}
+
+function alertToken(t: TokenView, venue: "curve" | "ref"): AlertToken {
+  const graduated = t.grad_stage === "Graduated";
+  const circ = BigInt(t.total_supply) - BigInt(t.burned);
+  const backing = graduated
+    ? (BigInt(t.linear_shares) * BigInt(t.last_linear_price || "1000000000000000000000000")) / YOCTO
+    : BigInt(t.backing_near);
+  return {
+    tokenId: t.token_id,
+    symbol: t.meta.symbol,
+    venue,
+    graduated,
+    curvePct: graduated ? null : Number((BigInt(t.sold) * 10000n) / BigInt(t.curve_supply)) / 100,
+    circulating: Number(circ / 10n ** 18n),
+    floorNear: circ > 0n ? Number((backing * 10n ** 12n) / circ) / 1e18 : null,
+    holders: t.holders,
+  };
+}
+
+const toNear = (yocto: string) => Number(BigInt(yocto) / 10n ** 18n) / 1e6;
+const toTokens = (raw: string) => Number(BigInt(raw) / 10n ** 12n) / 1e6;
+
 async function checkTradeAlerts(t: TokenView) {
   const info: AgentTokenInfo = { token_id: t.token_id, meta: t.meta, agent_persona: t.agent_persona, stats: stats(t) };
+  const alert = async (tr: { account: string; is_buy: boolean; near: string; tokens: string; tx?: string }, venue: "curve" | "ref") =>
+    sendTradeAlert(info, alertToken(t, venue), {
+      isBuy: tr.is_buy,
+      near: toNear(tr.near),
+      tokens: toTokens(tr.tokens),
+      account: tr.account,
+      balanceLeft: tr.is_buy ? await nearBalance(tr.account) : null,
+      txHash: tr.tx ? tr.tx.split(":")[0] : null,
+    });
 
   // Bonding-curve trades: the launchpad's own trade log.
   const prev = lastTradeCount.get(t.token_id);
@@ -465,7 +517,7 @@ async function checkTradeAlerts(t: TokenView) {
   if (prev !== undefined && t.trade_count > prev) {
     const delta = Math.min(20, t.trade_count - prev);
     const recent = await view<TradeInfo[]>("get_trades", { token_id: t.token_id, limit: delta }).catch(() => []);
-    for (const tr of [...recent].reverse()) await sendTradeAlert(info, tr, "curve");
+    for (const tr of [...recent].reverse()) await alert(tr, "curve");
   }
 
   // After graduation, trades happen on the Ref pool and never reach the launchpad's log. The
@@ -474,7 +526,7 @@ async function checkTradeAlerts(t: TokenView) {
   try {
     const r = await fetch(`${SOCIAL_API_URL}/tokens/${t.token_id}/trades?limit=20`, { signal: AbortSignal.timeout(6000) });
     if (!r.ok) return;
-    const rows = ((await r.json()) as { id: number; ts: number; account: string; is_buy: number; near: string; tokens: string }[])
+    const rows = ((await r.json()) as { id: number; ts: number; account: string; is_buy: number; near: string; tokens: string; tx?: string }[])
       .filter((x) => x.id >= REF_TRADE_ID_BASE);
     const maxId = rows.reduce((m, x) => Math.max(m, x.id), 0);
     const last = lastRefTradeId.get(t.token_id);
@@ -484,7 +536,7 @@ async function checkTradeAlerts(t: TokenView) {
       return; // first sight: don't replay history
     }
     for (const x of rows.filter((x) => x.id > last).sort((a, b) => a.id - b.id)) {
-      await sendTradeAlert(info, { ts: x.ts, account: x.account, is_buy: Boolean(x.is_buy), near: x.near, tokens: x.tokens }, "ref");
+      await alert({ account: x.account, is_buy: Boolean(x.is_buy), near: x.near, tokens: x.tokens, tx: x.tx }, "ref");
     }
   } catch (e) {
     console.warn(`ref trade alerts ${t.token_id}:`, (e as Error).message);
