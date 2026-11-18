@@ -21,6 +21,7 @@ import { pollTelegramCommands, postMilestoneCard, postToTelegram, postToX, sendT
 import { getLatestPowerRemaining, obtainBrrrainKey, setLatestPowerRemaining } from "./brrrain.js";
 import { allowAiReply, cleanLabel, cleanPublicText, personaBlock, POST_RULES } from "./safety.js";
 import { compactNum, fmtNear, fmtPrice, type AlertToken } from "./alerts.js";
+import { fuelBrrrain, fuelSetupLine } from "./fuel.js";
 
 try {
   process.loadEnvFile?.(".env");
@@ -240,6 +241,7 @@ async function checkSetup() {
       console.warn("⚠ SETUP: BRRRAIN key check failed (invalid key or BRRRAIN unreachable)");
     }
   }
+  console.log(fuelSetupLine(NETWORK));
   console.log(SOCIAL_API_URL ? `✓ SETUP: social API ${SOCIAL_API_URL}${AGENT_SECRET ? "" : " (no AGENT_SECRET: in-app @agent replies off)"}` : "⚠ SETUP: SOCIAL_API_URL not set: graduated-token trade alerts and in-app @agent replies are off");
 }
 
@@ -270,6 +272,13 @@ async function displayNearUsd(): Promise<number | null> {
 }
 
 let signQueue: Promise<unknown> = Promise.resolve();
+
+/** Runs any signed transaction in the same one-at-a-time queue as launchpad calls. */
+function signed<T>(fn: () => Promise<T>): Promise<T> {
+  const run = signQueue.then(fn);
+  signQueue = run.catch(() => undefined);
+  return run;
+}
 
 /** Signs one launchpad call at a time (a shared access-key nonce can't take parallel sends). */
 async function call(method: string, args: object, gasTgas: bigint, deposit = 0n): Promise<boolean> {
@@ -1002,6 +1011,15 @@ async function refreshLinearRate() {
 async function tick() {
   await pushPrice().catch((e) => console.warn("price push failed:", (e as Error).message));
   await refreshLinearRate().catch((e) => console.warn("LiNEAR rate refresh:", (e as Error).message));
+  await fuelBrrrain({
+    network: NETWORK,
+    operator,
+    operatorId: OPERATOR,
+    launchpad: LAUNCHPAD,
+    refExchange: launchCfg.ref_exchange,
+    linear: launchCfg.linear,
+    signed,
+  }).catch((e) => console.warn("AI fuel:", (e as Error).message));
   const tokens = await allTokens();
   cachedAgentTokens = tokens.map((t) => ({
     token_id: t.token_id,

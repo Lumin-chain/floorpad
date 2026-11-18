@@ -94,6 +94,17 @@ pub fn virtual_near_for_mcap(
     mul_div(mul_div(mcap_near, tf, v_tokens), tf, total_supply)
 }
 
+/// Virtual token reserve that makes a curve open at `start_usd` and graduate at `grad_usd`
+/// (fully diluted). With k = v_near * v_tokens, the price ratio end/start is (v_tokens / tf)^2,
+/// so tf = curve_supply * sqrt(start) / (sqrt(grad) - sqrt(start)) and v_tokens = curve_supply + tf.
+pub fn virtual_tokens_for_range(start_usd: u64, grad_usd: u64, curve_supply: u128) -> u128 {
+    assert!(start_usd > 0 && grad_usd > start_usd, "ERR_MCAP_RANGE");
+    const SCALE: u128 = 1_000_000_000_000_000_000_000_000; // sqrt keeps 12 digits
+    let ss = (start_usd as u128 * SCALE).isqrt();
+    let sg = (grad_usd as u128 * SCALE).isqrt();
+    curve_supply + mul_div(curve_supply, ss, sg - ss)
+}
+
 /// Fully-diluted market cap (yoctoNEAR) at the curve's spot price.
 pub fn fdv_near(v_near: u128, v_tokens: u128, supply: u128) -> u128 {
     mul_div(v_near, supply, v_tokens)

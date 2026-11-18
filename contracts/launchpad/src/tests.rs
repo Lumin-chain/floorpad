@@ -1130,6 +1130,35 @@ fn testnet_grad_mcap_applies_to_new_launches_only() {
     assert_eq!(c.tok(0).grad_mcap_usd, old, "existing curve keeps its target");
 }
 
+fn usd(c: &Contract, near_yocto: u128) -> f64 {
+    near_yocto as f64 / 1e24 * c.near_usd_micro as f64 / 1e6
+}
+
+#[test]
+fn launch_range_opens_at_start_and_graduates_at_target() {
+    let mut c = launched();
+    let old_grad = c.get_token(token()).unwrap().grad_fdv_near.0;
+    ctx(&lp(), 0, T0 + 50);
+    c.set_launch_mcap_usd(3_000, 30_000);
+    // the token launched before keeps its curve end
+    assert_eq!(c.get_token(token()).unwrap().grad_fdv_near.0, old_grad);
+    // a new launch opens at ~$3k and graduates at ~$30k
+    let (v0, vt, cs, supply) = (c.launch_virtual_near(), c.config.virtual_tokens.0, c.config.curve_supply.0, c.config.total_supply.0);
+    let start = usd(&c, math::fdv_near(v0, vt, supply));
+    let tf = vt - cs;
+    let grad = usd(&c, math::fdv_near(math::mul_div(v0, vt, tf), tf, supply));
+    assert!((start - 3_000.0).abs() < 3.0, "start {start}");
+    assert!((grad - 30_000.0).abs() < 30.0, "grad {grad}");
+}
+
+#[test]
+#[should_panic(expected = "ERR_NOT_LAUNCHPAD")]
+fn launch_range_setter_is_launchpad_only() {
+    let mut c = launched();
+    ctx(&acc("alice.testnet"), 0, T0 + 50);
+    c.set_launch_mcap_usd(3_000, 30_000);
+}
+
 #[test]
 #[should_panic(expected = "ERR_NOT_LAUNCHPAD")]
 fn grad_mcap_setter_is_launchpad_only() {
