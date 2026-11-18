@@ -502,6 +502,21 @@ impl Contract {
         env::log_str(&format!("graduation market cap for new launches: ${usd}"));
     }
 
+    /// Testnet (feeder mode) only, launchpad account only: new launches open at `start_usd` and
+    /// graduate at `grad_usd` (fully diluted). Reshapes the curve (virtual token reserve) for
+    /// tokens launched from now on; existing curves keep the shape they launched with.
+    #[private]
+    pub fn set_launch_mcap_usd(&mut self, start_usd: u64, grad_usd: u64) {
+        require!(env::predecessor_account_id() == env::current_account_id(), "ERR_NOT_LAUNCHPAD");
+        require!(self.config.price_pool.is_none(), "ERR_CONFIG_IMMUTABLE");
+        require!((10..=1_000_000).contains(&grad_usd), "ERR_GRAD_MCAP_BOUNDS");
+        require!(start_usd >= 1 && grad_usd >= start_usd * 3 / 2, "ERR_MCAP_RANGE");
+        let vt = math::virtual_tokens_for_range(start_usd, grad_usd, self.config.curve_supply.0);
+        self.config.virtual_tokens = U128(vt);
+        self.config.grad_mcap_usd = grad_usd;
+        env::log_str(&format!("new launches: open at ${start_usd}, graduate at ${grad_usd}"));
+    }
+
     /// (NEAR/USD in micro-USD, updated_at secs)
     pub fn get_near_usd_price(&self) -> (U128, u64) {
         (U128(self.near_usd_micro), self.price_updated_at)

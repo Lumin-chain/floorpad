@@ -340,8 +340,9 @@ impl Contract {
 
 /// FDV (yoctoNEAR) at the end of this token's curve.
 fn grad_fdv(t: &TokenState, c: &Config) -> u128 {
-    // Invariant k = v_near * v_tokens; at the end v_tokens = v_tokens0 - curve_supply.
-    let tf = c.virtual_tokens.0 - c.curve_supply.0;
+    // Invariant k = v_near * v_tokens; at the end v_tokens = v_tokens0 - curve_supply, where
+    // v_tokens0 = v_tokens + sold is this token's own launch reserve (the config may have changed).
+    let tf = (t.v_tokens + t.sold).saturating_sub(c.curve_supply.0).max(1);
     let v_end = math::mul_div(t.v_near, t.v_tokens, tf);
     math::fdv_near(v_end, tf, c.total_supply.0)
 }
