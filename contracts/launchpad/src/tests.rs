@@ -557,6 +557,23 @@ fn launch_price_tracks_near_usd() {
     assert!(v_a.abs_diff(v_b * 2) <= 2);
 }
 
+/// A first buy of exactly the minimum (0.1 NEAR) pays storage from it and still goes through.
+#[test]
+fn first_buy_of_exactly_the_minimum_is_accepted() {
+    let mut c = launched();
+    let min = c.config.min_trade.as_yoctonear();
+    let out = buy(&mut c, "newbie.testnet", min, T0 + 200);
+    assert!(out > 0);
+}
+
+#[test]
+#[should_panic(expected = "ERR_BELOW_MIN_TRADE")]
+fn buy_below_the_minimum_is_refused() {
+    let mut c = launched();
+    let min = c.config.min_trade.as_yoctonear();
+    buy(&mut c, "newbie.testnet", min - crate::curve::STORAGE_FEE - 1, T0 + 200);
+}
+
 #[test]
 fn referrer_earns_share_of_platform_fee() {
     let mut c = launched();

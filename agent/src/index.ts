@@ -22,6 +22,7 @@ import { getLatestPowerRemaining, obtainBrrrainKey, setLatestPowerRemaining } fr
 import { allowAiReply, cleanLabel, cleanPublicText, personaBlock, POST_RULES } from "./safety.js";
 import { compactNum, fmtNear, fmtPrice, type AlertToken } from "./alerts.js";
 import { fuelBrrrain, fuelSetupLine } from "./fuel.js";
+import { alert as healthAlert, STUCK_MINUTES, track } from "./health.js";
 
 try {
   process.loadEnvFile?.(".env");
@@ -242,6 +243,11 @@ async function checkSetup() {
     }
   }
   console.log(fuelSetupLine(NETWORK));
+  console.log(
+    process.env.TELEGRAM_ADMIN_CHAT_ID
+      ? `✓ SETUP: health alerts to Telegram chat ${process.env.TELEGRAM_ADMIN_CHAT_ID} (steps stuck ${STUCK_MINUTES}+ min, low balance)`
+      : "• SETUP: health alerts go to the log only (set TELEGRAM_ADMIN_CHAT_ID to get them on Telegram)",
+  );
   console.log(SOCIAL_API_URL ? `✓ SETUP: social API ${SOCIAL_API_URL}${AGENT_SECRET ? "" : " (no AGENT_SECRET: in-app @agent replies off)"}` : "⚠ SETUP: SOCIAL_API_URL not set: graduated-token trade alerts and in-app @agent replies are off");
 }
 
@@ -328,6 +334,10 @@ async function keep(t: TokenView) {
       });
       if (ok) await maybePostHarvest(t.token_id);
     }
+    // a step that stopped moving: tell the operator (the queue above also retries its own)
+    await track(`grad:${t.token_id}`, t.grad_stage !== "Curve" && t.grad_stage !== "Graduated", () => `${t.token_id} graduation at ${t.grad_stage}${t.grad_busy ? " (step in flight)" : ""}`);
+    await track(`harvest:${t.token_id}`, !!t.harvest_busy, () => `${t.token_id} LP harvest in flight`);
+    await track(`epoch:${t.token_id}`, !!t.epoch_busy, () => `${t.token_id} epoch settlement in flight`);
     // buys queued during migration (or past the curve cap): execute and deliver any left over
     if (t.grad_stage === "Graduated" && !migrating.has(t.token_id)) await drainMigrationQueue(t.token_id);
     // periodic floor report (harvests, burns, buybacks, yield), not only after an LP harvest
@@ -774,7 +784,16 @@ interface MigrationQueueView {
 async function drainMigrationQueue(tokenId: string) {
   for (let i = 0; i < 12; i++) {
     const q = await view<MigrationQueueView>("get_migration_queue", { token_id: tokenId }).catch(() => null);
-    if (!q || q.busy) return;
+    if (!q) return;
+    const busyMin = await track(`mq:${tokenId}`, q.busy, () => `${tokenId} migration queue step (stage ${q.stage}, ${q.buyers} buyer(s)) has no answer`);
+    if (q.busy) {
+      // the contract lets a step that lost its callback run again after 10 minutes
+      if (busyMin < 11 || BigInt(q.queued_near) === 0n) return;
+      console.warn(`${tokenId}: migration queue step stuck ${Math.round(busyMin)} min, retrying`);
+      const ok = await call("process_migration_buys", { token_id: tokenId }, 300n).catch(() => false);
+      if (!ok) return;
+      continue;
+    }
     if (BigInt(q.queued_near) > 0n) {
       const ok = await call("process_migration_buys", { token_id: tokenId }, 300n).catch((e) => {
         console.warn(`migration queue ${tokenId}:`, (e as Error).message);
@@ -1008,7 +1027,19 @@ async function refreshLinearRate() {
   if (JSON.stringify(res.receipts_outcome).includes("Failure")) console.warn("LiNEAR rate refresh failed");
 }
 
+let lastBalanceCheck = 0;
+/** The keeper pays gas for everyone: warn before it runs dry. */
+async function checkOperatorBalance() {
+  if (Date.now() - lastBalanceCheck < 30 * 60_000) return;
+  lastBalanceCheck = Date.now();
+  const bal = await operator.getAccountBalance().catch(() => null);
+  if (!bal) return;
+  const avail = Number(BigInt(bal.available) / 10n ** 21n) / 1000;
+  await track("balance", avail < 1, () => `operator ${OPERATOR} balance low: ${avail.toFixed(3)} NEAR (graduations, deliveries and posts need gas)`);
+}
+
 async function tick() {
+  await checkOperatorBalance().catch(() => {});
   await pushPrice().catch((e) => console.warn("price push failed:", (e as Error).message));
   await refreshLinearRate().catch((e) => console.warn("LiNEAR rate refresh:", (e as Error).message));
   await fuelBrrrain({

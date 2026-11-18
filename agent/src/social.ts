@@ -155,6 +155,15 @@ function resolveTelegramTargets(t: AgentTokenInfo, forBuyAlert = false): { chat_
   return [...out.entries()].map(([chat_id, minBuyNear]) => ({ chat_id, minBuyNear }));
 }
 
+const TG_ADMIN_CHAT = process.env.TELEGRAM_ADMIN_CHAT_ID ?? "";
+
+/** Operator-only alerts (stuck steps, low balance): a private chat, never the token groups. */
+export async function sendAdminAlert(text: string) {
+  if (!TG_TOKEN || !TG_ADMIN_CHAT) return;
+  await tgCall("sendMessage", { chat_id: TG_ADMIN_CHAT, text: `🛠 Floorpad keeper
+${text}`.slice(0, 4000), link_preview_options: { is_disabled: true } });
+}
+
 export async function postToTelegram(t: AgentTokenInfo, text: string) {
   if (!TG_TOKEN) return;
   const targets = resolveTelegramTargets(t, false);
