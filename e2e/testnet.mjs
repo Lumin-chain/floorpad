@@ -9,6 +9,7 @@
  * Checks: global code deploys (token + official Sputnik v2.3.1), launch, DAO
  * creation + hand-over to holders, curve buy/sell, ve-lock -> Sputnik vote weight,
  * holders' proposal passing at >70%, graduation (Ref pool, LiNEAR stake, locked LP),
+ * buys queued during migration then executed and delivered via the Rhea pool,
  * epoch split incl. Ref buyback & burn + airdrop, floor redemption, agent post.
  */
 import fs from "node:fs";
@@ -19,7 +20,8 @@ import { createHash } from "node:crypto";
 import { Account, JsonRpcProvider, KeyPair } from "near-api-js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const STATE = path.join(HERE, ".state.json");
+// E2E_STATE=other.json keeps a run apart from the accounts of an existing deployment
+const STATE = path.join(HERE, process.env.E2E_STATE ?? ".state.json");
 const RPC = process.env.NEAR_RPC ?? "https://rpc.testnet.fastnear.com";
 const HELPER = "https://helper.testnet.near.org";
 const WASM = process.env.WASM_DIR ?? path.join(os.homedir(), ".cargo-target/floorpad/wasm32-unknown-unknown/release");
@@ -117,6 +119,7 @@ await step("accounts", async () => {
   await faucetAccount("lp");
   await faucetAccount("bob");
   await faucetAccount("whale");
+  await faucetAccount("carol");
   // Extra pre-funded throwaway accounts can be passed as EXTRA_FUNDERS=path/to/key.json,...
   for (const file of (process.env.EXTRA_FUNDERS ?? "").split(",").filter(Boolean)) {
     const k = JSON.parse(fs.readFileSync(file, "utf8"));
@@ -132,7 +135,7 @@ await step("accounts", async () => {
     if (b > N(0.5)) await acct(label).transfer({ receiverId: state.accounts.bank.id, amount: b - N(0.05) });
   }
   await acct("bank").transfer({ receiverId: state.accounts.whale.id, amount: N(5) });
-  await acct("bank").transfer({ receiverId: state.accounts.bob.id, amount: N(2) });
+  await acct("bank").transfer({ receiverId: state.accounts.bob.id, amount: N(3) });
   console.log(`  bank balance ${fmt(await balance(state.accounts.bank.id))} NEAR`);
 });
 
@@ -226,6 +229,11 @@ await step("curve trading", async () => {
   check(s.failures.length === 0, "sell back to curve (pays 2.5% + exit fee)", s.failures.join(" | "));
   const after = BigInt(await view(TOKEN(), "ft_balance_of", { account_id: state.accounts.bob.id }));
   check(after === bal - sell, "sell debited tokens");
+  // a wallet's first buy of exactly the minimum pays token storage out of it and still goes through
+  const cfg = await view(LP(), "get_config");
+  const m = await call("carol", LP(), "buy", { token_id: TOKEN(), min_tokens_out: "0", referrer: null }, { deposit: BigInt(cfg.min_trade), gas: 100n });
+  const carolBal = BigInt(await view(TOKEN(), "ft_balance_of", { account_id: state.accounts.carol.id }));
+  check(m.failures.length === 0 && carolBal > 0n, "first buy of exactly the minimum trade", `${fmt(cfg.min_trade)} NEAR -> ${carolBal / 10n ** 18n} tokens ${m.failures.join(" | ")}`);
 });
 
 await step("lock -> DAO weight", async () => {
@@ -263,6 +271,12 @@ await step("graduate", async () => {
   check(r.failures.length === 0, "whale buy sells out the curve", r.failures.join(" | "));
   let t = await view(LP(), "get_token", { token_id: TOKEN() });
   check(t.grad_stage === "CreatePool", "curve closed, graduation started", t.grad_stage);
+  // buying never stops: during migration the NEAR is queued for the Rhea pool
+  const before = BigInt((await view(LP(), "get_queued_buy", { token_id: TOKEN(), account_id: state.accounts.bob.id })).queued_near);
+  const qb = await call("bob", LP(), "buy", { token_id: TOKEN(), min_tokens_out: "0", referrer: null }, { deposit: N(0.5), gas: 100n });
+  const queued = BigInt((await view(LP(), "get_queued_buy", { token_id: TOKEN(), account_id: state.accounts.bob.id })).queued_near);
+  check(qb.failures.length === 0 && queued - before === N(0.5), "buy during migration is queued, not refused", `${fmt(queued)} NEAR queued ${qb.failures.join(" | ")}`);
+  state.bob_tokens_before_queue = (await view(TOKEN(), "ft_balance_of", { account_id: state.accounts.bob.id }));
   for (const expect of ["Stake", "Deposit", "AddLiquidity", "Graduated"]) {
     const s = await call("bank", LP(), "advance_graduation", { token_id: TOKEN() }, { gas: 300n });
     t = await view(LP(), "get_token", { token_id: TOKEN() });
@@ -276,6 +290,27 @@ await step("graduate", async () => {
   const lin = BigInt(await view(LINEAR, "ft_balance_of", { account_id: LP() }));
   check(lin > 0n && BigInt(t.linear_shares) > 0n, "vault staked in LiNEAR", `vault ${fmt(t.linear_shares)} LiNEAR`);
   state.pool_id = t.pool_id;
+});
+
+await step("migration queue on Rhea", async () => {
+  // anyone can drive it, one step per call: stake -> deposit -> guarded swap -> withdraw + split
+  let q;
+  for (let i = 0; i < 8; i++) {
+    q = await view(LP(), "get_migration_queue", { token_id: TOKEN() });
+    if (q.queued_near === "0" || q.busy) break;
+    const r = await call("bank", LP(), "process_migration_buys", { token_id: TOKEN() }, { gas: 300n });
+    // a failed callback is exactly what stuck a real queue: fail loudly on any receipt failure
+    check(r.failures.length === 0, `queue step from stage ${q.stage}`, r.failures.join(" | ") || r.logs.filter((l) => !l.startsWith("EVENT_JSON")).join(" "));
+    if (r.failures.length) break;
+  }
+  q = await view(LP(), "get_migration_queue", { token_id: TOKEN() });
+  check(q.queued_near === "0" && !q.busy && q.stage === 0, "queue executed on the pool", JSON.stringify(q));
+  for (let i = 0; i < 4 && q.pending_deliveries > 0; i++) {
+    await call("bank", LP(), "deliver_migration_buys", { token_id: TOKEN(), max: 8 }, { gas: 300n });
+    q = await view(LP(), "get_migration_queue", { token_id: TOKEN() });
+  }
+  const got = BigInt(await view(TOKEN(), "ft_balance_of", { account_id: state.accounts.bob.id })) - BigInt(state.bob_tokens_before_queue ?? "0");
+  check(q.pending_deliveries === 0 && got > 0n, "queued buyer received tokens bought on Rhea", `${got / 10n ** 18n} tokens`);
 });
 
 await step("fund yield + epoch (buyback, airdrop, agent)", async () => {

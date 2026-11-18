@@ -297,7 +297,7 @@ impl Contract {
         require!(deposit > storage_fee, "ERR_BELOW_MIN_TRADE");
         if self.is_migrating(idx) {
             let near = deposit - storage_fee;
-            require!(near >= self.config.min_trade.as_yoctonear(), "ERR_BELOW_MIN_TRADE");
+            require!(deposit >= self.config.min_trade.as_yoctonear(), "ERR_BELOW_MIN_TRADE");
             if new_holder {
                 self.known_holders.insert((idx, buyer.clone()), true);
                 self.tok_mut(idx).holders += 1;

@@ -325,6 +325,7 @@ export interface Custody {
 }
 export interface LaunchConfig {
   creation_fee: string;
+  min_trade?: string;
   lock_min_days: number;
   lock_max_days: number;
   epoch_secs: number;

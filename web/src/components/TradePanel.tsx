@@ -95,6 +95,9 @@ function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: T
   const effectiveBal = tradeMode === "instant" ? (side === "buy" ? tradingNearBal : custodyTokensBal) : (side === "buy" ? 0n : balance);
 
   const base = side === "buy" ? parseUnits(amt, 24) : parseUnits(amt, 18);
+  // the contract's minimum buy (storage for a first buy is paid out of it)
+  const minBuy = BigInt(cfg?.min_trade ?? "100000000000000000000000");
+  const belowMin = side === "buy" && base > 0n && base < minBuy;
 
   // Instant quote: the contract's own curve math on the curve state already loaded, so the panel
   // answers as you type; the on-chain quote below confirms it (and covers storage / caps).
@@ -554,9 +557,13 @@ function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: T
         </div>
       )}
 
+      {belowMin && (
+        <div className="notice warn small">Minimum buy is {fmtNear(minBuy.toString())} NEAR.</div>
+      )}
+
       <button
         className={`btn block trade-submit ${side === "buy" ? "buy" : "danger-solid"}`}
-        disabled={busy || (queueBuy ? base < 10n ** 23n : !q || closed || BigInt(q?.amount_out ?? 0) === 0n)}
+        disabled={busy || belowMin || (queueBuy ? base < 10n ** 23n : !q || closed || BigInt(q?.amount_out ?? 0) === 0n)}
         onClick={submit}
       >
         {busy ? "Waiting for wallet…" : queueBuy ? (

@@ -164,7 +164,9 @@ impl Contract {
             require!(tok.deployed, "ERR_NOT_DEPLOYED");
             require!(tok.grad_stage == GradStage::Curve, "ERR_CURVE_CLOSED");
         }
-        require!(gross >= cfg.min_trade.as_yoctonear(), "ERR_BELOW_MIN_TRADE");
+        // A wallet's first buy also pays token storage out of the same deposit: a buy of exactly the
+        // minimum must still go through after that fee is taken.
+        require!(gross + crate::curve::STORAGE_FEE >= cfg.min_trade.as_yoctonear(), "ERR_BELOW_MIN_TRADE");
         let (v_near, v_tokens, sold, created_at, buy_tax_bps) = {
             let t = self.tok(idx);
             (t.v_near, t.v_tokens, t.sold, t.created_at, t.buy_tax_bps)
