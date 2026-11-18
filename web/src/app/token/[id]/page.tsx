@@ -12,8 +12,11 @@ import {
   nearUsd,
   NETWORK,
   pricePerToken,
+  curveRaise,
   progressPct,
   REF,
+  soldPct,
+  type LaunchConfig,
   safeExternalUrl,
   safeTelegramUrl,
   safeTwitterUrl,
@@ -88,6 +91,7 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
   }, [tok.data]);
   const price = useView(() => view<string>(LINEAR, "ft_price"), [], 60000);
   const usd = useView(() => nearUsd(), [], 60000);
+  const cfg = useView(() => lp<LaunchConfig>("get_config"), [], 0);
   const bal = useView(
     accountId ? () => view<string>(id, "ft_balance_of", { account_id: accountId }) : null,
     [id, accountId],
@@ -146,6 +150,10 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
   const mcapUsd = yoctoToUsd(realFdvNear.toString(), nearUsdPrice);
   const gradUsd = yoctoToUsd(t.grad_fdv_near, nearUsdPrice);
   const pct = progressPct(t);
+  const raise = curveRaise(t);
+  // Before graduation the vault only holds the trade tax; graduation adds a share of the whole raise.
+  const gradSeed = !graduated && cfg.data ? (raise.target * BigInt(cfg.data.grad_vault_bps)) / 10000n : 0n;
+  const floorAtGrad = vaultNear(t, linearPrice) + gradSeed;
   const webHref = safeExternalUrl(t.meta.website);
   const xHref = safeTwitterUrl(t.meta.twitter);
   const tgHref = safeTelegramUrl(t.meta.telegram);
@@ -205,7 +213,18 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
           <span>Floor (vault) ⓘ</span>
           <b className="green">{nearUsdPrice ? fmtUsd(yoctoToUsd(vaultNear(t, linearPrice), nearUsdPrice)) : `${fmtPrice(floorPrice(t, linearPrice))} N`}</b>
         </button>
-        <div className="chip"><span>Floor / mcap</span><b>{mcapUsd > 0 && nearUsdPrice ? `${((yoctoToUsd(vaultNear(t, linearPrice), nearUsdPrice) / mcapUsd) * 100).toFixed(1)}%` : "–"}</b></div>
+        <div className="chip" title={gradSeed > 0n ? "Before graduation the vault only holds trade tax. At graduation it gets a share of the whole raise." : undefined}>
+          <span>{gradSeed > 0n ? "Floor at graduation" : "Floor / mcap"}</span>
+          <b>
+            {!nearUsdPrice
+              ? "–"
+              : gradSeed > 0n
+                ? `${fmtUsd(yoctoToUsd(floorAtGrad, nearUsdPrice))} · ${((yoctoToUsd(floorAtGrad, nearUsdPrice) / Math.max(1, gradUsd)) * 100).toFixed(1)}%`
+                : mcapUsd > 0
+                  ? `${((yoctoToUsd(vaultNear(t, linearPrice), nearUsdPrice) / mcapUsd) * 100).toFixed(1)}%`
+                  : "–"}
+          </b>
+        </div>
         <div className="chip"><span>Holders</span><b>{t.holders}</b></div>
         <div className="chip"><span>Locked</span><b>{fmtTok(t.total_locked, 0)}</b></div>
         <div className="chip"><span>Burned</span><b>{fmtTok(t.burned, 0)}</b></div>
@@ -270,8 +289,12 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
       {!graduated && t.grad_stage === "Curve" && (
         <div className="bond">
           <div className="row between small">
-            <span>Bonding curve · {pct.toFixed(1)}%</span>
-            <span className="muted">graduates to Ref at {nearUsdPrice ? fmtUsd(gradUsd) : `$${t.grad_mcap_usd.toLocaleString()}`}</span>
+            <span title={`${soldPct(t).toFixed(1)}% of the curve's tokens sold`}>
+              Bonding curve · {pct.toFixed(1)}% · {fmtNear(raise.raised, 0)} / {fmtNear(raise.target, 0)} NEAR raised
+            </span>
+            <span className="muted">
+              {nearUsdPrice ? `${fmtUsd(mcapUsd)} now → graduates at ${fmtUsd(gradUsd)}` : `graduates at $${t.grad_mcap_usd.toLocaleString()}`}
+            </span>
           </div>
           <div className="progress big"><div style={{ width: `${pct}%` }} /></div>
         </div>

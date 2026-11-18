@@ -411,7 +411,36 @@ export function vaultNear(t: TokenView, linearPrice?: bigint): bigint {
   return BigInt(t.backing_near);
 }
 
-export const progressPct = (t: TokenView) =>
+/**
+ * NEAR raised on the curve so far and the total the curve raises by graduation (yoctoNEAR).
+ * Constant product k = v_near * v_tokens; the curve opened at v_tokens + sold virtual tokens
+ * and graduates when curve_supply of them are sold.
+ */
+export function curveRaise(t: TokenView): { raised: bigint; target: bigint } {
+  const vNear = BigInt(t.v_near);
+  const vTok = BigInt(t.v_tokens);
+  const t0 = vTok + BigInt(t.sold);
+  const tf = t0 - BigInt(t.curve_supply);
+  if (vTok <= 0n || t0 <= 0n || tf <= 0n) return { raised: 0n, target: 0n };
+  const k = vNear * vTok;
+  const v0 = k / t0;
+  return { raised: vNear - v0, target: k / tf - v0 };
+}
+
+/**
+ * Bonding progress by NEAR raised (not tokens sold). The price climbs with the square of
+ * tokens sold, so a token-count bar runs far ahead of market cap: 64% of tokens sold is
+ * only about a third of the raise and of the way to the graduation market cap.
+ */
+export function progressPct(t: TokenView): number {
+  if (isGraduated(t) || t.grad_stage !== "Curve") return 100;
+  const { raised, target } = curveRaise(t);
+  if (target <= 0n) return Number((BigInt(t.sold) * 10000n) / BigInt(t.curve_supply)) / 100;
+  return Math.min(100, Number((raised * 10000n) / target) / 100);
+}
+
+/** Share of the curve's tokens sold (what the contract graduates on). */
+export const soldPct = (t: TokenView) =>
   isGraduated(t) || t.grad_stage !== "Curve" ? 100 : Number((BigInt(t.sold) * 10000n) / BigInt(t.curve_supply)) / 100;
 
 const NEAR_ACCOUNT_RE = /^(([a-z0-9]+[-_])*[a-z0-9]+\.)*([a-z0-9]+[-_])*[a-z0-9]+$/;
