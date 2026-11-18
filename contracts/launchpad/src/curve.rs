@@ -295,7 +295,9 @@ impl Contract {
         let new_holder = !self.known_holders.contains_key(&(idx, buyer.clone()));
         let storage_fee = if new_holder { STORAGE_FEE } else { 0 };
         require!(deposit > storage_fee, "ERR_BELOW_MIN_TRADE");
-        if self.is_migrating(idx) {
+        // Moving to Rhea, or the pool opened seconds ago (a page that had not refreshed yet):
+        // queue the buy for the pool instead of failing it.
+        if self.is_migrating(idx) || self.tok(idx).grad_stage == GradStage::Graduated {
             let near = deposit - storage_fee;
             require!(deposit >= self.config.min_trade.as_yoctonear(), "ERR_BELOW_MIN_TRADE");
             if new_holder {
@@ -330,7 +332,7 @@ impl Contract {
         if refund > 0 {
             // This buy sold out the curve: the rest is bought on Rhea once the pool is live,
             // instead of being refunded (dust under MIN_QUEUED is still refunded).
-            let queued = self.is_migrating(idx) && self.enqueue_migration_buy(idx, &buyer, refund, false);
+            let queued = self.tok(idx).grad_stage != GradStage::Curve && self.enqueue_migration_buy(idx, &buyer, refund, false);
             if !queued {
                 Promise::new(buyer).transfer(NearToken::from_yoctonear(refund)).detach();
             }

@@ -15,6 +15,9 @@
 //!   transfer becomes claimable with `claim_tokens`).
 //! * If the pool stays outside the price band for a day, the queue is refunded in LiNEAR
 //!   (claimable), so funds can never be stuck.
+//! * Buying never fails on timing: a buy that arrives while a round is executing waits in a
+//!   second list and joins the next round; a curve buy that lands just after graduation (a page
+//!   that had not refreshed yet) is queued too.
 //!
 //! State lives under its own storage key, so `TokenState` and the contract layout are unchanged.
 use crate::curve::{ONE_YOCTO, STORAGE_FEE};
@@ -80,11 +83,30 @@ pub struct QueuedBuyView {
     pub tokens_to_deliver: U128,
 }
 
+fn add_entry(list: &mut QueueEntries, buyer: &AccountId, near: u128, needs_storage: bool) {
+    if let Some(e) = list.iter_mut().find(|e| &e.0 == buyer) {
+        e.1 += near;
+        e.2 |= needs_storage;
+    } else {
+        require!(list.len() < MAX_QUEUE, "ERR_QUEUE_FULL");
+        list.push((buyer.clone(), near, needs_storage));
+    }
+}
+
 fn mq_key(idx: u32) -> Vec<u8> {
     let mut k = b"g:mq".to_vec();
     k.extend_from_slice(&idx.to_le_bytes());
     k
 }
+
+/// Buys that arrived while a round was executing; they join the next round.
+fn mq_wait_key(idx: u32) -> Vec<u8> {
+    let mut k = b"g:mqw".to_vec();
+    k.extend_from_slice(&idx.to_le_bytes());
+    k
+}
+
+type QueueEntries = Vec<(AccountId, u128, bool)>;
 
 /// When the current step started (own key, so `MigrationQueue` keeps its layout).
 fn mq_step_key(idx: u32) -> Vec<u8> {
@@ -124,18 +146,48 @@ impl Contract {
             return false;
         }
         let mut q = self.mq(idx);
-        require!(q.stage == STAGE_QUEUED && !q.busy, "ERR_QUEUE_EXECUTING");
-        if let Some(e) = q.entries.iter_mut().find(|e| &e.0 == buyer) {
-            e.1 += near;
-            e.2 |= needs_storage;
+        if q.stage == STAGE_QUEUED && !q.busy {
+            add_entry(&mut q.entries, buyer, near, needs_storage);
+            q.total += near;
+            self.set_mq(idx, &q);
         } else {
-            require!(q.entries.len() < MAX_QUEUE, "ERR_QUEUE_FULL");
-            q.entries.push((buyer.clone(), near, needs_storage));
+            // a round is executing: its amounts are fixed, so this buy joins the next round
+            let mut w = self.mq_waiting(idx);
+            add_entry(&mut w, buyer, near, needs_storage);
+            self.set_mq_waiting(idx, &w);
         }
-        q.total += near;
-        self.set_mq(idx, &q);
         self.log_mech(idx, "migration_buy_queued", near, Some(buyer.clone()));
         true
+    }
+
+    pub(crate) fn mq_waiting(&self, idx: u32) -> QueueEntries {
+        env::storage_read(&mq_wait_key(idx))
+            .map(|v| QueueEntries::try_from_slice(&v).expect("ERR_MQ"))
+            .unwrap_or_default()
+    }
+
+    fn set_mq_waiting(&mut self, idx: u32, w: &QueueEntries) {
+        if w.is_empty() {
+            env::storage_remove(&mq_wait_key(idx));
+        } else {
+            env::storage_write(&mq_wait_key(idx), &borsh::to_vec(w).expect("ERR_MQ"));
+        }
+    }
+
+    /// Between rounds: buys that waited during the last round join the queue.
+    fn promote_waiting(&mut self, idx: u32, q: &mut MigrationQueue) {
+        if q.stage != STAGE_QUEUED || q.busy {
+            return;
+        }
+        let w = self.mq_waiting(idx);
+        if w.is_empty() {
+            return;
+        }
+        for (who, near, storage) in w {
+            add_entry(&mut q.entries, &who, near, storage);
+            q.total += near;
+        }
+        self.set_mq_waiting(idx, &Vec::new());
     }
 
     fn finish_step(&mut self, idx: u32, mut q: MigrationQueue) {
@@ -178,10 +230,13 @@ impl Contract {
 #[near]
 impl Contract {
     pub fn get_migration_queue(&self, token_id: AccountId) -> MigrationQueueView {
-        let q = self.mq(self.idx_of(&token_id));
+        let idx = self.idx_of(&token_id);
+        let q = self.mq(idx);
+        let w = self.mq_waiting(idx);
         MigrationQueueView {
-            queued_near: U128(q.total),
-            buyers: q.entries.len() as u32,
+            // includes buys waiting for the next round
+            queued_near: U128(q.total + w.iter().map(|e| e.1).sum::<u128>()),
+            buyers: (q.entries.len() + w.iter().filter(|e| !q.entries.iter().any(|x| x.0 == e.0)).count()) as u32,
             stage: q.stage,
             busy: q.busy,
             pending_deliveries: q.deliveries.len() as u32,
@@ -189,8 +244,9 @@ impl Contract {
     }
 
     pub fn get_queued_buy(&self, token_id: AccountId, account_id: AccountId) -> QueuedBuyView {
-        let q = self.mq(self.idx_of(&token_id));
-        let near = q.entries.iter().filter(|e| e.0 == account_id).map(|e| e.1).sum::<u128>();
+        let idx = self.idx_of(&token_id);
+        let q = self.mq(idx);
+        let near = q.entries.iter().chain(self.mq_waiting(idx).iter()).filter(|e| e.0 == account_id).map(|e| e.1).sum::<u128>();
         let tokens = q.deliveries.iter().filter(|e| e.0 == account_id).map(|e| e.1).sum::<u128>();
         QueuedBuyView { queued_near: U128(near), tokens_to_deliver: U128(tokens) }
     }
@@ -201,6 +257,7 @@ impl Contract {
         require!(self.tok(idx).grad_stage == GradStage::Graduated, "ERR_NOT_GRADUATED");
         let mut q = self.mq(idx);
         require!(!q.busy || self.step_is_stale(idx), "ERR_QUEUE_STEP_IN_FLIGHT");
+        self.promote_waiting(idx, &mut q);
         require!(q.total > 0, "ERR_QUEUE_EMPTY");
         env::storage_write(&mq_step_key(idx), &now_secs().to_le_bytes());
         if q.since == 0 {
