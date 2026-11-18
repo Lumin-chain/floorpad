@@ -78,7 +78,14 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
   }, [desktop, tab]);
   const tabs = TABS.filter((x) => !(desktop && x === "Chat"));
   const [sheet, setSheet] = useState<null | "buy" | "sell">(null);
-  const tok = useView(() => lp<TokenView | null>("get_token", { token_id: id }), [id], 6000);
+  // Near the end of the curve and while moving to Rhea, refresh every 2s so the panel switches
+  // to the queue and then to the pool within seconds of the stage changing.
+  const [fastPoll, setFastPoll] = useState(false);
+  const tok = useView(() => lp<TokenView | null>("get_token", { token_id: id }), [id], fastPoll ? 2000 : 6000);
+  useEffect(() => {
+    const d = tok.data;
+    setFastPoll(!!d && d.grad_stage !== "Graduated" && (d.grad_stage !== "Curve" || progressPct(d) >= 90));
+  }, [tok.data]);
   const price = useView(() => view<string>(LINEAR, "ft_price"), [], 60000);
   const usd = useView(() => nearUsd(), [], 60000);
   const bal = useView(

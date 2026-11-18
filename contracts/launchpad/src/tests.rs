@@ -1380,6 +1380,79 @@ fn failed_withdraw_keeps_the_step_for_a_retry() {
     assert!(q.deliveries.is_empty());
 }
 
+/// The seconds around migration never fail a buy.
+#[test]
+fn buy_just_after_graduation_is_queued_not_refused() {
+    let (mut c, _) = graduated();
+    assert_eq!(c.tok(0).grad_stage, GradStage::Graduated);
+    let before = c.get_queued_buy(token(), acc("late.testnet")).queued_near.0;
+    let out = buy(&mut c, "late.testnet", NEAR, T0 + 650);
+    assert_eq!(out, 0);
+    let q = c.get_queued_buy(token(), acc("late.testnet")).queued_near.0;
+    assert_eq!(q - before, NEAR - crate::curve::STORAGE_FEE);
+}
+
+#[test]
+fn buy_while_a_round_executes_waits_for_the_next_round() {
+    let (mut c, _) = graduated();
+    let total0 = c.mq(0).total;
+    ctx_rich(&acc("keeper.testnet"), T0 + 600);
+    let _ = c.process_migration_buys(token()); // round 1 staking: amounts fixed
+    assert!(c.mq(0).busy);
+    let _ = buy(&mut c, "late.testnet", 2 * NEAR, T0 + 601);
+    let late = 2 * NEAR - crate::curve::STORAGE_FEE;
+    assert_eq!(c.mq(0).total, total0, "the executing round is untouched");
+    assert_eq!(c.get_queued_buy(token(), acc("late.testnet")).queued_near.0, late);
+    assert_eq!(c.get_migration_queue(token()).queued_near.0, total0 + late);
+    // finish round 1 the quick way (tokens already in the launchpad)
+    let mut q = c.mq(0);
+    q.busy = false;
+    q.stage = 3;
+    q.out = 10 * TOK;
+    c.set_mq(0, &q);
+    ctx(&acc("keeper.testnet"), 0, T0 + 602);
+    let _ = c.process_migration_buys(token());
+    ctx(&lp(), 0, T0 + 603);
+    let _ = c.on_mq_out_checked(0, Ok(U128(0)));
+    assert_eq!(c.mq(0).total, 0);
+    // next round picks the waiting buy up
+    ctx_rich(&acc("keeper.testnet"), T0 + 604);
+    let _ = c.process_migration_buys(token());
+    assert_eq!(c.mq(0).total, late);
+    assert!(c.mq_waiting(0).is_empty());
+}
+
+#[test]
+fn racing_for_the_last_tokens_does_not_fail_on_slippage() {
+    let mut c = launched();
+    buy(&mut c, "bob.testnet", 5 * NEAR, T0 + 200);
+    // quote for a big buy, then someone else takes almost the whole curve first
+    let v = c.tok(0).clone();
+    let quoted = math::curve_tokens_out(v.v_near, v.v_tokens, 400 * NEAR * 99 / 100);
+    let min = quoted * 98 / 100;
+    let rest = c.config.curve_supply.0 - c.tok(0).sold;
+    let cost = math::curve_near_for_tokens(v.v_near, v.v_tokens, rest - 10_000_000 * TOK);
+    buy(&mut c, "racer.testnet", cost * 100 / 99 + crate::curve::STORAGE_FEE, T0 + 201);
+    assert_eq!(c.tok(0).grad_stage, GradStage::Curve, "a little is left for the whale");
+    ctx(&acc("whale.testnet"), 400 * NEAR, T0 + 202);
+    let out = c.buy(token(), U128(min), None).0;
+    assert!(out > 0, "filled what was left");
+    assert!(c.get_queued_buy(token(), acc("whale.testnet")).queued_near.0 > 0, "the rest is queued for the pool");
+}
+
+#[test]
+fn quick_buy_during_migration_is_queued() {
+    let mut c = launched();
+    buy(&mut c, "bob.testnet", 5 * NEAR, T0 + 200);
+    ctx(&acc("whale.testnet"), 3 * NEAR, T0 + 201);
+    c.deposit_trading();
+    buy(&mut c, "racer.testnet", 2_500 * NEAR, T0 + 202);
+    assert_ne!(c.tok(0).grad_stage, GradStage::Curve);
+    ctx(&acc("whale.testnet"), 0, T0 + 203);
+    assert_eq!(c.quick_buy(token(), U128(2 * NEAR), U128(1), None).0, 0);
+    assert_eq!(c.get_queued_buy(token(), acc("whale.testnet")).queued_near.0, 2 * NEAR - crate::curve::STORAGE_FEE);
+}
+
 #[test]
 fn new_pools_use_the_one_percent_fee() {
     let (c, _) = graduated();

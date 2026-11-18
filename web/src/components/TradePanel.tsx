@@ -317,6 +317,16 @@ function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: T
       setAmt("");
       reload();
       onDone?.();
+      if (side === "buy") {
+        // the curve may have sold out in the same seconds: say what happened to the NEAR
+        const now = await lp<{ grad_stage: string } | null>("get_token", { token_id: t.token_id }).catch(() => null);
+        if (now && now.grad_stage !== "Curve") {
+          setToast({
+            kind: "ok",
+            text: "The curve sold out as you bought: you got what was left on the curve, and the rest of your NEAR is queued and bought on Rhea at the opening price within seconds.",
+          });
+        }
+      }
     }
   }
 

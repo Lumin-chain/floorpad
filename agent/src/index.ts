@@ -339,7 +339,7 @@ async function keep(t: TokenView) {
     await track(`harvest:${t.token_id}`, !!t.harvest_busy, () => `${t.token_id} LP harvest in flight`);
     await track(`epoch:${t.token_id}`, !!t.epoch_busy, () => `${t.token_id} epoch settlement in flight`);
     // buys queued during migration (or past the curve cap): execute and deliver any left over
-    if (t.grad_stage === "Graduated" && !migrating.has(t.token_id)) await drainMigrationQueue(t.token_id);
+    if (t.grad_stage === "Graduated" && !migrating.has(t.token_id)) await drainSoon(t.token_id);
     // periodic floor report (harvests, burns, buybacks, yield), not only after an LP harvest
     if (t.grad_stage === "Graduated") await maybePostHarvest(t.token_id).catch(() => {});
     await maybePostBoosts(t).catch(() => {});
@@ -734,6 +734,20 @@ async function maybePostBoosts(t: TokenView) {
  * token is on Ref within about a minute of selling out.
  */
 const migrating = new Set<string>();
+/** Tokens that graduated recently: late buys (pages that had not refreshed) still arrive in the
+ * launchpad queue for a while, so the fast loop keeps executing them within seconds. */
+const justGraduated = new Map<string, number>();
+const JUST_GRADUATED_MS = 15 * 60_000;
+const draining = new Set<string>();
+async function drainSoon(tokenId: string) {
+  if (draining.has(tokenId) || migrating.has(tokenId)) return;
+  draining.add(tokenId);
+  try {
+    await drainMigrationQueue(tokenId);
+  } finally {
+    draining.delete(tokenId);
+  }
+}
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function migrateNow(tokenId: string) {
@@ -746,6 +760,7 @@ async function migrateNow(tokenId: string) {
       if (!t || t.grad_stage === "Curve") return;
       if (t.grad_stage === "Graduated") {
         console.log(`🎓 ${tokenId} graduated in ${Math.round((Date.now() - started) / 1000)}s`);
+        justGraduated.set(tokenId, Date.now());
         await drainMigrationQueue(tokenId);
         return;
       }
@@ -817,6 +832,10 @@ async function watchGraduations() {
     try {
       for (const t of await allTokens()) {
         if (t.grad_stage !== "Curve" && t.grad_stage !== "Graduated") void migrateNow(t.token_id);
+      }
+      for (const [id, at] of justGraduated) {
+        if (Date.now() - at > JUST_GRADUATED_MS) justGraduated.delete(id);
+        else void drainSoon(id);
       }
     } catch (e) {
       console.warn("graduation watch:", (e as Error).message);

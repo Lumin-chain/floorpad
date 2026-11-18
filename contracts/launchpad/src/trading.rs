@@ -67,6 +67,21 @@ impl Contract {
         let buyer = env::predecessor_account_id();
         let bal = self.trading_near.get(&buyer).copied().unwrap_or(0);
         require!(near_in.0 > 0 && near_in.0 <= bal, "ERR_TRADING_BALANCE");
+        if self.tok(idx).grad_stage != GradStage::Curve {
+            // Curve closed (moving to Rhea, or just opened there): queue it for the pool; the
+            // tokens go to the wallet, since custody only holds curve tokens.
+            require!(near_in.0 >= self.config.min_trade.as_yoctonear(), "ERR_BELOW_MIN_TRADE");
+            let key = (idx, buyer.clone());
+            let new_holder = !self.known_holders.contains_key(&key);
+            let storage_fee = if new_holder { crate::curve::STORAGE_FEE } else { 0 };
+            if new_holder {
+                self.known_holders.insert(key, true);
+                self.tok_mut(idx).holders += 1;
+            }
+            require!(self.enqueue_migration_buy(idx, &buyer, near_in.0 - storage_fee, new_holder), "ERR_BELOW_MIN_TRADE");
+            self.trading_near.insert(buyer, bal - near_in.0);
+            return U128(0);
+        }
         let (out, refund) = self.curve_buy_core(idx, &buyer, near_in.0, min_tokens_out.0, referrer);
         self.trading_near.insert(buyer.clone(), bal - near_in.0 + refund);
         let key = (idx, buyer);
@@ -184,7 +199,11 @@ impl Contract {
             tok_tax = math::bps(used, buy_tax_bps as u128);
             refund = gross - used - plat - tok_tax;
         }
-        require!(out > 0 && out >= min_tokens_out, "ERR_SLIPPAGE");
+        // A buy that sells out the curve never fails on slippage: in the race for the last tokens
+        // someone else may have bought first, but no curve token costs more than the graduation
+        // price, and the rest of the NEAR is queued for the pool at its opening price (= that same
+        // price, band-guarded). Failing here would only stop people buying at migration.
+        require!(out > 0 && (refund > 0 || out >= min_tokens_out), "ERR_SLIPPAGE");
         let key = (idx, buyer.clone());
         if now < created_at + cfg.snipe_window_secs {
             let b = self.snipe_bought.get(&key).copied().unwrap_or(0) + out;
