@@ -16,6 +16,7 @@ import {
 } from "@/lib/near";
 import { useView, useWallet } from "@/lib/wallet";
 import { MojiLabel } from "./Brand";
+import { stakeAndCallTx, stakeMinError, stakeOf, stakePrice } from "@/lib/stake";
 
 /** Default agent share of yield while no holder has voted (contract: DEFAULT_AGENT_BPS). */
 const DEFAULT_AGENT_BPS = 1000;
@@ -92,17 +93,13 @@ export function FundYield({ t, linearPrice }: { t: TokenView; linearPrice: bigin
     return [...by.entries()].sort((a, b) => (b[1] > a[1] ? 1 : -1)).slice(0, 5);
   }, [mech]);
 
+  const st = stakeOf(t); // funded in the token's own staking token
+  const minErr = near > 0n ? stakeMinError(st, near) : null;
   async function fund() {
     if (!accountId) return signIn();
-    const ok = await send([
-      {
-        receiverId: LINEAR,
-        calls: [
-          { method: "deposit_and_stake", args: {}, gas: 50, deposit: near },
-          { method: "ft_transfer_call", args: { receiver_id: LAUNCHPAD, amount: shares.toString(), msg: JSON.stringify({ fund_yield: t.token_id }) }, gas: 100, deposit: "1" },
-        ],
-      },
-    ]);
+    if (minErr) return;
+    const price = await stakePrice(st.id).catch(() => linearPrice);
+    const ok = await send([stakeAndCallTx(st, near, price > 0n ? price : linearPrice, LAUNCHPAD, JSON.stringify({ fund_yield: t.token_id }))]);
     if (ok) setAmt("");
   }
 
@@ -114,7 +111,7 @@ export function FundYield({ t, linearPrice }: { t: TokenView; linearPrice: bigin
         <MojiLabel face="hero">Contribute to ${t.meta.symbol}&apos;s yield</MojiLabel>
       </h2>
       <p className="small muted" style={{ margin: 0 }}>
-        Your NEAR is staked as LiNEAR and split at the next epoch by the holders&apos; vote. It is a contribution to the token: you get something back only
+        Your NEAR is staked as {st.symbol} and split at the next epoch by the holders&apos; vote. It is a contribution to the token: you get something back only
         through ${t.meta.symbol} you hold or lock.
       </p>
 

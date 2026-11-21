@@ -29,7 +29,7 @@ impl Contract {
         let n = tok.post_count;
         tok.post_count += 1;
         self.posts.insert((idx, slot), Post { ts: now_secs(), text, paid: U128(paid) });
-        self.credit_linear(&agent, paid);
+        self.credit_stake(idx, &agent, paid);
         n
     }
 }

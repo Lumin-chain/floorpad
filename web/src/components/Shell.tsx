@@ -133,7 +133,7 @@ export function Shell({ children }: { children: ReactNode }) {
             </a>
             <Link href="/brand" className="link-chev">Brand kit</Link>
           </div>
-          <span>Floor backing is denominated in NEAR/LiNEAR; USD value fluctuates with market prices. Not financial advice.</span>
+          <span>Floor backing is staked NEAR (stNEAR or LiNEAR); USD value fluctuates with market prices. Not financial advice.</span>
         </div>
       </footer>
       <BottomNav />

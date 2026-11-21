@@ -93,7 +93,7 @@ impl Contract {
         let amount = p.pending_reward.0;
         p.pending_reward = U128(0);
         self.positions.insert(key, p);
-        self.credit_linear(&account, amount);
+        self.credit_stake(idx, &account, amount);
         U128(amount)
     }
 

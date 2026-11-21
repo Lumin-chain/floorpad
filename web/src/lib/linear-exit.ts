@@ -84,4 +84,5 @@ export const linearAccount = (account: string) =>
   view<LinearAccount>(LINEAR, "get_account_details", { account_id: account }).catch(() => null);
 
 /** Open the Convert LiNEAR modal from anywhere. */
-export const openConvertLinear = () => window.dispatchEvent(new CustomEvent("floorpad:convert-linear"));
+export const openConvertLinear = (token?: string | unknown) =>
+  window.dispatchEvent(new CustomEvent("floorpad:convert-linear", { detail: { token: typeof token === "string" ? token : undefined } }));

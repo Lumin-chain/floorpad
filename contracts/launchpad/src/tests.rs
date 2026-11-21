@@ -106,10 +106,23 @@ fn meta() -> TokenMeta {
 }
 
 /// Launch MOON with DAO ready.
+fn stnear() -> AccountId {
+    acc("meta-v2.pool.testnet")
+}
+
 fn launched() -> Contract {
+    launched_on(false)
+}
+
+/// `stnear`: the launchpad stakes new launches into Meta Pool's stNEAR.
+fn launched_on(use_stnear: bool) -> Contract {
     ctx(&acc("owner.testnet"), 0, T0);
     let mut c = Contract::new(cfg());
     c.set_near_usd_price(U128(3_590_000)); // $3.59
+    if use_stnear {
+        ctx(&lp(), 0, T0);
+        c.set_launch_stake_token(stnear(), crate::stake::KIND_META);
+    }
     ctx(&acc("alice.testnet"), 3 * NEAR / 2, T0);
     let id = match c.create_token(meta(), None, None) {
         PromiseOrValue::Value(v) => v.unwrap(),
@@ -261,7 +274,11 @@ fn unlock_after_expiry_clears_weight() {
 
 /// Sells out the curve and walks graduation with simulated callbacks.
 fn graduated() -> (Contract, u128) {
-    let mut c = launched();
+    graduated_on(false)
+}
+
+fn graduated_on(stnear: bool) -> (Contract, u128) {
+    let mut c = launched_on(stnear);
     let bob = buy(&mut c, "bob.testnet", 5 * NEAR, T0 + 200);
     buy(&mut c, "whale.testnet", 2_500 * NEAR, T0 + 201);
     assert_eq!(c.tok(0).grad_stage, GradStage::CreatePool);
@@ -1451,6 +1468,77 @@ fn quick_buy_during_migration_is_queued() {
     ctx(&acc("whale.testnet"), 0, T0 + 203);
     assert_eq!(c.quick_buy(token(), U128(2 * NEAR), U128(1), None).0, 0);
     assert_eq!(c.get_queued_buy(token(), acc("whale.testnet")).queued_near.0, 2 * NEAR - crate::curve::STORAGE_FEE);
+}
+
+// ---------- stNEAR (Meta Pool) for new launches ----------
+
+#[test]
+fn new_launches_use_stnear_and_old_tokens_keep_linear() {
+    let mut c = launched(); // launched while LiNEAR was the default
+    ctx(&lp(), 0, T0 + 10);
+    c.set_launch_stake_token(stnear(), crate::stake::KIND_META);
+    assert_eq!(c.get_stake_token(token()), c.config.linear, "an existing token keeps LiNEAR (its LP is locked)");
+    assert_eq!(c.get_launch_stake_token(), stnear());
+    let n = launched_on(true);
+    assert_eq!(n.get_stake_token(token()), stnear());
+    assert_eq!(n.get_token(token()).unwrap().stake_token, stnear());
+}
+
+#[test]
+#[should_panic(expected = "ERR_NOT_LAUNCHPAD")]
+fn only_the_launchpad_sets_the_launch_stake_token() {
+    let mut c = launched();
+    ctx(&acc("alice.testnet"), 0, T0 + 10);
+    c.set_launch_stake_token(stnear(), crate::stake::KIND_META);
+}
+
+#[test]
+fn stnear_token_is_funded_and_pays_out_in_stnear() {
+    let (mut c, _) = graduated_on(true);
+    let shares0 = c.tok(0).linear_shares;
+    // yield top-up must come in the token's own staking token
+    ctx(&stnear(), 0, T0 + 900);
+    let _ = c.ft_on_transfer(acc("fan.testnet"), U128(NEAR), format!(r#"{{"fund_yield":"{}"}}"#, token()));
+    assert_eq!(c.tok(0).linear_shares, shares0 + NEAR);
+    // agent pay is credited in stNEAR, not LiNEAR
+    c.tok_mut(0).last_linear_price = NEAR;
+    c.tok_mut(0).agent_budget_shares = 10 * NEAR;
+    ctx(&c.tok(0).agent_account.clone(), crate::agent::POST_DEPOSIT, T0 + 901);
+    c.agent_post(token(), "gm".into());
+    let claims = c.get_claimable(c.tok(0).agent_account.clone());
+    assert_eq!(claims.len(), 1);
+    assert_eq!(claims[0].0, stnear());
+    assert_eq!(c.get_claimable_linear(c.tok(0).agent_account.clone()).0, 0);
+    // withdrawing clears it
+    let agent = c.tok(0).agent_account.clone();
+    ctx(&agent, 1, T0 + 902);
+    let _ = c.withdraw_linear();
+    assert!(c.get_claimable(agent).is_empty());
+}
+
+#[test]
+#[should_panic(expected = "ERR_WRONG_STAKE_TOKEN")]
+fn linear_cannot_fund_an_stnear_token() {
+    let (mut c, _) = graduated_on(true);
+    ctx(&acc("linear-protocol.testnet"), 0, T0 + 900);
+    let _ = c.ft_on_transfer(acc("fan.testnet"), U128(NEAR), format!(r#"{{"fund_yield":"{}"}}"#, token()));
+}
+
+#[test]
+fn stnear_queue_below_one_near_is_refunded_in_near() {
+    let (mut c, _) = graduated_on(true);
+    // empty the whale's sell-out leftover so only a small late buy is queued
+    let mut q = c.mq(0);
+    q.entries.clear();
+    q.total = 0;
+    c.set_mq(0, &q);
+    let _ = buy(&mut c, "late.testnet", NEAR / 2, T0 + 650);
+    assert!(c.mq(0).total > 0 && c.mq(0).total < NEAR);
+    ctx_rich(&acc("keeper.testnet"), T0 + 660);
+    let _ = c.process_migration_buys(token());
+    let q = c.mq(0);
+    assert_eq!(q.total, 0, "refunded instead of a stake Meta Pool would refuse");
+    assert!(!q.busy);
 }
 
 #[test]

@@ -5,6 +5,7 @@ import { floorPrice, fmtNear, fmtPrice, fmtTok, isGraduated, LAUNCHPAD, LINEAR, 
 import { storageCallIfNeeded, tokenBalanceError, useView, useWallet, type Tx } from "@/lib/wallet";
 import { Kv, Stat } from "./ui";
 import type { TokenCtx } from "@/app/token/[id]/page";
+import { claimsText, getClaims, stakeOf } from "@/lib/stake";
 
 /** Plain-language "what is the floor" card, filled with this token's live numbers. */
 function FloorExplainer({
@@ -53,7 +54,7 @@ function FloorExplainer({
         </div>
         <div>
           <span className="small muted">Your ${sym} redeem for</span>
-          <b>{balance > 0n ? `${fmtNear(mine?.amount_out ?? "0", 4)} ${isGraduated(t) ? "LiNEAR" : "NEAR"}${usd(mineN)}` : "connect a wallet holding it"}</b>
+          <b>{balance > 0n ? `${fmtNear(mine?.amount_out ?? "0", 4)} ${isGraduated(t) ? stakeOf(t).symbol : "NEAR"}${usd(mineN)}` : "connect a wallet holding it"}</b>
         </div>
         <div>
           <span className="small muted">Market price vs floor</span>
@@ -110,7 +111,8 @@ export function VaultPanel({
   const grad = isGraduated(t);
   const age = holdingSince ? Math.max(0, Math.floor(Date.now() / 1000) - holdingSince) : 0;
   const base = parseUnits(amt, 18);
-  const { data: claimable } = useView(accountId ? () => lp<string>("get_claimable_linear", { account_id: accountId }) : null, [accountId], 10000);
+  const st = stakeOf(t);
+  const { data: claims } = useView(accountId ? () => getClaims(lp, accountId) : null, [accountId, busy], 10000);
   const { data: owed } = useView(accountId ? () => lp<string>("get_pending_tokens", { token_id: t.token_id, account_id: accountId }) : null, [accountId, t.token_id], 15000);
   const canRedeem = t.grad_stage === "Curve" || grad;
 
@@ -142,8 +144,11 @@ export function VaultPanel({
   async function withdraw() {
     if (!accountId) return;
     const txs: Tx[] = [];
-    const reg = await storageCallIfNeeded(LINEAR, accountId);
-    if (reg) txs.push(reg);
+    // the wallet must be registered on each token it receives
+    for (const c of claims ?? []) {
+      const reg = await storageCallIfNeeded(c.token, accountId);
+      if (reg) txs.push(reg);
+    }
     txs.push({ receiverId: LAUNCHPAD, calls: [{ method: "withdraw_linear", args: {}, gas: 50, deposit: "1" }] });
     await send(txs);
   }
@@ -159,14 +164,14 @@ export function VaultPanel({
       <div className="stack">
         <div className="grid stats">
           <Stat k="Floor price" v={<span className="green">{fmtPrice(floorPrice(t, linearPrice))} N</span>} s="per token, before fees" />
-          <Stat k="Vault value" v={`${fmtNear(vaultNear(t, linearPrice), 3)} N`} s={grad ? `${fmtNear(t.linear_shares, 3)} LiNEAR` : "held as NEAR until graduation"} />
+          <Stat k="Vault value" v={`${fmtNear(vaultNear(t, linearPrice), 3)} N`} s={grad ? `${fmtNear(t.linear_shares, 3)} ${stakeOf(t).symbol}` : "held as NEAR until graduation"} />
           <Stat k="Redeemable supply" v={fmtTok(circ.toString(), 0)} s={grad ? "incl. tokens in the LP" : "sold on curve minus burned"} />
           {grad && (
             <>
-              <Stat k="Unallocated yield" v={`${fmtNear(pendingYield > 0n ? pendingYield : 0n, 4)} LiNEAR`} s="split at the next epoch" />
+              <Stat k="Unallocated yield" v={`${fmtNear(pendingYield > 0n ? pendingYield : 0n, 4)} ${stakeOf(t).symbol}`} s="split at the next epoch" />
               <Stat
                 k="Harvested LP yield"
-                v={`${fmtNear(t.harvested_linear ?? "0", 3)} LiNEAR`}
+                v={`${fmtNear(t.harvested_linear ?? "0", 3)} ${stakeOf(t).symbol}`}
                 s={`Burned ${fmtTok(t.harvest_burned ?? "0", 0)} $${t.meta.symbol}`}
               />
             </>
@@ -178,7 +183,7 @@ export function VaultPanel({
               <div>
                 <h3 style={{ margin: 0 }}>LP Yield Harvest</h3>
                 <p className="muted small" style={{ margin: "4px 0 0" }}>
-                  Runs automatically every epoch: pool fees and LiNEAR appreciation above the locked depth are harvested, the LiNEAR becomes floor yield and the tokens are burned.
+                  Runs automatically every epoch: pool fees and {stakeOf(t).symbol} appreciation above the locked depth are harvested, the {stakeOf(t).symbol} becomes floor yield and the tokens are burned.
                 </p>
               </div>
               {/* fallback only: the keeper harvests on its own; offer the button when it is >10 min behind */}
@@ -205,9 +210,9 @@ export function VaultPanel({
           <p className="muted small" style={{ margin: "0 0 8px" }}>Floor = NEAR in the vault ÷ tokens in circulation. It rises when the vault grows or the supply shrinks.</p>
           <ul className="muted small" style={{ paddingLeft: 18, margin: 0 }}>
             <li><b>Curve trades:</b> part of every bonding-curve fee and 100% of exit fees go into the vault, in NEAR.</li>
-            <li><b>Graduation:</b> 15% of everything the curve raised seeds the vault, and the vault is staked as LiNEAR.</li>
-            <li><b>Staking yield:</b> LiNEAR earns NEAR staking rewards every epoch; holders vote how much compounds into the floor.</li>
-            <li><b>Pool fees:</b> the locked Ref LP earns a fee on every swap. The LiNEAR side becomes yield; the token side is burned.</li>
+            <li><b>Graduation:</b> 15% of everything the curve raised seeds the vault, and the vault is staked as {stakeOf(t).symbol}.</li>
+            <li><b>Staking yield:</b> {stakeOf(t).symbol} earns NEAR staking rewards every epoch; holders vote how much compounds into the floor.</li>
+            <li><b>Pool fees:</b> the locked Ref LP earns a fee on every swap. The {stakeOf(t).symbol} side becomes yield; the token side is burned.</li>
             <li><b>Burns:</b> DEX tax, harvested LP tokens, buyback-and-burn and redemptions all shrink the supply, so each remaining token is backed by more.</li>
             <li><b>Locked forever:</b> nobody, not even the DAO or the team, can withdraw the vault&apos;s principal. The protocol never sells your tokens.</li>
           </ul>
@@ -228,7 +233,7 @@ export function VaultPanel({
           <button className="btn sm ghost" onClick={() => setAmt(fmtTok(balance.toString(), 18).replace(/,/g, ""))}>Max</button>
           {q && (
             <div>
-              <Kv k="You receive" v={`${grad ? fmtNear(q.amount_out) + " LiNEAR" : fmtNear(q.amount_out) + " NEAR"}`} />
+              <Kv k="You receive" v={`${grad ? fmtNear(q.amount_out) + " " + stakeOf(t).symbol : fmtNear(q.amount_out) + " NEAR"}`} />
               <Kv k="Redemption fee (stays in vault)" v={fmtNear(q.fee)} />
               <Kv k="Exit fee (holding-age based)" v={fmtNear(q.exit_fee)} />
             </div>
@@ -236,14 +241,14 @@ export function VaultPanel({
           <button className="btn block" disabled={busy || !q || !canRedeem || BigInt(q?.amount_out ?? 0) === 0n} onClick={redeem}>
             Redeem &amp; burn
           </button>
-          {grad && <div className="small muted">LiNEAR payouts are credited to your claimable balance below.</div>}
+          {grad && <div className="small muted">{st.symbol} payouts are credited to your claimable balance below.</div>}
         </div>
 
         <div className="panel">
           <h2>Your claimable</h2>
-          <Kv k="LiNEAR (redemptions + airdrops)" v={fmtNear(claimable ?? "0")} />
-          <button className="btn block" style={{ marginTop: 10 }} disabled={busy || !claimable || claimable === "0"} onClick={withdraw}>
-            Withdraw LiNEAR
+          <Kv k="Redemptions + airdrops" v={claimsText(claims, (v) => fmtNear(v))} />
+          <button className="btn block" style={{ marginTop: 10 }} disabled={busy || !claims?.length} onClick={withdraw}>
+            Withdraw
           </button>
           {owed && owed !== "0" && (
             <>

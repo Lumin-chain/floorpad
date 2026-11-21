@@ -7,6 +7,7 @@ import { Kv, Stat } from "./ui";
 import { Bounties } from "./Bounties";
 import { decodeDescription, encodeDescription } from "@/lib/proposal-format";
 import type { TokenCtx } from "@/app/token/[id]/page";
+import { stakeInfo, stakeOf, STNEAR } from "@/lib/stake";
 
 // ---- Sputnik DAO v2 shapes (subset) ----
 type Kind = Record<string, unknown> | "Vote";
@@ -46,7 +47,7 @@ function describeKind(k: Kind, symbol: string): string {
   const [name, body] = Object.entries(k)[0] as [string, Record<string, unknown>];
   switch (name) {
     case "Transfer": {
-      const token = body.token_id === "" ? "NEAR" : body.token_id === LINEAR ? "LiNEAR" : String(body.token_id);
+      const token = body.token_id === "" ? "NEAR" : body.token_id === LINEAR || body.token_id === STNEAR ? stakeInfo(String(body.token_id)).symbol : String(body.token_id);
       return `Transfer ${fmtNear(String(body.amount))} ${token} → ${body.receiver_id}`;
     }
     case "FunctionCall": {
@@ -268,11 +269,11 @@ function NewProposal({ t, bond, onDone }: { t: TokenCtx["t"]; bond: string; onDo
       case "brrrain": {
         const target = f.receiver || t.agent_account || "agent.floorpad.testnet";
         if (!f.amount) return null;
-        return { Transfer: { token_id: f.token === "LiNEAR" ? LINEAR : "", receiver_id: target, amount: parseUnits(f.amount, 24).toString(), msg: null } };
+        return { Transfer: { token_id: f.token === "NEAR" ? "" : stakeOf(t).id, receiver_id: target, amount: parseUnits(f.amount, 24).toString(), msg: null } };
       }
       case "transfer":
         if (!f.receiver || !f.amount) return null;
-        return { Transfer: { token_id: f.token === "NEAR" ? "" : LINEAR, receiver_id: f.receiver, amount: parseUnits(f.amount, 24).toString(), msg: null } };
+        return { Transfer: { token_id: f.token === "NEAR" ? "" : stakeOf(t).id, receiver_id: f.receiver, amount: parseUnits(f.amount, 24).toString(), msg: null } };
       case "release":
         if (!f.amount) return null;
         return lpCall("dao_release_creator", { token_id: t.token_id, amount: parseUnits(f.amount, 24).toString() });
@@ -367,7 +368,7 @@ function NewProposal({ t, bond, onDone }: { t: TokenCtx["t"]; bond: string; onDo
           </div>
           <div className="grid half">
             <label className="field"><span>Amount</span><input className="input" value={f.amount} onChange={set("amount")} placeholder="e.g. 5.0" /></label>
-            <label className="field"><span>Token</span><select className="select" value={f.token} onChange={set("token")}><option>NEAR</option><option>LiNEAR</option></select></label>
+            <label className="field"><span>Token</span><select className="select" value={f.token} onChange={set("token")}><option>NEAR</option><option>{stakeOf(t).symbol}</option></select></label>
           </div>
         </div>
       )}
@@ -377,7 +378,7 @@ function NewProposal({ t, bond, onDone }: { t: TokenCtx["t"]; bond: string; onDo
       {tpl === "transfer" && (
         <div className="grid half">
           <label className="field"><span>Amount</span><input className="input" value={f.amount} onChange={set("amount")} placeholder="0.0" /></label>
-          <label className="field"><span>Token</span><select className="select" value={f.token} onChange={set("token")}><option>NEAR</option><option>LiNEAR</option></select></label>
+          <label className="field"><span>Token</span><select className="select" value={f.token} onChange={set("token")}><option>NEAR</option><option>{stakeOf(t).symbol}</option></select></label>
         </div>
       )}
       {(tpl === "release" || tpl === "bounty") && (

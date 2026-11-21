@@ -20,6 +20,7 @@ impl Contract {
         let cfg = self.config.clone();
         let me = env::current_account_id();
         let tok = self.tok(idx).clone();
+        let asset = self.asset(idx);
         require!(!tok.grad_busy, "ERR_STEP_IN_FLIGHT");
         let pool_fee = self.pool_fee_bps();
         let cb = Self::ext(me.clone()).with_static_gas(tgas(30));
@@ -34,7 +35,7 @@ impl Contract {
                     ext_ref::ext(cfg.ref_exchange.clone())
                         .with_attached_deposit(ONE_YOCTO)
                         .with_static_gas(tgas(10))
-                        .register_tokens(vec![tok.token_id.clone(), cfg.linear.clone()]),
+                        .register_tokens(vec![tok.token_id.clone(), asset.clone()]),
                 )
                 .then(
                     ext_ft::ext(tok.token_id.clone())
@@ -43,7 +44,7 @@ impl Contract {
                         .storage_deposit(Some(cfg.ref_exchange.clone()), Some(true)),
                 )
                 .then(
-                    ext_ft::ext(cfg.linear.clone())
+                    ext_ft::ext(asset.clone())
                         .with_attached_deposit(NearToken::from_yoctonear(13 * MILLI / 10))
                         .with_static_gas(tgas(10))
                         .storage_deposit(Some(tok.dao_id.clone()), Some(true)),
@@ -53,14 +54,13 @@ impl Contract {
                         .with_attached_deposit(NearToken::from_yoctonear(100 * MILLI))
                         .with_static_gas(tgas(20))
                         .add_simple_pool(
-                            vec![tok.token_id.clone(), cfg.linear.clone()],
+                            vec![tok.token_id.clone(), asset.clone()],
                             pool_fee,
                         ),
                 )
                 .then(cb.on_grad_pool_created(idx)),
-            GradStage::Stake => ext_linear::ext(cfg.linear.clone())
-                .with_static_gas(tgas(5))
-                .ft_price()
+            GradStage::Stake => self
+                .stake_price(&asset)
                 .then(Self::ext(me).with_static_gas(tgas(80)).on_grad_price(idx)),
             GradStage::Deposit => {
                 let ref_id = cfg.ref_exchange.clone();
@@ -68,7 +68,7 @@ impl Contract {
                     .with_attached_deposit(ONE_YOCTO)
                     .with_static_gas(tgas(60))
                     .ft_transfer_call(ref_id.clone(), U128(tok.lp_tokens), None, String::new());
-                let lin = ext_ft::ext(cfg.linear.clone())
+                let lin = ext_ft::ext(asset.clone())
                     .with_attached_deposit(ONE_YOCTO)
                     .with_static_gas(tgas(60))
                     .ft_transfer_call(ref_id, U128(tok.lp_shares), None, String::new());
@@ -113,7 +113,7 @@ impl Contract {
         };
         let tok = self.tok(idx);
         let amount = tok.lp_near + tok.backing_near;
-        ext_linear::ext(self.config.linear.clone())
+        ext_linear::ext(self.asset(idx))
             .with_attached_deposit(NearToken::from_yoctonear(amount))
             .with_static_gas(tgas(40))
             .deposit_and_stake()

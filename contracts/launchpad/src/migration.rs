@@ -190,6 +190,24 @@ impl Contract {
         self.set_mq_waiting(idx, &Vec::new());
     }
 
+    /// Meta Pool stakes at least 1 NEAR: a queue below that is refunded in NEAR (no stake made).
+    fn refund_small_queue(&mut self, idx: u32, mut q: MigrationQueue) -> Promise {
+        let total = q.total;
+        let mut out: Option<Promise> = None;
+        for (who, near, _) in q.entries.drain(..) {
+            let p = Promise::new(who).transfer(NearToken::from_yoctonear(near));
+            out = Some(match out {
+                None => p,
+                Some(prev) => prev.and(p),
+            });
+        }
+        self.log_mech(idx, "migration_refund", total, None);
+        q.total = 0;
+        q.since = 0;
+        self.finish_step(idx, q);
+        out.expect("ERR_QUEUE_EMPTY")
+    }
+
     fn finish_step(&mut self, idx: u32, mut q: MigrationQueue) {
         q.busy = false;
         self.set_mq(idx, &q);
@@ -259,6 +277,9 @@ impl Contract {
         require!(!q.busy || self.step_is_stale(idx), "ERR_QUEUE_STEP_IN_FLIGHT");
         self.promote_waiting(idx, &mut q);
         require!(q.total > 0, "ERR_QUEUE_EMPTY");
+        if q.stage == STAGE_QUEUED && q.total < crate::stake::META_MIN_STAKE && self.asset_kind(&self.asset(idx)) == crate::stake::KIND_META {
+            return self.refund_small_queue(idx, q);
+        }
         env::storage_write(&mq_step_key(idx), &now_secs().to_le_bytes());
         if q.since == 0 {
             q.since = now_secs();
@@ -269,14 +290,15 @@ impl Contract {
         self.set_mq(idx, &q);
         let me = env::current_account_id();
         let cfg = self.config.clone();
+        let asset = self.asset(idx);
         let pool_id = self.tok(idx).pool_id.expect("ERR_NO_POOL");
         match stage {
-            STAGE_QUEUED => ext_linear::ext(cfg.linear)
+            STAGE_QUEUED => ext_linear::ext(asset)
                 .with_attached_deposit(NearToken::from_yoctonear(q.total))
                 .with_static_gas(tgas(40))
                 .deposit_and_stake()
                 .then(Self::ext(me).with_static_gas(tgas(15)).on_mq_staked(idx)),
-            STAGE_STAKED => ext_ft::ext(cfg.linear)
+            STAGE_STAKED => ext_ft::ext(asset)
                 .with_attached_deposit(ONE_YOCTO)
                 .with_static_gas(tgas(60))
                 .ft_transfer_call(cfg.ref_exchange, U128(shares), None, String::new())
@@ -346,7 +368,7 @@ impl Contract {
             let t = self.tok(idx);
             (t.token_id.clone(), t.pool_id.expect("ERR_NO_POOL"))
         };
-        let linear = self.config.linear.clone();
+        let linear = self.asset(idx);
         let reserves = pool.ok().and_then(|p| {
             let m = p.token_account_ids.iter().position(|t| *t == token_id)?;
             let l = p.token_account_ids.iter().position(|t| *t == linear)?;
@@ -426,7 +448,7 @@ impl Contract {
         for (i, (who, near, _)) in q.entries.drain(..).enumerate() {
             let share = if i + 1 == n { shares - given } else { math::mul_div(shares, near, total) };
             given += share;
-            self.credit_linear(&who, share);
+            self.credit_stake(idx, &who, share);
         }
         self.log_mech(idx, "migration_refund", shares, None);
         q.total = 0;
