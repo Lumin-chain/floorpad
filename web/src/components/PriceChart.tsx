@@ -118,15 +118,15 @@ export function PriceChart({ t, linearPrice }: TokenCtx) {
  * tokens (burns) or LiNEAR (harvested pool fees, staking yield).
  */
 const PROTOCOL_ROW: Record<string, { label: string; tone: string; unit: "tok" | "lin"; hint: string }> = {
-  lp_harvest_burn: { label: "🔥 LP BURN", tone: "warn", unit: "tok", hint: "Token side of the harvested pool fees, burned" },
-  lp_harvest: { label: "💧 LP HARVEST", tone: "green", unit: "lin", hint: "LiNEAR side of the harvested pool fees, added to the floor" },
-  epoch: { label: "💧 YIELD", tone: "green", unit: "lin", hint: "Staking yield paid out this epoch" },
-  yield_funded: { label: "💧 YIELD BOOST", tone: "green", unit: "lin", hint: "LiNEAR contributed to holder rewards" },
-  tax_burn: { label: "🔥 TAX BURN", tone: "warn", unit: "tok", hint: "DEX tax burned" },
-  buyback_burn: { label: "🔥 BUYBACK", tone: "warn", unit: "tok", hint: "Tokens bought back and burned" },
-  graduation_burn: { label: "🎓 GRAD BURN", tone: "warn", unit: "tok", hint: "Unsold supply burned at graduation" },
-  redeem_burn: { label: "🧱 REDEEM", tone: "", unit: "tok", hint: "Tokens redeemed at the floor and burned" },
-  migration_buys: { label: "🚚 QUEUED BUYS", tone: "", unit: "tok", hint: "Buys queued during migration, filled on Rhea" },
+  lp_harvest_burn: { label: "LP BURN", tone: "warn", unit: "tok", hint: "Token side of the harvested pool fees, burned" },
+  lp_harvest: { label: "LP HARVEST", tone: "green", unit: "lin", hint: "LiNEAR side of the harvested pool fees, added to the floor" },
+  epoch: { label: "YIELD", tone: "green", unit: "lin", hint: "Staking yield paid out this epoch" },
+  yield_funded: { label: "YIELD BOOST", tone: "green", unit: "lin", hint: "LiNEAR contributed to holder rewards" },
+  tax_burn: { label: "TAX BURN", tone: "warn", unit: "tok", hint: "DEX tax burned" },
+  buyback_burn: { label: "BUYBACK", tone: "warn", unit: "tok", hint: "Tokens bought back and burned" },
+  graduation_burn: { label: "GRAD BURN", tone: "warn", unit: "tok", hint: "Unsold supply burned at graduation" },
+  redeem_burn: { label: "REDEEM", tone: "", unit: "tok", hint: "Tokens redeemed at the floor and burned" },
+  migration_buys: { label: "QUEUED BUYS", tone: "", unit: "tok", hint: "Buys queued during migration, filled on Rhea" },
 };
 
 type Row = { kind: "trade"; ts: number; tr: Trade } | { kind: "event"; ts: number; ev: MechEvent };

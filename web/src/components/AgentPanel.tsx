@@ -103,13 +103,13 @@ export function AgentPanel({ t, linearPrice, reload, onGoDao }: TokenCtx & { onG
         <div className="panel">
           <div className="panel tight stack" style={{ background: "var(--panel-2)", gap: 6, marginTop: 0 }}>
             <div className="row between">
-              <b className="small">⚡ BRRRAIN Staking-for-Inference</b>
+              <b className="small">BRRRAIN Staking-for-Inference</b>
               <span className="badge sky">Perpetual AI</span>
             </div>
             <div className="grid two" style={{ gap: 6, margin: "4px 0" }}>
               <div className="stat" style={{ padding: "6px 8px" }}>
                 <span className="xs muted">Daily Power</span>
-                <b className="small mono">{powerInfo ? `${powerInfo.power.toLocaleString()} ⚡` : "Active (1,000+ ⚡)"}</b>
+                <b className="small mono">{powerInfo ? `${powerInfo.power.toLocaleString()} Power` : "Active (1,000+ Power)"}</b>
               </div>
               <div className="stat" style={{ padding: "6px 8px" }}>
                 <span className="xs muted">AI Model</span>
@@ -117,7 +117,7 @@ export function AgentPanel({ t, linearPrice, reload, onGoDao }: TokenCtx & { onG
               </div>
             </div>
             <p className="xs muted" style={{ margin: 0 }}>
-              Agent budget from staking yield is routed to accumulate <strong>$BRRRAIN</strong> tokens on-chain. Holding $BRRRAIN grants daily <strong>⚡ Power</strong> via <a href="https://brrrain.fun" target="_blank" rel="noreferrer" style={{ textDecoration: "underline" }}>BRRRAIN AI</a>, keeping the agent funded perpetually without credit cards or manual dashboard top-ups.
+              Agent budget from staking yield is routed to accumulate <strong>$BRRRAIN</strong> tokens on-chain. Holding $BRRRAIN grants daily <strong>Power</strong> via <a href="https://brrrain.fun" target="_blank" rel="noreferrer" style={{ textDecoration: "underline" }}>BRRRAIN AI</a>, keeping the agent funded perpetually without credit cards or manual dashboard top-ups.
             </p>
           </div>
         </div>

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { floorPrice, fmtNear, fmtPrice, fmtTok, isGraduated, LAUNCHPAD, LINEAR, lp, parseUnits, vaultNear, YOCTO, type Quote } from "@/lib/near";
 import { storageCallIfNeeded, tokenBalanceError, useView, useWallet, type Tx } from "@/lib/wallet";
 import { Kv, Stat } from "./ui";
+import { MojiLabel } from "./Brand";
 import type { TokenCtx } from "@/app/token/[id]/page";
 import { claimsText, getClaims, stakeOf } from "@/lib/stake";
 
@@ -71,17 +72,17 @@ function FloorExplainer({
       </div>
       <div className="floor-why">
         <div>
-          <b>🛟 A guaranteed exit</b>
+          <b><MojiLabel face="hero" size={18}>A guaranteed exit</MojiLabel></b>
           <span className="small muted">Even if nobody is buying, the vault always pays the floor. Your tokens can&apos;t go to zero.</span>
         </div>
         <div>
-          <b>📈 It only goes up</b>
+          <b><MojiLabel face="cool" size={18}>It only goes up</MojiLabel></b>
           <span className="small muted">
             Nothing is ever taken out except by redemptions, and those burn the tokens at the floor rate, so the backing per token stays the same. Yield, fees and burns push it higher.
           </span>
         </div>
         <div>
-          <b>🧲 It supports the price</b>
+          <b><MojiLabel face="flag" size={18}>It supports the price</MojiLabel></b>
           <span className="small muted">
             If the market price drops below the floor, anyone can buy cheap and redeem at the floor for a profit. That buying lifts the price back up.
           </span>

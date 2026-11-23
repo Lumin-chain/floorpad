@@ -450,11 +450,11 @@ function statsText(symbol: string, s: Record<string, unknown>): string {
   const vault = num(s.vault_backing_near);
   const burned = num(s.burned_tokens);
   const lines = [
-    `📊 $${symbol} check-in`,
-    stage.startsWith("graduated") ? "🎓 Trading on Rhea · liquidity locked forever · vault earning staking yield" : `📈 ${stage.replace(/^./, (c) => c.toUpperCase())}`,
-    floor > 0 ? `🧱 Floor: ${fmtPrice(floor)} NEAR per token (vault ${fmtNear(vault)} NEAR)` : "",
-    burned > 0 ? `🔥 Burned so far: ${compactNum(burned)} $${symbol}` : "",
-    `👥 ${plural(num(s.holders), "holder")} · ${plural(num(s.lockers), "locker")}`,
+    `$${symbol} check-in`,
+    stage.startsWith("graduated") ? "Graduated: trading on Rhea · liquidity locked forever · vault earning staking yield" : `${stage.replace(/^./, (c) => c.toUpperCase())}`,
+    floor > 0 ? `Floor: ${fmtPrice(floor)} NEAR per token (vault ${fmtNear(vault)} NEAR)` : "",
+    burned > 0 ? `Burned so far: ${compactNum(burned)} $${symbol}` : "",
+    `${plural(num(s.holders), "holder")} · ${plural(num(s.lockers), "locker")}`,
   ].filter(Boolean);
   return lines.join("\n");
 }

@@ -387,7 +387,7 @@ function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: T
             Wallet Mode
           </button>
           <button className={tradeMode === "instant" ? "active" : ""} onClick={() => setTradeMode("instant")}>
-            <span className="green">⚡ Instant Mode</span>
+            <span className="green">Instant Mode</span>
           </button>
         </div>
         <span className="small muted">Keys: B/S, 1-4</span>
@@ -581,7 +581,7 @@ function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: T
           `Queue buy on Rhea`
         ) : (
           <>
-            {tradeMode === "instant" ? "⚡ Quick " : ""}
+            {tradeMode === "instant" ? "Quick " : ""}
             {side === "buy" ? "Buy" : "Sell"} ${t.meta.symbol}
           </>
         )}

@@ -230,7 +230,7 @@ export function DaoPanel({ t }: TokenCtx) {
 type Template = "signal" | "brrrain" | "transfer" | "release" | "clawback" | "agent" | "tax" | "bounty" | "custom";
 const TEMPLATES: { id: Template; label: string }[] = [
   { id: "signal", label: "Signal vote" },
-  { id: "brrrain", label: "⚡ BRRRAIN Staking-for-Inference (Treasury → Agent)" },
+  { id: "brrrain", label: "BRRRAIN Staking-for-Inference (Treasury → Agent)" },
   { id: "tax", label: "Update tax, split & decay" },
   { id: "transfer", label: "Treasury transfer" },
   { id: "release", label: "Release creator milestone" },
@@ -342,7 +342,7 @@ function NewProposal({ t, bond, onDone }: { t: TokenCtx["t"]; bond: string; onDo
     if (!accountId) return signIn();
     if (!k) return;
     // Trezu-compatible description so the proposal reads well in any Sputnik UI
-    const effectiveTitle = title || (tpl === "brrrain" ? `⚡ Fund $${t.meta.symbol} BRRRAIN AI Inference (${f.amount} ${f.token})` : title);
+    const effectiveTitle = title || (tpl === "brrrain" ? `Fund $${t.meta.symbol} BRRRAIN AI Inference (${f.amount} ${f.token})` : title);
     const description = encodeDescription({ title: effectiveTitle, notes: desc, proposal_action: `floorpad-${tpl}` });
     const ok = await send([{ receiverId: t.dao_id, calls: [{ method: "add_proposal", args: { proposal: { description, kind: k } }, gas: 100, deposit: bond }] }]);
     if (ok) {
@@ -364,7 +364,7 @@ function NewProposal({ t, bond, onDone }: { t: TokenCtx["t"]; bond: string; onDo
       {tpl === "brrrain" && (
         <div className="stack" style={{ gap: 8, marginBottom: 12 }}>
           <div className="panel tight xs muted" style={{ background: "var(--panel-2)" }}>
-            ⚡ <strong>Staking-for-Inference:</strong> Allocates treasury funds directly to the agent account (<span className="mono">{t.agent_account || "agent.floorpad.testnet"}</span>) to hold $BRRRAIN tokens, granting daily inference power on BRRRAIN AI without credit cards.
+            <strong>Staking-for-Inference:</strong> Allocates treasury funds directly to the agent account (<span className="mono">{t.agent_account || "agent.floorpad.testnet"}</span>) to hold $BRRRAIN tokens, granting daily inference power on BRRRAIN AI without credit cards.
           </div>
           <div className="grid half">
             <label className="field"><span>Amount</span><input className="input" value={f.amount} onChange={set("amount")} placeholder="e.g. 5.0" /></label>

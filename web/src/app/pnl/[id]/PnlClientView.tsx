@@ -113,7 +113,7 @@ export function PnlClientView({
             className={!showNetworth ? "active" : ""}
             onClick={() => setShowNetworth(false)}
           >
-            🔒 PNL % Only
+            PNL % only
           </button>
         </div>
       </div>

@@ -155,7 +155,7 @@ export function FundYield({ t, linearPrice }: { t: TokenView; linearPrice: bigin
 
       {boosters.length > 0 && (
         <div className="small">
-          <div className="muted" style={{ marginBottom: 4 }}>🙌 Recent top contributors</div>
+          <div className="muted" style={{ marginBottom: 4 }}>Recent top contributors</div>
           {boosters.map(([who, amount], i) => (
             <div key={who} className="row between">
               <span className="mono ellipsis" style={{ maxWidth: 200 }}>
