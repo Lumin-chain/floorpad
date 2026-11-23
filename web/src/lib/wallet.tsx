@@ -41,7 +41,7 @@ function outcomeFailure(o: unknown): string | null {
     if (/doesn't have enough balance|not enough balance/i.test(text)) return "Not enough tokens in your wallet for this amount. Your balance changed; check it and try again.";
     if (/ERR_PROPOSAL_NOT_EXPIRED_OR_FAILED/.test(text)) return "This proposal can't be finalized yet: voting is still open, or it already has enough votes to pass. Finalize works once voting ends without a result.";
     if (/ERR_QUEUE_FULL/.test(text)) return "The migration queue is full right now. Try again in a minute, once the pool is live.";
-    if (/E68|slippage|min_amount_out/i.test(text)) return "Swap did not go through: the price moved past your slippage limit, so it was refunded (on a buy, you keep the staked LiNEAR).";
+    if (/E68|slippage|min_amount_out/i.test(text)) return "Swap did not go through: the price moved past your slippage limit, so it was refunded (on a buy, you keep the staked NEAR: stNEAR or LiNEAR).";
     return `Transaction failed: ${text.slice(0, 220)}`;
   };
   if (out.status?.Failure) return describe(out.status.Failure);

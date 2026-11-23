@@ -15,7 +15,7 @@ const SLABS = [
   { label: "SELL FEE 2.0%", value: "1% + 1.0% TAX" },
   { label: "EXIT FEE ≤10%", value: "ALL → FLOOR" },
   { label: "GRADUATION", value: "15% → FLOOR" },
-  { label: "LiNEAR YIELD", value: "BY VOTE" },
+  { label: "STAKING YIELD", value: "BY VOTE" },
 ];
 
 const X0 = 96;

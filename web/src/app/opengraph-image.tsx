@@ -24,7 +24,7 @@ const SLABS = [
   ["SELL FEE 2.0%", "1% + 1.0% TAX"],
   ["EXIT FEE ≤10%", "ALL → FLOOR"],
   ["GRADUATION", "15% → FLOOR"],
-  ["LiNEAR YIELD", "BY VOTE"],
+  ["STAKING YIELD", "BY VOTE"],
 ];
 // frame interior is 1164 x 594
 const GROUND_H = 34;

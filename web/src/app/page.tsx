@@ -455,7 +455,7 @@ export default function Explore() {
         <ol className="signal-path compact">
           <Step n="01" title="Fair curve" body="No premint, no dev bag. Launch-window caps slow snipers." />
           <Step n="02" title="Floor vault" body="Curve fees, exit fees and 15% of the raise back every token. Redeem anytime." />
-          <Step n="03" title="Burns, never sells" body="A 1% pool fee earns LiNEAR for the floor; the token side is burned." />
+          <Step n="03" title="Burns, never sells" body="A 1% pool fee earns stNEAR for the floor; the token side is burned." />
           <Step n="04" title="Locked yield LP" body="Liquidity locks forever on Rhea and earns staking yield, split by holder vote." />
         </ol>
       </section>

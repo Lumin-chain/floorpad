@@ -5,6 +5,7 @@ import { BUCKET_LABELS, fmtNear, fmtTok, LAUNCHPAD, lp, parseUnits, until, type 
 import { useView, useWallet } from "@/lib/wallet";
 import { AllocBar, BUCKET_COLORS, Kv, Stat } from "./ui";
 import type { TokenCtx } from "@/app/token/[id]/page";
+import { stakeOf } from "@/lib/stake";
 
 
 function multBps(days: number, min: number, max: number) {
@@ -93,7 +94,7 @@ export function LockPanel({ t, balance, reload }: TokenCtx) {
             </div>
           ))}
           <div className="small muted" style={{ marginBottom: 10 }}>
-            Floor = compound into backing · Buyback = swap on Ref and burn · Airdrop = LiNEAR to lockers by weight ·
+            Floor = compound into backing · Buyback = swap on Ref and burn · Airdrop = {stakeOf(t).symbol} to lockers by weight ·
             AI agent = inference budget · Treasury = DAO spends it via proposals.
           </div>
           <button className="btn block" disabled={busy || !allocSum || !accountId} onClick={saveAlloc}>
@@ -132,7 +133,7 @@ export function LockPanel({ t, balance, reload }: TokenCtx) {
               <Kv k="Unlocks" v={pos.unlock_at <= now ? <span className="green">now</span> : `${new Date(pos.unlock_at * 1000).toLocaleDateString()} (${until(pos.unlock_at)})`} />
               <Kv k="Weight" v={`${fmtTok(pos.weight, 0)} (${share.toFixed(2)}%)`} />
               <Kv k="DAO vote weight" v={t.dao_stage === "Ready" ? fmtTok(pos.delegated, 0) : "DAO activating"} />
-              <Kv k="Airdrop rewards" v={`${fmtNear(pos.pending_reward)} LiNEAR`} />
+              <Kv k="Airdrop rewards" v={`${fmtNear(pos.pending_reward)} ${stakeOf(t).symbol}`} />
               <div className="row wrap" style={{ marginTop: 10 }}>
                 {needsSync && <button className="btn sm" disabled={busy} onClick={() => call("sync_delegation", { account_id: accountId }, 100)}>Sync DAO weight</button>}
                 <button className="btn sm" disabled={busy || pos.pending_reward === "0"} onClick={() => call("claim_rewards", {}, 30)}>Claim rewards</button>
@@ -142,7 +143,7 @@ export function LockPanel({ t, balance, reload }: TokenCtx) {
             </>
           )}
         </div>
-        <div className="notice small">Lock period is {min}–{max} days. Re-locking keeps the later unlock date. Claimed rewards go to your claimable LiNEAR (Floor tab).</div>
+        <div className="notice small">Lock period is {min}–{max} days. Re-locking keeps the later unlock date. Claimed rewards go to your claimable {stakeOf(t).symbol} (Floor tab).</div>
         {cfg && <div className="small muted">Epoch length {Math.round(cfg.epoch_secs / 3600)}h.</div>}
       </div>
     </div>

@@ -6,6 +6,7 @@ import { encodeDescription } from "@/lib/proposal-format";
 import { useView, useWallet } from "@/lib/wallet";
 import type { TokenView } from "@/lib/near";
 import { MojiLabel } from "./Brand";
+import { STNEAR, stakeInfo } from "@/lib/stake";
 
 interface Bounty {
   id: number;
@@ -69,7 +70,7 @@ export function Bounties({ t, bountyBond }: { t: TokenView; bountyBond: string }
         return (
           <div key={b.id} className="call" style={{ marginTop: 8 }}>
             <div className="row between">
-              <b>#{b.id} · {fmtNear(b.amount)} {b.token === "" ? "NEAR" : b.token === LINEAR ? "LiNEAR" : b.token}</b>
+              <b>#{b.id} · {fmtNear(b.amount)} {b.token === "" ? "NEAR" : b.token === LINEAR || b.token === STNEAR ? stakeInfo(b.token).symbol : b.token}</b>
               <span className="small muted">{b.times} left · {days(b.max_deadline)}d to deliver</span>
             </div>
             <div className="small" style={{ margin: "6px 0" }}>{b.description}</div>
