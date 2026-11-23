@@ -159,6 +159,7 @@ impl Contract {
         let token_id = self.token_account_for(&meta.symbol);
         let dao_id: AccountId = format!("{}-dao.{}", sub, me).parse().expect("ERR_DAO_ID");
         let idx = self.tokens.len();
+        self.assign_launch_asset(idx);
         self.tokens.push(TokenState {
             token_id: token_id.clone(),
             creator,

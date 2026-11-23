@@ -23,7 +23,8 @@ import {
   type TradingAccount,
 } from "@/lib/near";
 import { storageCallIfNeeded, tokenBalanceError, useView, useWallet, type Tx } from "@/lib/wallet";
-import { bestLinearQuote, openConvertLinear, rateRefreshTxs } from "@/lib/linear-exit";
+import { openConvertLinear } from "@/lib/linear-exit";
+import { bestEntryQuote, bestExitQuote, META_MIN_STAKE, rateRefreshFor, stakeAndCallTx, stakeOf, stakePrice } from "@/lib/stake";
 import { isSocialConfigured, postTrade } from "@/lib/social";
 import { Kv } from "./ui";
 import type { TokenCtx } from "@/app/token/[id]/page";
@@ -386,7 +387,7 @@ function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: T
             Wallet Mode
           </button>
           <button className={tradeMode === "instant" ? "active" : ""} onClick={() => setTradeMode("instant")}>
-            <span className="green">⚡ Instant Mode</span>
+            <span className="green">Instant Mode</span>
           </button>
         </div>
         <span className="small muted">Keys: B/S, 1-4</span>
@@ -580,7 +581,7 @@ function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: T
           `Queue buy on Rhea`
         ) : (
           <>
-            {tradeMode === "instant" ? "⚡ Quick " : ""}
+            {tradeMode === "instant" ? "Quick " : ""}
             {side === "buy" ? "Buy" : "Sell"} ${t.meta.symbol}
           </>
         )}
@@ -589,7 +590,7 @@ function CurveTrade({ t, balance, holdingSince, reload, initialSide, onDone }: T
   );
 }
 
-/** After graduation: swap through the locked Ref MEME/LiNEAR pool, all in-app. */
+/** After graduation: swap through the locked Rhea pool (MEME paired with LiNEAR or stNEAR), all in-app. */
 /** The meme token's live DEX tax (`get_tax`); older token code may not expose it. */
 interface TokenTax {
   config: { platform_fee_bps: number; buy_tax_bps: number; sell_tax_bps: number; max_exit_fee_bps: number; decay_secs: number; tax_start_at: number };
@@ -605,9 +606,10 @@ function RefTrade({ t, balance, holdingSince, linearPrice, reload, initialSide, 
   );
   const [side, setSide] = useState<"buy" | "sell">(initialSide ?? "buy");
   const [amt, setAmt] = useState("");
+  const st = stakeOf(t); // LiNEAR or stNEAR, whichever this token's pool is paired with
   const { data: pool } = useView(() => view<RefPool>(REF, "get_pool", { pool_id: t.pool_id }), [t.pool_id], 6000);
   const { data: linBal } = useView(
-    accountId ? () => view<string>(LINEAR, "ft_balance_of", { account_id: accountId }) : null,
+    accountId ? () => view<string>(st.id, "ft_balance_of", { account_id: accountId }) : null,
     [accountId, busy],
     8000,
   );
@@ -640,8 +642,8 @@ function RefTrade({ t, balance, holdingSince, linearPrice, reload, initialSide, 
   const sellTaxBps = BigInt(platBps + (taxActive ? (taxCfg?.sell_tax_bps ?? t.sell_tax_bps ?? 100) + exitBps : 0));
   const netSell = side === "sell" && sellTaxBps < 10000n ? (base * (10000n - sellTaxBps)) / 10000n : base;
   const out = !pool || base === 0n || rMeme === 0n || rLin === 0n ? 0n : side === "buy" ? refOut(shares, rLin, rMeme, fee) : refOut(netSell, rMeme, rLin, fee);
-  // 2nd hop: the best LiNEAR -> wNEAR pool (Rhea's rated pool when it pays more)
-  const { data: hop2 } = useView(side === "sell" && out > 0n ? () => bestLinearQuote(out) : null, [side, out.toString()], 8000);
+  // 2nd hop: the best staking token -> wNEAR pool (Rhea's rated pool when it pays more)
+  const { data: hop2 } = useView(side === "sell" && out > 0n ? () => bestExitQuote(st, out) : null, [side, out.toString(), st.id], 8000);
   const hop2NearStr = hop2?.out ? hop2.out.toString() : null;
   // Sells can pay out in NEAR (2nd hop through the LiNEAR/wNEAR pool) or in LiNEAR (1 hop).
   // Buys stake NEAR into LiNEAR at the fair rate, so when that pool is thin the NEAR leg loses
@@ -674,10 +676,10 @@ function RefTrade({ t, balance, holdingSince, linearPrice, reload, initialSide, 
     if (regRef) txs.push(regRef);
 
     if (side === "buy") {
-      // Fetch live LiNEAR ft_price right before submitting so we never use a stale/1.0 fallback.
-      const freshLinP = BigInt(await view<string>(LINEAR, "ft_price"));
-      if (freshLinP <= 0n) throw new Error("Unable to fetch LiNEAR price");
-      const execShares = (((base * YOCTO) / freshLinP) * 995n) / 1000n;
+      // Live staking price right before submitting so we never use a stale/1.0 fallback.
+      const freshLinP = await stakePrice(st.id);
+      if (freshLinP <= 0n) throw new Error(`Unable to fetch the ${st.symbol} price`);
+      const execShares = (((base * YOCTO) / freshLinP) * 995n) / 1000n; // what stakeAndCallTx sends
       const execOut = refOut(execShares, rLin, rMeme, fee);
       const execMin = (execOut * (10000n - SLIPPAGE_BPS)) / 10000n;
 
@@ -685,38 +687,41 @@ function RefTrade({ t, balance, holdingSince, linearPrice, reload, initialSide, 
       const regMeme = await storageCallIfNeeded(t.token_id, accountId);
       if (regMeme) txs.push(regMeme);
 
-      // 2. Batch deposit_and_stake on LINEAR + ft_transfer_call to REF into a single atomic Tx
-      const msg = JSON.stringify({
-        actions: [
-          {
-            pool_id: t.pool_id,
-            token_in: LINEAR,
-            token_out: t.token_id,
-            min_amount_out: execMin.toString(),
-          },
-        ],
-        swap_out_recipient: accountId,
-      });
-
-      txs.push({
-        receiverId: LINEAR,
-        calls: [
-          { method: "deposit_and_stake", args: {}, gas: 50, deposit: base },
-          {
-            method: "ft_transfer_call",
-            args: { receiver_id: REF, amount: execShares.toString(), msg },
-            gas: 220,
-            deposit: "1",
-          },
-        ],
-      });
+      const swapLeg = {
+        pool_id: t.pool_id,
+        token_in: st.id,
+        token_out: t.token_id,
+        min_amount_out: execMin.toString(),
+      };
+      if (st.kind === "meta" && base < META_MIN_STAKE) {
+        // Meta Pool stakes 1 NEAR or more: smaller buys get stNEAR from Rhea's stNEAR/NEAR pool
+        // instead, in the same transaction (NEAR -> wNEAR -> stNEAR -> token).
+        const entry = await bestEntryQuote(st, base);
+        const regW = await storageCallIfNeeded(WNEAR, accountId);
+        if (regW) txs.push(regW);
+        txs.push(...rateRefreshFor(st, entry));
+        const msg = JSON.stringify({
+          actions: [{ pool_id: entry.pool, token_in: WNEAR, token_out: st.id, min_amount_out: "0" }, swapLeg],
+          swap_out_recipient: accountId,
+        });
+        txs.push({
+          receiverId: WNEAR,
+          calls: [
+            { method: "near_deposit", args: {}, gas: 10, deposit: base },
+            { method: "ft_transfer_call", args: { receiver_id: REF, amount: base.toString(), msg }, gas: 250, deposit: "1" },
+          ],
+        });
+      } else {
+        // 2. Stake NEAR + ft_transfer_call to Rhea in one atomic transaction
+        txs.push(stakeAndCallTx(st, base, freshLinP, REF, JSON.stringify({ actions: [swapLeg], swap_out_recipient: accountId })));
+      }
     } else if (payLinear) {
-      // 1-hop sell paid in LiNEAR (no LiNEAR -> wNEAR leg).
-      const regLin = await storageCallIfNeeded(LINEAR, accountId);
+      // 1-hop sell paid in the staking token (no -> wNEAR leg).
+      const regLin = await storageCallIfNeeded(st.id, accountId);
       if (regLin) txs.push(regLin);
       const minLin = (out * (10000n - SLIPPAGE_BPS)) / 10000n;
       const msg = JSON.stringify({
-        actions: [{ pool_id: t.pool_id, token_in: t.token_id, token_out: LINEAR, min_amount_out: minLin.toString() }],
+        actions: [{ pool_id: t.pool_id, token_in: t.token_id, token_out: st.id, min_amount_out: minLin.toString() }],
         swap_out_recipient: accountId,
       });
       txs.push({
@@ -725,23 +730,23 @@ function RefTrade({ t, balance, holdingSince, linearPrice, reload, initialSide, 
       });
     } else {
       // 1. Quote the best 2nd hop so 1% slippage applies to the native NEAR received
-      const best = await bestLinearQuote(out);
+      const best = await bestExitQuote(st, out);
       const liveHop2 = best.out ?? (linValueNear * 7000n) / 10000n; // expired rate: refreshed below, floor at 70% of value
       const minWnearOut = (liveHop2 * (10000n - SLIPPAGE_BPS)) / 10000n;
-      txs.push(...rateRefreshTxs(best));
+      txs.push(...rateRefreshFor(st, best));
 
-      // 2. Single-tx 2-hop swap (MEME -> LiNEAR -> wNEAR) + unwrap to native NEAR
+      // 2. Single-tx 2-hop swap (MEME -> staking token -> wNEAR) + unwrap to native NEAR
       const msg = JSON.stringify({
         actions: [
           {
             pool_id: t.pool_id,
             token_in: t.token_id,
-            token_out: LINEAR,
+            token_out: st.id,
             min_amount_out: "1",
           },
           {
             pool_id: best.pool,
-            token_in: LINEAR,
+            token_in: st.id,
             token_out: WNEAR,
             min_amount_out: minWnearOut.toString(),
           },
@@ -833,7 +838,7 @@ function RefTrade({ t, balance, holdingSince, linearPrice, reload, initialSide, 
       </div>
 
       <div className="small muted">
-        Ref pool #{t.pool_id}: {fmtTok(rMeme.toString(), 0)} ${t.meta.symbol} / {fmtNear(rLin.toString(), 2)} LiNEAR. LP is 100% locked
+        Ref pool #{t.pool_id}: {fmtTok(rMeme.toString(), 0)} ${t.meta.symbol} / {fmtNear(rLin.toString(), 2)} {st.symbol}. LP is 100% locked
         forever and earns staking yield. Spot ≈ {fmtPrice(spot)} N.
       </div>
       {arriving && BigInt(arriving.tokens_to_deliver) > 0n && (
@@ -884,7 +889,7 @@ function RefTrade({ t, balance, holdingSince, linearPrice, reload, initialSide, 
           <div className="seg">
             {(["auto", "near", "linear"] as const).map((o) => (
               <button key={o} className={payout === o ? "active" : ""} onClick={() => setPayout(o)}>
-                {o === "auto" ? "Auto" : o === "near" ? "NEAR" : "LiNEAR"}
+                {o === "auto" ? "Auto" : o === "near" ? "NEAR" : st.symbol}
               </button>
             ))}
           </div>
@@ -896,20 +901,31 @@ function RefTrade({ t, balance, holdingSince, linearPrice, reload, initialSide, 
           side === "buy"
             ? `${fmtTok(buyNetOut.toString())} $${t.meta.symbol}`
             : payLinear
-              ? `${fmtNear(out.toString())} LiNEAR (≈ ${fmtNear(linValueNear.toString())} NEAR)`
+              ? `${fmtNear(out.toString())} ${st.symbol} (≈ ${fmtNear(linValueNear.toString())} NEAR)`
               : `${fmtNear(sellNearOut.toString())} NEAR`
         }
       />
       {side === "sell" && nearLegLossBps > 100 && (
         <div className="notice small" style={{ margin: 0 }}>
           {payLinear
-            ? `Paying out in LiNEAR: converting to NEAR right now would lose ${(nearLegLossBps / 100).toFixed(1)}% in the shallow testnet pools (you'd get ${fmtNear(hop2Near.toString())} NEAR). LiNEAR is staked NEAR: unstake it for full value or swap it later. `
-            : `Testnet pools are shallow: taking NEAR loses ${(nearLegLossBps / 100).toFixed(1)}% vs. ${fmtNear(linValueNear.toString())} NEAR in LiNEAR. Choose LiNEAR to keep it. `}
-          <button className="btn sm ghost" style={{ marginTop: 6 }} onClick={openConvertLinear}>Convert LiNEAR → NEAR</button>
+            ? `Paying out in ${st.symbol}: converting to NEAR right now would lose ${(nearLegLossBps / 100).toFixed(1)}% in the pool (you'd get ${fmtNear(hop2Near.toString())} NEAR). ${st.symbol} is staked NEAR: ${st.kind === "meta" ? "unstake it instantly with Meta Pool" : "unstake it for full value"} or swap it later. `
+            : `The pool is shallow: taking NEAR loses ${(nearLegLossBps / 100).toFixed(1)}% vs. ${fmtNear(linValueNear.toString())} NEAR in ${st.symbol}. Choose ${st.symbol} to keep it. `}
+          <button className="btn sm ghost" style={{ marginTop: 6 }} onClick={() => openConvertLinear(st.id)}>Convert {st.symbol} → NEAR</button>
         </div>
       )}
       <Kv k="Token tax" v={`${taxPct.toFixed(2)}%${taxView ? "" : " (max)"}`} />
-      <Kv k="Route" v={side === "buy" ? "NEAR → LiNEAR (stake) → Ref swap" : payLinear ? "Ref swap → LiNEAR" : "Ref 2-hop swap + unwrap → NEAR"} />
+      <Kv
+        k="Route"
+        v={
+          side === "buy"
+            ? st.kind === "meta" && base < META_MIN_STAKE
+              ? `NEAR → ${st.symbol} (Rhea) → swap`
+              : `NEAR → ${st.symbol} (stake) → Rhea swap`
+            : payLinear
+              ? `Rhea swap → ${st.symbol}`
+              : "Rhea 2-hop swap + unwrap → NEAR"
+        }
+      />
       <Kv k="Slippage limit" v="1%" />
       {side === "sell" && (
         <div className="notice small stack" style={{ gap: 4 }}>

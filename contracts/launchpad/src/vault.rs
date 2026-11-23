@@ -4,7 +4,6 @@
 //! * After graduation it holds LiNEAR, so the floor also grows with staking yield.
 //! Redemptions burn the tokens, and the redemption fee stays in the vault,
 //! so every redemption raises the floor for remaining holders.
-use crate::curve::ONE_YOCTO;
 use crate::ext::{ext_ft, tgas};
 use crate::math::{self, bps};
 use crate::*;
@@ -59,7 +58,7 @@ impl Contract {
                 }
                 tok.principal_near -= math::mul_div(tok.principal_near, net, tok.linear_shares);
                 tok.linear_shares -= net;
-                self.credit_linear(&holder, net);
+                self.credit_stake(idx, &holder, net);
             }
             _ => return amount, // graduation in progress
         }
@@ -93,38 +92,6 @@ impl Contract {
             // Keep failed-burn tokens counted in `tokens_in_flight` so `on_buyback_balance`
             // does not treat them as excess and double-count `tok.burned`.
             env::log_str("redeem burn failed; tokens remain reserved");
-        }
-    }
-
-    /// Withdraw all claimable LiNEAR (redemptions, airdrops, agent pay).
-    /// The receiver must be registered on the LiNEAR contract.
-    #[payable]
-    pub fn withdraw_linear(&mut self) -> Promise {
-        near_sdk::assert_one_yocto();
-        let account = env::predecessor_account_id();
-        let amount = self.claimable_linear.remove(&account).unwrap_or(0);
-        require!(amount > 0, "ERR_NOTHING_TO_WITHDRAW");
-        ext_ft::ext(self.config.linear.clone())
-            .with_attached_deposit(ONE_YOCTO)
-            .with_static_gas(tgas(10))
-            .ft_transfer(account.clone(), U128(amount), Some("floorpad".into()))
-            .then(
-                Self::ext(env::current_account_id())
-                    .with_static_gas(tgas(5))
-                    .on_linear_sent(account, U128(amount)),
-            )
-    }
-
-    /// Re-credits LiNEAR if a transfer out failed.
-    #[private]
-    pub fn on_linear_sent(
-        &mut self,
-        account: AccountId,
-        amount: U128,
-        #[callback_result] r: Result<(), PromiseError>,
-    ) {
-        if r.is_err() {
-            self.credit_linear(&account, amount.0);
         }
     }
 }

@@ -23,6 +23,7 @@ mod guard;
 mod harvest;
 mod migrate;
 mod migration;
+mod stake;
 mod trading;
 mod ve;
 mod vault;
@@ -704,17 +705,20 @@ impl FungibleTokenReceiver for Contract {
         // it is split by the next epoch's holder vote like staking yield (never principal).
         // LiNEAR sent with {"fund_agent":"<meme token>"} goes straight into that token's AI
         // agent budget (anyone may pay for the agent's posts).
-        if token_id == self.config.linear {
+        if token_id == self.config.linear || self.other_assets().contains(&token_id) {
             let v: serde_json::Value = serde_json::from_str(&msg).expect("ERR_BAD_MSG");
             if let Some(target) = v.get("fund_agent").and_then(|x| x.as_str()) {
                 let target: AccountId = target.parse().expect("ERR_BAD_MSG");
                 let idx = self.idx_of(&target);
+                // each token is funded in its own staking token (LiNEAR or stNEAR)
+                require!(self.asset(idx) == token_id, "ERR_WRONG_STAKE_TOKEN");
                 self.tok_mut(idx).agent_budget_shares += amount.0;
                 self.log_mech(idx, "agent_funded", amount.0, Some(sender_id));
                 return PromiseOrValue::Value(U128(0));
             }
             let f: FundYieldMsg = serde_json::from_value(v).expect("ERR_BAD_MSG");
             let idx = self.idx_of(&f.fund_yield);
+            require!(self.asset(idx) == token_id, "ERR_WRONG_STAKE_TOKEN");
             let tok = self.tok_mut(idx);
             require!(tok.grad_stage == GradStage::Graduated, "ERR_NOT_GRADUATED");
             tok.linear_shares += amount.0;

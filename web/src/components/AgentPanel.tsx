@@ -7,6 +7,7 @@ import { getAgentPower, useStream, type AgentPowerInfo } from "@/lib/social";
 import { Kv } from "./ui";
 import type { TokenCtx } from "@/app/token/[id]/page";
 import { SlabIcon } from "./Brand";
+import { stakeAndCallTx, stakeMinError, stakeOf, stakePrice } from "@/lib/stake";
 
 const TG_BOT = (process.env.NEXT_PUBLIC_TELEGRAM_BOT ?? "floorpadagentbot").replace(/^@/, "");
 
@@ -16,39 +17,27 @@ function FundAgent({ t, linearPrice, reload }: Pick<TokenCtx, "t" | "linearPrice
   const [amt, setAmt] = useState("1");
   const near = parseUnits(amt, 24);
   const posts = near > 0n ? Number(near / 10n ** 22n) : 0; // 0.01 NEAR per post
+  const st = stakeOf(t);
   async function fund() {
     if (!accountId) return signIn();
     if (near === 0n) return;
-    // fresh LiNEAR price, with a small buffer so the staked shares always cover the transfer
-    const price = BigInt(await view<string>(LINEAR, "ft_price").catch(() => linearPrice.toString()));
-    const shares = (((near * YOCTO) / (price > 0n ? price : YOCTO)) * 995n) / 1000n;
-    const ok = await send([
-      {
-        receiverId: LINEAR,
-        calls: [
-          { method: "deposit_and_stake", args: {}, gas: 50, deposit: near },
-          {
-            method: "ft_transfer_call",
-            args: { receiver_id: LAUNCHPAD, amount: shares.toString(), msg: JSON.stringify({ fund_agent: t.token_id }) },
-            gas: 60,
-            deposit: "1",
-          },
-        ],
-      },
-    ]);
+    if (stakeMinError(st, near)) return;
+    // fresh staking price (stakeAndCallTx keeps a small buffer so the shares always cover the transfer)
+    const price = await stakePrice(st.id).catch(() => linearPrice);
+    const ok = await send([stakeAndCallTx(st, near, price > 0n ? price : YOCTO, LAUNCHPAD, JSON.stringify({ fund_agent: t.token_id }))]);
     if (ok) reload();
   }
   return (
     <div className="panel stack" style={{ gap: 8 }}>
       <h2 style={{ margin: 0 }}>Fund the agent</h2>
       <p className="small muted" style={{ margin: 0 }}>
-        Pay for ${t.meta.symbol}&apos;s AI posts directly. Your NEAR is staked as LiNEAR and added to the agent budget; each post costs 0.01 NEAR.
+        Pay for ${t.meta.symbol}&apos;s AI posts directly. Your NEAR is staked as {st.symbol} and added to the agent budget; each post costs 0.01 NEAR.
       </p>
       <div className="input-suffix">
         <input className="input" inputMode="decimal" value={amt} onChange={(e) => setAmt(e.target.value)} />
         <em>NEAR</em>
       </div>
-      <button className="btn primary block" disabled={busy || near === 0n} onClick={fund}>
+      <button className="btn primary block" disabled={busy || near === 0n || !!stakeMinError(st, near)} onClick={fund}>
         {busy ? "Waiting for wallet…" : `Fund about ${posts.toLocaleString()} posts`}
       </button>
     </div>
@@ -87,7 +76,7 @@ export function AgentPanel({ t, linearPrice, reload, onGoDao }: TokenCtx & { onG
             <div>{p.text}</div>
             <div className="small muted">
               {ago(p.ts)}
-              {p.paid !== "0" && ` · paid ${fmtNear(p.paid, 5)} LiNEAR from budget`}
+              {p.paid !== "0" && ` · paid ${fmtNear(p.paid, 5)} ${stakeOf(t).symbol} from budget`}
             </div>
           </div>
         ))}
@@ -100,7 +89,7 @@ export function AgentPanel({ t, linearPrice, reload, onGoDao }: TokenCtx & { onG
         </div>
         <div className="panel">
           <h2>Budget</h2>
-          <Kv k="Remaining" v={`${fmtNear(t.agent_budget_shares, 5)} LiNEAR`} />
+          <Kv k="Remaining" v={`${fmtNear(t.agent_budget_shares, 5)} ${stakeOf(t).symbol}`} />
           <Kv k="≈ NEAR" v={fmtNear(budgetNear, 5)} />
           <Kv k="Posts so far" v={t.post_count} />
           <Kv k="Operator" v={<span className="mono small">{t.agent_account}</span>} />
@@ -114,13 +103,13 @@ export function AgentPanel({ t, linearPrice, reload, onGoDao }: TokenCtx & { onG
         <div className="panel">
           <div className="panel tight stack" style={{ background: "var(--panel-2)", gap: 6, marginTop: 0 }}>
             <div className="row between">
-              <b className="small">⚡ BRRRAIN Staking-for-Inference</b>
+              <b className="small">BRRRAIN Staking-for-Inference</b>
               <span className="badge sky">Perpetual AI</span>
             </div>
             <div className="grid two" style={{ gap: 6, margin: "4px 0" }}>
               <div className="stat" style={{ padding: "6px 8px" }}>
                 <span className="xs muted">Daily Power</span>
-                <b className="small mono">{powerInfo ? `${powerInfo.power.toLocaleString()} ⚡` : "Active (1,000+ ⚡)"}</b>
+                <b className="small mono">{powerInfo ? `${powerInfo.power.toLocaleString()} Power` : "Active (1,000+ Power)"}</b>
               </div>
               <div className="stat" style={{ padding: "6px 8px" }}>
                 <span className="xs muted">AI Model</span>
@@ -128,7 +117,7 @@ export function AgentPanel({ t, linearPrice, reload, onGoDao }: TokenCtx & { onG
               </div>
             </div>
             <p className="xs muted" style={{ margin: 0 }}>
-              Agent budget from staking yield is routed to accumulate <strong>$BRRRAIN</strong> tokens on-chain. Holding $BRRRAIN grants daily <strong>⚡ Power</strong> via <a href="https://brrrain.fun" target="_blank" rel="noreferrer" style={{ textDecoration: "underline" }}>BRRRAIN AI</a>, keeping the agent funded perpetually without credit cards or manual dashboard top-ups.
+              Agent budget from staking yield is routed to accumulate <strong>$BRRRAIN</strong> tokens on-chain. Holding $BRRRAIN grants daily <strong>Power</strong> via <a href="https://brrrain.fun" target="_blank" rel="noreferrer" style={{ textDecoration: "underline" }}>BRRRAIN AI</a>, keeping the agent funded perpetually without credit cards or manual dashboard top-ups.
             </p>
           </div>
         </div>

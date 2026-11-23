@@ -43,6 +43,7 @@ import { TokenCallouts } from "@/components/Callouts";
 import { useIsDesktop } from "@/lib/media";
 import { Moji, MojiLabel, SlabIcon } from "@/components/Brand";
 import { PnlModal } from "@/components/PnlModal";
+import { stakePrice, STNEAR } from "@/lib/stake";
 
 const TABS = ["Chat", "Calls", "Trades", "Floor", "Lock & vote", "DAO", "Treasury", "Agent"] as const;
 type Tab = (typeof TABS)[number];
@@ -89,7 +90,9 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
     const d = tok.data;
     setFastPoll(!!d && d.grad_stage !== "Graduated" && (d.grad_stage !== "Curve" || progressPct(d) >= 90));
   }, [tok.data]);
-  const price = useView(() => view<string>(LINEAR, "ft_price"), [], 60000);
+  // price of this token's staking token (LiNEAR or stNEAR), NEAR per share
+  const stakeId = tok.data?.stake_token ?? LINEAR;
+  const price = useView(() => stakePrice(stakeId).then((p) => p.toString()), [stakeId], 60000);
   const usd = useView(() => nearUsd(), [], 60000);
   const cfg = useView(() => lp<LaunchConfig>("get_config"), [], 0);
   const bal = useView(
@@ -255,14 +258,14 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
             <div>
               <strong className="green">Graduated to Ref Finance!</strong>
               <div className="small muted">
-                Trading live on Ref Finance Pool #{t.pool_id}. 100% of LP shares are locked forever in the launchpad contract and accruing LiNEAR staking yield.
+                Trading live on Ref Finance Pool #{t.pool_id}. 100% of LP shares are locked forever in the launchpad contract and accruing {t.stake_token === STNEAR ? "stNEAR" : "LiNEAR"} staking yield.
               </div>
             </div>
           </div>
           {t.pool_id !== null && (
             <div className="row wrap" style={{ gap: 8 }}>
               <a
-                href={`https://${NETWORK === "mainnet" ? "app.ref.finance" : "testnet.ref.finance"}/#${t.token_id}|${LINEAR}`}
+                href={`https://${NETWORK === "mainnet" ? "app.ref.finance" : "testnet.ref.finance"}/#${t.token_id}|${t.stake_token ?? LINEAR}`}
                 target="_blank"
                 rel="noreferrer"
                 className="btn sm primary row"

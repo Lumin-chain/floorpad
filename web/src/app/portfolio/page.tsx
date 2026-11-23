@@ -27,6 +27,7 @@ import { SlabIcon } from "@/components/Brand";
 import { PnlModal } from "@/components/PnlModal";
 import { positionSummary } from "@/lib/pnl";
 import { openConvertLinear } from "@/lib/linear-exit";
+import { claimsText, getClaims, stakeOf, stakePrice, STNEAR } from "@/lib/stake";
 
 interface Row {
   t: TokenView;
@@ -73,8 +74,13 @@ export default function Portfolio() {
   const { accountId, signIn, send, busy } = useWallet();
   const [pnlTarget, setPnlTarget] = useState<Row | null>(null);
   const { data: usd } = useView(() => nearUsd(), [], 60000);
-  const { data: linearPriceStr } = useView(() => view<string>(LINEAR, "ft_price"), [], 60000);
-  const linearPrice = linearPriceStr ? BigInt(linearPriceStr) : YOCTO;
+  // each token is valued in its own staking token (LiNEAR or stNEAR)
+  const { data: stakePrices } = useView(
+    async () => ({ [LINEAR]: await stakePrice(LINEAR).catch(() => YOCTO), [STNEAR]: await stakePrice(STNEAR).catch(() => YOCTO) }),
+    [],
+    60000,
+  );
+  const priceFor = (t: TokenView) => stakePrices?.[stakeOf(t).id] ?? YOCTO;
   const { data: rows } = useView<Row[]>(
     accountId
       ? async () => {
@@ -100,7 +106,7 @@ export default function Portfolio() {
     [accountId],
     20000,
   );
-  const { data: claimable } = useView(accountId ? () => lp<string>("get_claimable_linear", { account_id: accountId }) : null, [accountId], 15000);
+  const { data: claims } = useView(accountId ? () => getClaims(lp, accountId) : null, [accountId, busy], 15000);
   const { data: referral } = useView(accountId ? () => lp<string>("get_referral_balance", { account_id: accountId }) : null, [accountId], 15000);
   const { data: created } = useView(
     accountId ? async () => (await lp<TokenView[]>("get_tokens", { from_index: 0, limit: 100 })).filter((t) => t.creator === accountId) : null,
@@ -119,8 +125,12 @@ export default function Portfolio() {
   }
 
   async function withdraw() {
-    const reg = await storageCallIfNeeded(LINEAR, accountId!);
-    await send([...(reg ? [reg] : []), { receiverId: LAUNCHPAD, calls: [{ method: "withdraw_linear", args: {}, gas: 50, deposit: "1" }] }]);
+    const regs = [];
+    for (const c of claims ?? []) {
+      const r = await storageCallIfNeeded(c.token, accountId!);
+      if (r) regs.push(r);
+    }
+    await send([...regs, { receiverId: LAUNCHPAD, calls: [{ method: "withdraw_linear", args: {}, gas: 50, deposit: "1" }] }]);
   }
 
   return (
@@ -138,9 +148,9 @@ export default function Portfolio() {
           <SlabIcon name="share" size={14} /> Copy my ref link
         </button>
         <div className="row">
-          <span className="muted">Claimable: <b>{fmtNear(claimable ?? "0")} LiNEAR</b></span>
-          <button className="btn primary sm" disabled={busy || !claimable || claimable === "0"} onClick={withdraw}>Withdraw</button>
-          <button className="btn sm" onClick={openConvertLinear} title="Turn LiNEAR into NEAR">LiNEAR → NEAR</button>
+          <span className="muted">Claimable: <b>{claimsText(claims, (v) => fmtNear(v))}</b></span>
+          <button className="btn primary sm" disabled={busy || !claims?.length} onClick={withdraw}>Withdraw</button>
+          <button className="btn sm" onClick={openConvertLinear} title="Turn stNEAR or LiNEAR into NEAR">Staked NEAR → NEAR</button>
         </div>
       </div>
       <div className="grid half">
@@ -183,7 +193,7 @@ export default function Portfolio() {
                 {rows.map((row) => {
                   const { t, balance, custody, pos } = row;
                   const locked = pos ? BigInt(pos.amount) : 0n;
-                  const floorVal = floorPrice(t, linearPrice) * Number((balance + custody + locked) / 10n ** 14n) / 1e4;
+                  const floorVal = floorPrice(t, priceFor(t)) * Number((balance + custody + locked) / 10n ** 14n) / 1e4;
                   return (
                     <tr key={t.token_id}>
                       <td>
@@ -198,8 +208,8 @@ export default function Portfolio() {
                       <td>{fmtTok(locked.toString(), 0)}</td>
                       <td>{locked > 0n ? until(pos!.unlock_at) : "–"}</td>
                       <td className="green">{fmtPrice(floorVal)} N</td>
-                      <PositionCells r={row} account={accountId} linearPrice={linearPrice} />
-                      <td>{pos ? `${fmtNear(pos.pending_reward, 5)} LiNEAR` : "–"}</td>
+                      <PositionCells r={row} account={accountId} linearPrice={priceFor(row.t)} />
+                      <td>{pos ? `${fmtNear(pos.pending_reward, 5)} ${stakeOf(t).symbol}` : "–"}</td>
                       <td>
                         <button
                           className="btn sm"
@@ -223,9 +233,9 @@ export default function Portfolio() {
           t={pnlTarget.t}
           balance={pnlTarget.balance}
           holdingSince={pnlTarget.since}
-          linearPrice={linearPrice}
-          spotPriceNear={tokenSpotPrice(pnlTarget.t, pnlTarget.refPool, linearPrice)}
-          floorPriceNear={floorPrice(pnlTarget.t, linearPrice)}
+          linearPrice={priceFor(pnlTarget.t)}
+          spotPriceNear={tokenSpotPrice(pnlTarget.t, pnlTarget.refPool, priceFor(pnlTarget.t))}
+          floorPriceNear={floorPrice(pnlTarget.t, priceFor(pnlTarget.t))}
           nearUsd={usd ?? 3.6}
           onClose={() => setPnlTarget(null)}
         />

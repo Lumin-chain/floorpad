@@ -11,7 +11,7 @@
 //! Swaps can't lower `k` (constant product keeps x*y, fees raise it) and LiNEAR's
 //! price only rises, so a trade can't make the harvest take principal.
 use crate::curve::ONE_YOCTO;
-use crate::ext::{ext_ft, ext_linear, ext_ref, tgas, RefPoolInfo};
+use crate::ext::{ext_ft, ext_ref, tgas, RefPoolInfo};
 use crate::math;
 use crate::*;
 use near_sdk::json_types::U128;
@@ -40,9 +40,7 @@ impl Contract {
         }
         require!(now_secs() >= tok.last_harvest_at + cfg.epoch_secs, "ERR_HARVEST_NOT_DUE");
         self.tok_mut(idx).harvest_busy = true;
-        ext_linear::ext(cfg.linear.clone())
-            .with_static_gas(tgas(5))
-            .ft_price()
+        self.stake_price(&self.asset(idx))
             .and(ext_ref::ext(cfg.ref_exchange.clone()).with_static_gas(tgas(5)).get_pool(pool_id))
             .and(
                 ext_ref::ext(cfg.ref_exchange.clone())
@@ -66,7 +64,7 @@ impl Contract {
         };
         let tok = self.tok(idx);
         let total = pool.shares_total_supply.0;
-        let (meme_i, lin_i) = match pool_index(&pool, &tok.token_id, &self.config.linear) {
+        let (meme_i, lin_i) = match pool_index(&pool, &tok.token_id, &self.asset(idx)) {
             Some(ix) if total > 0 && shares.0 > 0 => ix,
             _ => {
                 self.tok_mut(idx).harvest_busy = false;
@@ -254,6 +252,7 @@ impl Contract {
     /// Withdraw everything pending in the Ref deposit back to the launchpad.
     fn harvest_withdraw(&mut self, idx: u32) -> Promise {
         let cfg = self.config.clone();
+        let asset = self.asset(idx);
         let tok = self.tok(idx);
         let (meme, lin) = (tok.harvest_meme_pending, tok.harvest_linear_pending);
         let w = |token: AccountId, amount: u128| {
@@ -263,9 +262,9 @@ impl Contract {
                 .withdraw(token, U128(amount), None, Some(true))
         };
         let p = match (meme > 0, lin > 0) {
-            (true, true) => w(tok.token_id.clone(), meme).and(w(cfg.linear.clone(), lin)),
+            (true, true) => w(tok.token_id.clone(), meme).and(w(asset.clone(), lin)),
             (true, false) => w(tok.token_id.clone(), meme),
-            (false, true) => w(cfg.linear.clone(), lin),
+            (false, true) => w(asset.clone(), lin),
             (false, false) => env::panic_str("ERR_NOTHING_PENDING"),
         };
         p.then(

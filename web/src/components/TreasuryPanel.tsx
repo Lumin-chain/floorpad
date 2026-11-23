@@ -5,13 +5,18 @@ import { useView } from "@/lib/wallet";
 import { BUCKET_COLORS, Kv, Stat } from "./ui";
 import { FundYield } from "./FundYield";
 import type { TokenCtx } from "@/app/token/[id]/page";
+import { getClaims, stakeOf } from "@/lib/stake";
 
 /** Treasury dashboard: DAO wallet, floor vault, creator escrow, agent budget and epoch history. */
 export function TreasuryPanel({ t, linearPrice }: TokenCtx) {
   const ready = t.dao_stage === "Ready";
   const { data: daoNear } = useView(ready ? () => view<string>(t.dao_id, "get_available_amount") : null, [t.dao_id, ready], 15000);
-  const { data: daoLin } = useView(() => view<string>(LINEAR, "ft_balance_of", { account_id: t.dao_id }).catch(() => "0"), [t.dao_id], 15000);
-  const { data: daoClaim } = useView(() => lp<string>("get_claimable_linear", { account_id: t.dao_id }), [t.dao_id], 15000);
+  const { data: daoLin } = useView(() => view<string>(stakeOf(t).id, "ft_balance_of", { account_id: t.dao_id }).catch(() => "0"), [t.dao_id], 15000);
+  const { data: daoClaim } = useView(
+    () => getClaims(lp, t.dao_id).then((c) => (c.find((x) => x.token === stakeOf(t).id)?.amount ?? 0n).toString()),
+    [t.dao_id],
+    15000,
+  );
   const { data: epochs } = useView(() => lp<EpochReport[]>("get_epochs", { token_id: t.token_id, limit: 20 }), [t.token_id, t.epoch_index], 20000);
   const grad = isGraduated(t);
   const toNear = (s: string | bigint) => (BigInt(s) * linearPrice) / YOCTO;
@@ -22,10 +27,10 @@ export function TreasuryPanel({ t, linearPrice }: TokenCtx) {
     <div className="stack">
       <div className="grid stats">
         <Stat k="DAO NEAR" v={ready ? fmtNear(daoNear ?? "0", 3) : "–"} s="spendable by proposal" />
-        <Stat k="DAO LiNEAR" v={fmtNear(daoLin ?? "0", 3)} s={`≈ ${fmtNear(toNear(daoLin ?? "0"), 3)} NEAR`} />
+        <Stat k={`DAO ${stakeOf(t).symbol}`} v={fmtNear(daoLin ?? "0", 3)} s={`≈ ${fmtNear(toNear(daoLin ?? "0"), 3)} NEAR`} />
         <Stat k="Floor vault" v={`${fmtNear(vault, 3)} N`} s="principal locked forever" />
-        <Stat k="Pending yield" v={grad ? `${fmtNear(yieldShares > 0n ? yieldShares : 0n, 4)} LiNEAR` : "after graduation"} s="next epoch split" />
-        <Stat k="Agent budget" v={`${fmtNear(t.agent_budget_shares, 4)} LiNEAR`} s="pays per post" />
+        <Stat k="Pending yield" v={grad ? `${fmtNear(yieldShares > 0n ? yieldShares : 0n, 4)} ${stakeOf(t).symbol}` : "after graduation"} s="next epoch split" />
+        <Stat k="Agent budget" v={`${fmtNear(t.agent_budget_shares, 4)} ${stakeOf(t).symbol}`} s="pays per post" />
         <Stat k="Creator escrow" v={`${fmtNear(t.creator_escrow, 3)} N`} s={`${fmtNear(t.creator_released, 3)} N released by vote`} />
       </div>
 
@@ -34,12 +39,12 @@ export function TreasuryPanel({ t, linearPrice }: TokenCtx) {
         <div className="panel">
           <h2>Vault breakdown</h2>
           <Kv k="Principal (NEAR value)" v={fmtNear(grad ? t.principal_near : t.backing_near, 4)} />
-          {grad && <Kv k="Vault LiNEAR shares" v={fmtNear(t.linear_shares, 4)} />}
-          {grad && <Kv k="LiNEAR price" v={`${fmtNear(linearPrice, 6)} NEAR`} />}
-          {grad && <Kv k="Locked LP (LiNEAR side)" v={`${fmtNear(t.lp_shares, 3)} LiNEAR`} />}
+          {grad && <Kv k={`Vault ${stakeOf(t).symbol}`} v={fmtNear(t.linear_shares, 4)} />}
+          {grad && <Kv k={`${stakeOf(t).symbol} price`} v={`${fmtNear(linearPrice, 6)} NEAR`} />}
+          {grad && <Kv k={`Locked LP (${stakeOf(t).symbol} side)`} v={`${fmtNear(t.lp_shares, 3)} ${stakeOf(t).symbol}`} />}
           {grad && <Kv k="Ref pool" v={`#${t.pool_id}`} />}
           {grad && t.harvested_linear !== undefined && (
-            <Kv k="LP growth harvested (LiNEAR)" v={fmtNear(t.harvested_linear, 4)} />
+            <Kv k={`LP growth harvested (${stakeOf(t).symbol})`} v={fmtNear(t.harvested_linear, 4)} />
           )}
           {grad && t.harvest_burned !== undefined && (
             <Kv k="Meme burned by LP harvests" v={fmtTok(t.harvest_burned, 0)} />
@@ -48,7 +53,7 @@ export function TreasuryPanel({ t, linearPrice }: TokenCtx) {
             <Kv k="Next LP harvest" v={new Date(t.next_harvest_at * 1000).toLocaleString()} />
           )}
           {!grad && <Kv k="Curve NEAR (becomes LP at graduation)" v={fmtNear(t.real_near, 3)} />}
-          {daoClaim && daoClaim !== "0" && <Kv k="DAO LiNEAR held at launchpad" v={fmtNear(daoClaim, 4)} />}
+          {daoClaim && daoClaim !== "0" && <Kv k={`DAO ${stakeOf(t).symbol} held at launchpad`} v={fmtNear(daoClaim, 4)} />}
         </div>
         <div className="panel">
           <h2>Accounts</h2>
@@ -70,7 +75,7 @@ export function TreasuryPanel({ t, linearPrice }: TokenCtx) {
                 <tr>
                   <th>#</th>
                   <th>Date</th>
-                  <th>Yield (LiNEAR)</th>
+                  <th>Yield ({stakeOf(t).symbol})</th>
                   {BUCKET_LABELS.map((l, i) => (
                     <th key={l}><span className="swatch" style={{ background: BUCKET_COLORS[i] }} /> {l}</th>
                   ))}

@@ -7,6 +7,7 @@ import { Kv, Stat } from "./ui";
 import { Bounties } from "./Bounties";
 import { decodeDescription, encodeDescription } from "@/lib/proposal-format";
 import type { TokenCtx } from "@/app/token/[id]/page";
+import { stakeInfo, stakeOf, STNEAR } from "@/lib/stake";
 
 // ---- Sputnik DAO v2 shapes (subset) ----
 type Kind = Record<string, unknown> | "Vote";
@@ -46,7 +47,7 @@ function describeKind(k: Kind, symbol: string): string {
   const [name, body] = Object.entries(k)[0] as [string, Record<string, unknown>];
   switch (name) {
     case "Transfer": {
-      const token = body.token_id === "" ? "NEAR" : body.token_id === LINEAR ? "LiNEAR" : String(body.token_id);
+      const token = body.token_id === "" ? "NEAR" : body.token_id === LINEAR || body.token_id === STNEAR ? stakeInfo(String(body.token_id)).symbol : String(body.token_id);
       return `Transfer ${fmtNear(String(body.amount))} ${token} → ${body.receiver_id}`;
     }
     case "FunctionCall": {
@@ -229,7 +230,7 @@ export function DaoPanel({ t }: TokenCtx) {
 type Template = "signal" | "brrrain" | "transfer" | "release" | "clawback" | "agent" | "tax" | "bounty" | "custom";
 const TEMPLATES: { id: Template; label: string }[] = [
   { id: "signal", label: "Signal vote" },
-  { id: "brrrain", label: "⚡ BRRRAIN Staking-for-Inference (Treasury → Agent)" },
+  { id: "brrrain", label: "BRRRAIN Staking-for-Inference (Treasury → Agent)" },
   { id: "tax", label: "Update tax, split & decay" },
   { id: "transfer", label: "Treasury transfer" },
   { id: "release", label: "Release creator milestone" },
@@ -268,11 +269,11 @@ function NewProposal({ t, bond, onDone }: { t: TokenCtx["t"]; bond: string; onDo
       case "brrrain": {
         const target = f.receiver || t.agent_account || "agent.floorpad.testnet";
         if (!f.amount) return null;
-        return { Transfer: { token_id: f.token === "LiNEAR" ? LINEAR : "", receiver_id: target, amount: parseUnits(f.amount, 24).toString(), msg: null } };
+        return { Transfer: { token_id: f.token === "NEAR" ? "" : stakeOf(t).id, receiver_id: target, amount: parseUnits(f.amount, 24).toString(), msg: null } };
       }
       case "transfer":
         if (!f.receiver || !f.amount) return null;
-        return { Transfer: { token_id: f.token === "NEAR" ? "" : LINEAR, receiver_id: f.receiver, amount: parseUnits(f.amount, 24).toString(), msg: null } };
+        return { Transfer: { token_id: f.token === "NEAR" ? "" : stakeOf(t).id, receiver_id: f.receiver, amount: parseUnits(f.amount, 24).toString(), msg: null } };
       case "release":
         if (!f.amount) return null;
         return lpCall("dao_release_creator", { token_id: t.token_id, amount: parseUnits(f.amount, 24).toString() });
@@ -341,7 +342,7 @@ function NewProposal({ t, bond, onDone }: { t: TokenCtx["t"]; bond: string; onDo
     if (!accountId) return signIn();
     if (!k) return;
     // Trezu-compatible description so the proposal reads well in any Sputnik UI
-    const effectiveTitle = title || (tpl === "brrrain" ? `⚡ Fund $${t.meta.symbol} BRRRAIN AI Inference (${f.amount} ${f.token})` : title);
+    const effectiveTitle = title || (tpl === "brrrain" ? `Fund $${t.meta.symbol} BRRRAIN AI Inference (${f.amount} ${f.token})` : title);
     const description = encodeDescription({ title: effectiveTitle, notes: desc, proposal_action: `floorpad-${tpl}` });
     const ok = await send([{ receiverId: t.dao_id, calls: [{ method: "add_proposal", args: { proposal: { description, kind: k } }, gas: 100, deposit: bond }] }]);
     if (ok) {
@@ -363,11 +364,11 @@ function NewProposal({ t, bond, onDone }: { t: TokenCtx["t"]; bond: string; onDo
       {tpl === "brrrain" && (
         <div className="stack" style={{ gap: 8, marginBottom: 12 }}>
           <div className="panel tight xs muted" style={{ background: "var(--panel-2)" }}>
-            ⚡ <strong>Staking-for-Inference:</strong> Allocates treasury funds directly to the agent account (<span className="mono">{t.agent_account || "agent.floorpad.testnet"}</span>) to hold $BRRRAIN tokens, granting daily inference power on BRRRAIN AI without credit cards.
+            <strong>Staking-for-Inference:</strong> Allocates treasury funds directly to the agent account (<span className="mono">{t.agent_account || "agent.floorpad.testnet"}</span>) to hold $BRRRAIN tokens, granting daily inference power on BRRRAIN AI without credit cards.
           </div>
           <div className="grid half">
             <label className="field"><span>Amount</span><input className="input" value={f.amount} onChange={set("amount")} placeholder="e.g. 5.0" /></label>
-            <label className="field"><span>Token</span><select className="select" value={f.token} onChange={set("token")}><option>NEAR</option><option>LiNEAR</option></select></label>
+            <label className="field"><span>Token</span><select className="select" value={f.token} onChange={set("token")}><option>NEAR</option><option>{stakeOf(t).symbol}</option></select></label>
           </div>
         </div>
       )}
@@ -377,7 +378,7 @@ function NewProposal({ t, bond, onDone }: { t: TokenCtx["t"]; bond: string; onDo
       {tpl === "transfer" && (
         <div className="grid half">
           <label className="field"><span>Amount</span><input className="input" value={f.amount} onChange={set("amount")} placeholder="0.0" /></label>
-          <label className="field"><span>Token</span><select className="select" value={f.token} onChange={set("token")}><option>NEAR</option><option>LiNEAR</option></select></label>
+          <label className="field"><span>Token</span><select className="select" value={f.token} onChange={set("token")}><option>NEAR</option><option>{stakeOf(t).symbol}</option></select></label>
         </div>
       )}
       {(tpl === "release" || tpl === "bounty") && (

@@ -72,6 +72,8 @@ pub struct TokenView {
     pub harvest_busy: bool,
     pub harvest_pending: bool,
     pub harvested_linear: U128,
+    /// Liquid staking token backing this token's floor and Rhea pool (LiNEAR or stNEAR).
+    pub stake_token: AccountId,
     pub harvest_burned: U128,
 }
 
@@ -333,6 +335,7 @@ impl Contract {
             harvest_busy: t.harvest_busy,
             harvest_pending: t.harvest_meme_pending > 0 || t.harvest_linear_pending > 0,
             harvested_linear: U128(t.harvested_linear),
+            stake_token: self.asset(i),
             harvest_burned: U128(t.harvest_burned),
         }
     }

@@ -27,8 +27,8 @@ export const BUCKET_LABELS = ["Floor", "Buyback & burn", "Airdrop lockers", "AI 
 const RPC_FALLBACKS = [
   RPC,
   ...(NETWORK === "mainnet"
-    ? ["https://free.rpc.fastnear.com", "https://rpc.mainnet.near.org"]
-    : ["https://test.rpc.fastnear.com", "https://rpc.testnet.near.org"]),
+    ? ["https://free.rpc.fastnear.com", "https://near.drpc.org"]
+    : ["https://test.rpc.fastnear.com", "https://near-testnet.drpc.org"]),
 ].filter((u, i, a) => a.indexOf(u) === i);
 /** Endpoint that last answered; tried first next time. */
 let rpcPreferred = 0;
@@ -200,6 +200,8 @@ export interface TokenMeta {
 }
 
 export interface TokenView {
+  /** Liquid staking token behind the floor and the Rhea pool: LiNEAR (older tokens) or stNEAR. */
+  stake_token?: string;
   /** Number of entries in the token's on-chain mechanics log (burns, harvests, epochs). */
   mech_count?: number;
   index: number;

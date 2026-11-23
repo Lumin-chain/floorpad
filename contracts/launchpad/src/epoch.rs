@@ -3,7 +3,7 @@
 //! floor (compound), buyback & burn, airdrop to lockers, AI agent budget, DAO treasury.
 //! Principal is never distributed: the floor can only go up.
 use crate::curve::ONE_YOCTO;
-use crate::ext::{ext_ft, ext_linear, ext_ref, tgas, RefPoolInfo};
+use crate::ext::{ext_ft, ext_ref, tgas, RefPoolInfo};
 use crate::guard::{cp_out, within_band, MAX_SWAP_POOL_BPS, SWAP_SLIPPAGE_BPS};
 use crate::math::{self, ACC_SCALE, PRICE_SCALE};
 use crate::*;
@@ -26,9 +26,7 @@ impl Contract {
         let pool_id = tok.pool_id.expect("ERR_NO_POOL");
         self.tok_mut(idx).epoch_busy = true;
         // The pool is read alongside the LiNEAR price so the buyback can be price-checked.
-        ext_linear::ext(self.config.linear.clone())
-            .with_static_gas(tgas(5))
-            .ft_price()
+        self.stake_price(&self.asset(idx))
             .and(ext_ref::ext(self.config.ref_exchange.clone()).with_static_gas(tgas(5)).get_pool(pool_id))
             .then(
                 Self::ext(env::current_account_id())
@@ -50,6 +48,7 @@ impl Contract {
         };
         let price = price.0;
         let cfg = self.config.clone();
+        let asset = self.asset(idx);
         let me = env::current_account_id();
         let now = now_secs();
 
@@ -84,7 +83,7 @@ impl Contract {
         if split[BUCKET_BUYBACK] > 0 {
             let reserves = pool.ok().and_then(|p| {
                 let m = p.token_account_ids.iter().position(|t| *t == token_id)?;
-                let l = p.token_account_ids.iter().position(|t| *t == cfg.linear)?;
+                let l = p.token_account_ids.iter().position(|t| *t == asset)?;
                 Some((p.amounts.get(l)?.0, p.amounts.get(m)?.0))
             });
             let guarded = reserves.and_then(|(r_lin, r_meme)| {
@@ -135,7 +134,7 @@ impl Contract {
         tok.epoch_index += 1;
 
         let treasury = cfg.treasury_id.clone();
-        self.credit_linear(&treasury, platform_cut);
+        self.credit_stake(idx, &treasury, platform_cut);
         // Empty epochs (no new yield) aren't logged: on short testnet epochs they filled the
         // 100-entry log and pushed out the burns and harvests people want to see.
         if yield_shares > 0 {
@@ -154,22 +153,22 @@ impl Contract {
         );
 
         if split[BUCKET_TREASURY] > 0 {
-            ext_ft::ext(cfg.linear.clone())
+            ext_ft::ext(asset.clone())
                 .with_attached_deposit(ONE_YOCTO)
                 .with_static_gas(tgas(10))
                 .ft_transfer(dao_id.clone(), U128(split[BUCKET_TREASURY]), Some("floorpad epoch".into()))
                 .then(
                     Self::ext(me.clone())
                         .with_static_gas(tgas(5))
-                        .on_linear_sent(dao_id, U128(split[BUCKET_TREASURY])),
+                        .on_linear_sent(dao_id, U128(split[BUCKET_TREASURY]), Some(asset.clone())),
                 ).detach();
         }
         if split[BUCKET_BUYBACK] > 0 {
             let msg = format!(
                 r#"{{"actions":[{{"pool_id":{},"token_in":"{}","token_out":"{}","amount_in":"{}","min_amount_out":"{}"}}]}}"#,
-                pool_id, cfg.linear, token_id, split[BUCKET_BUYBACK], buyback_min
+                pool_id, asset, token_id, split[BUCKET_BUYBACK], buyback_min
             );
-            ext_ft::ext(cfg.linear)
+            ext_ft::ext(asset)
                 .with_attached_deposit(ONE_YOCTO)
                 .with_static_gas(tgas(60))
                 .ft_transfer_call(cfg.ref_exchange, U128(split[BUCKET_BUYBACK]), None, msg)

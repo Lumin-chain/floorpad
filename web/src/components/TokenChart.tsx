@@ -34,15 +34,15 @@ const FLOOR = "#7fd6a8";
 
 /** Protocol events worth showing on the chart, with a label and colour. */
 const EVENT_STYLE: Record<string, { label: string; color: string }> = {
-  graduation_burn: { label: "🎓 Graduated", color: "#e6c14a" },
-  lp_harvest_burn: { label: "🔥 LP burn", color: "#f0907a" },
-  tax_burn: { label: "🔥 Tax burn", color: "#f0907a" },
-  buyback_burn: { label: "🔥 Buyback", color: "#f0907a" },
-  redeem_burn: { label: "🧱 Redeem", color: FLOOR },
-  lp_harvest: { label: "💧 Harvest", color: "#7fb8e6" },
-  yield_funded: { label: "💧 Yield", color: "#7fb8e6" },
-  agent_funded: { label: "🤖 Agent", color: "#c9a7f0" },
-  epoch: { label: "💧 Yield", color: "#7fb8e6" },
+  graduation_burn: { label: "Graduated", color: "#e6c14a" },
+  lp_harvest_burn: { label: "LP burn", color: "#f0907a" },
+  tax_burn: { label: "Tax burn", color: "#f0907a" },
+  buyback_burn: { label: "Buyback", color: "#f0907a" },
+  redeem_burn: { label: "Redeem", color: FLOOR },
+  lp_harvest: { label: "Harvest", color: "#7fb8e6" },
+  yield_funded: { label: "Yield", color: "#7fb8e6" },
+  agent_funded: { label: "Agent", color: "#c9a7f0" },
+  epoch: { label: "Yield", color: "#7fb8e6" },
 };
 
 const tradePrice = (tr: Trade) =>
@@ -319,7 +319,7 @@ export function TokenChart({ t, trades, spot, floor }: { t: TokenView; trades: T
       <div className="tc-legend small muted">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/brand/graded/moji/face-wink.webp" alt="" width={14} height={14} /> buy (bigger = more NEAR) · <span className="tc-dot-sell inline" /> sell ·{" "}
-        <span className="green">- - Floor</span> · 🔥 burns · 💧 harvests · 🎓 graduation
+        <span className="green">- - Floor</span> · markers: burns, harvests, yield, graduation
         {accountId ? " · ringed = your trades" : ""}
       </div>
     </div>

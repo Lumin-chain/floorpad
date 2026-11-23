@@ -107,7 +107,7 @@ export async function exitValue(
       bps += tax.config.sell_tax_bps + Math.floor(exit);
     }
     const net = (amount * BigInt(Math.max(0, 10000 - bps))) / 10000n;
-    const lin = await view<string>(REF, "get_return", { pool_id: t.pool_id, token_in: t.token_id, amount_in: net.toString(), token_out: LINEAR })
+    const lin = await view<string>(REF, "get_return", { pool_id: t.pool_id, token_in: t.token_id, amount_in: net.toString(), token_out: t.stake_token ?? LINEAR })
       .then((x) => BigInt(x))
       .catch(() => 0n);
     market = (lin * linP) / YOCTO;

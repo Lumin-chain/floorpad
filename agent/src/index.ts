@@ -162,6 +162,8 @@ interface TokenView {
   agent_persona: string;
   agent_budget_shares: U128;
   last_linear_price: U128;
+  /** LiNEAR (older tokens) or stNEAR: the staking token behind the floor and the pool. */
+  stake_token?: string;
   epoch_index: number;
 }
 interface Post {
@@ -254,15 +256,19 @@ async function checkSetup() {
 // ---------- market numbers, computed exactly like the website ----------
 
 const YOCTO_N = 10n ** 24n;
-let linCache = { at: 0, v: 0n };
-/** Live LiNEAR price (yoctoNEAR per LiNEAR), cached for a minute. */
-async function liveLinearPrice(): Promise<bigint> {
-  if (Date.now() - linCache.at < 60_000 && linCache.v > 0n) return linCache.v;
+const linCache = new Map<string, { at: number; v: bigint }>();
+/** Meta Pool (stNEAR) prices with `get_st_near_price`; LiNEAR-style tokens with `ft_price`. */
+const isMetaPool = (id: string) => /(^|\.)meta-pool\.near$|meta-v2\.pool\.testnet$/.test(id);
+/** Live price of a token's staking token (yoctoNEAR per share), cached for a minute. */
+async function liveLinearPrice(stakeToken?: string): Promise<bigint> {
+  const id = stakeToken || launchCfg.linear;
+  const hit = linCache.get(id);
+  if (hit && Date.now() - hit.at < 60_000 && hit.v > 0n) return hit.v;
   const v = await operator
-    .viewFunction({ contractId: launchCfg.linear, methodName: "ft_price", args: {} })
+    .viewFunction({ contractId: id, methodName: isMetaPool(id) ? "get_st_near_price" : "ft_price", args: {} })
     .then((x) => BigInt(x as string))
     .catch(() => 0n);
-  if (v > 0n) linCache = { at: Date.now(), v };
+  if (v > 0n) linCache.set(id, { at: Date.now(), v });
   return v;
 }
 
@@ -369,14 +375,14 @@ async function keep(t: TokenView) {
             .viewFunction({
               contractId: launchCfg.ref_exchange,
               methodName: "get_return",
-              args: { pool_id: t.pool_id, token_in: t.token_id, amount_in: pending.toString(), token_out: launchCfg.linear },
+              args: { pool_id: t.pool_id, token_in: t.token_id, amount_in: pending.toString(), token_out: t.stake_token ?? launchCfg.linear },
             })
             .catch(() => "0") as string;
           const linOut = BigInt(linOutStr || "0");
           const linPrice = BigInt(t.last_linear_price || YOCTO.toString());
           const nearVal = (linOut * linPrice) / YOCTO;
           if (nearVal >= TAX_HARVEST_MIN_YOCTO) {
-            const linP = (await liveLinearPrice()) || BigInt(t.last_linear_price || YOCTO.toString());
+            const linP = (await liveLinearPrice(t.stake_token)) || BigInt(t.last_linear_price || YOCTO.toString());
             const before = await floorSnapshot(t.token_id, linP);
             const ok = await call("harvest_token_tax", { token_id: t.token_id }, 100n).catch((e) => {
               console.warn(`harvest_token_tax ${t.token_id}:`, (e as Error).message);
@@ -444,11 +450,11 @@ function statsText(symbol: string, s: Record<string, unknown>): string {
   const vault = num(s.vault_backing_near);
   const burned = num(s.burned_tokens);
   const lines = [
-    `📊 $${symbol} check-in`,
-    stage.startsWith("graduated") ? "🎓 Trading on Rhea · liquidity locked forever · vault earning staking yield" : `📈 ${stage.replace(/^./, (c) => c.toUpperCase())}`,
-    floor > 0 ? `🧱 Floor: ${fmtPrice(floor)} NEAR per token (vault ${fmtNear(vault)} NEAR)` : "",
-    burned > 0 ? `🔥 Burned so far: ${compactNum(burned)} $${symbol}` : "",
-    `👥 ${plural(num(s.holders), "holder")} · ${plural(num(s.lockers), "locker")}`,
+    `$${symbol} check-in`,
+    stage.startsWith("graduated") ? "Graduated: trading on Rhea · liquidity locked forever · vault earning staking yield" : `${stage.replace(/^./, (c) => c.toUpperCase())}`,
+    floor > 0 ? `Floor: ${fmtPrice(floor)} NEAR per token (vault ${fmtNear(vault)} NEAR)` : "",
+    burned > 0 ? `Burned so far: ${compactNum(burned)} $${symbol}` : "",
+    `${plural(num(s.holders), "holder")} · ${plural(num(s.lockers), "locker")}`,
   ].filter(Boolean);
   return lines.join("\n");
 }
@@ -661,7 +667,7 @@ const floorBase = new Map<string, FloorBase>();
 async function maybePostHarvest(tokenId: string) {
   const t = await view<TokenView | null>("get_token", { token_id: tokenId }).catch(() => null);
   if (!t || t.grad_stage !== "Graduated") return;
-  const linP = (await liveLinearPrice()) || BigInt(t.last_linear_price || YOCTO.toString());
+  const linP = (await liveLinearPrice(t.stake_token)) || BigInt(t.last_linear_price || YOCTO.toString());
   const snap = await floorSnapshot(tokenId, linP);
   if (!snap || snap.floor === null) return;
   const now = Date.now() / 1000;
@@ -715,7 +721,7 @@ async function maybePostBoosts(t: TokenView) {
     .filter((e) => e.ts > last && e.account && (e.kind === "yield_funded" || e.kind === "agent_funded"))
     .sort((a, b) => a.ts - b.ts);
   if (fresh.length === 0) return;
-  const linP = (await liveLinearPrice()) || BigInt(t.last_linear_price || YOCTO.toString());
+  const linP = (await liveLinearPrice(t.stake_token)) || BigInt(t.last_linear_price || YOCTO.toString());
   const info: AgentTokenInfo = { token_id: t.token_id, meta: t.meta, agent_persona: t.agent_persona, stats: stats(t) };
   const tok = await alertToken(t, "ref");
   for (const e of fresh) {
@@ -872,7 +878,7 @@ async function checkMilestones(t: TokenView) {
       info,
       await alertToken(t, "ref"),
       { kind: "graduated", poolId: t.pool_id, secsToGraduate: t.graduated_at ? t.graduated_at - t.created_at : null },
-      `${NETWORK === "mainnet" ? "https://app.ref.finance" : "https://testnet.ref.finance"}/#${t.token_id}|${launchCfg.linear}`,
+      `${NETWORK === "mainnet" ? "https://app.ref.finance" : "https://testnet.ref.finance"}/#${t.token_id}|${t.stake_token ?? launchCfg.linear}`,
     );
   }
 }
@@ -930,7 +936,7 @@ async function nearBalance(account: string): Promise<number | null> {
 async function alertToken(t: TokenView, venue: "curve" | "ref"): Promise<AlertToken> {
   const graduated = t.grad_stage === "Graduated";
   const circ = BigInt(t.total_supply) - BigInt(t.burned);
-  const linP = (await liveLinearPrice()) || BigInt(t.last_linear_price || YOCTO_N.toString());
+  const linP = (await liveLinearPrice(t.stake_token)) || BigInt(t.last_linear_price || YOCTO_N.toString());
   const toN = (y: bigint) => Number(y / 10n ** 18n) / 1e6;
   let spot: number | null = null;
   let mcapYocto = BigInt(t.fdv_near);
@@ -1029,21 +1035,22 @@ async function checkTradeAlerts(t: TokenView) {
 }
 
 /**
- * Testnet: Rhea's rated LiNEAR/wNEAR pool refuses to quote or trade once its cached LiNEAR rate
- * expires, which hides the best LiNEAR -> NEAR route from users. Refresh it every 20 minutes.
+ * Rhea's rated staking-token/wNEAR pools (LiNEAR, stNEAR) refuse to quote or trade once their
+ * cached rate expires, which hides the best route back to NEAR (and small stNEAR buys go through
+ * the stNEAR pool). Refresh both every 20 minutes.
  */
-const LINEAR_RATED_POOL = process.env.LINEAR_RATED_POOL ?? (NETWORK === "testnet" ? "571" : "");
+const STNEAR_ID = process.env.STNEAR_ID ?? (NETWORK === "mainnet" ? "meta-pool.near" : "meta-v2.pool.testnet");
+const RATE_TOKENS = (process.env.RATE_REFRESH_TOKENS ?? `${launchCfg.linear},${STNEAR_ID}`).split(",").map((s) => s.trim()).filter(Boolean);
 let lastRateRefresh = 0;
 async function refreshLinearRate() {
-  if (!LINEAR_RATED_POOL || Date.now() - lastRateRefresh < 20 * 60_000) return;
+  if (RATE_TOKENS.length === 0 || Date.now() - lastRateRefresh < 20 * 60_000) return;
   lastRateRefresh = Date.now();
-  const res = await operator.functionCall({
-    contractId: launchCfg.ref_exchange,
-    methodName: "update_token_rate",
-    args: { token_id: launchCfg.linear },
-    gas: 60n * TGAS,
-  });
-  if (JSON.stringify(res.receipts_outcome).includes("Failure")) console.warn("LiNEAR rate refresh failed");
+  for (const token_id of RATE_TOKENS) {
+    const res = await signed(() =>
+      operator.functionCall({ contractId: launchCfg.ref_exchange, methodName: "update_token_rate", args: { token_id }, gas: 60n * TGAS }),
+    ).catch((e) => ({ receipts_outcome: [], err: (e as Error).message }));
+    if (JSON.stringify(res).includes("Failure") || "err" in res) console.warn(`${token_id} rate refresh failed`);
+  }
 }
 
 let lastBalanceCheck = 0;
@@ -1068,6 +1075,7 @@ async function tick() {
     launchpad: LAUNCHPAD,
     refExchange: launchCfg.ref_exchange,
     linear: launchCfg.linear,
+    stnear: STNEAR_ID,
     signed,
   }).catch((e) => console.warn("AI fuel:", (e as Error).message));
   const tokens = await allTokens();
