@@ -105,6 +105,33 @@ pub fn virtual_tokens_for_range(start_usd: u64, grad_usd: u64, curve_supply: u12
     curve_supply + mul_div(curve_supply, ss, sg - ss)
 }
 
+/// Meme tokens a full curve will burn at graduation: the part of `lp_supply` not needed to
+/// pair the raise at the final curve price. Mirrors `enter_graduation`, and depends almost only
+/// on the curve's shape, so it is known at launch.
+#[allow(clippy::too_many_arguments)]
+pub fn expected_grad_burn(
+    v0: u128,
+    v_tokens0: u128,
+    curve_supply: u128,
+    lp_supply: u128,
+    grad_vault_bps: u128,
+    grad_platform_bps: u128,
+    graduation_reserve: u128,
+) -> u128 {
+    if v0 == 0 || v_tokens0 <= curve_supply {
+        return 0;
+    }
+    let tf = v_tokens0 - curve_supply;
+    let v_end = mul_div(v0, v_tokens0, tf);
+    let raise = v_end - v0;
+    let vault = bps(raise, grad_vault_bps);
+    let platform = bps(raise, grad_platform_bps);
+    let reserve = graduation_reserve.min(raise - vault - platform);
+    let lp_near = raise - vault - platform - reserve;
+    let lp_tokens = mul_div(lp_near, tf, v_end).min(lp_supply);
+    lp_supply - lp_tokens
+}
+
 /// Fully-diluted market cap (yoctoNEAR) at the curve's spot price.
 pub fn fdv_near(v_near: u128, v_tokens: u128, supply: u128) -> u128 {
     mul_div(v_near, supply, v_tokens)

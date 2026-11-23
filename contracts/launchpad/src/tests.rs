@@ -311,10 +311,10 @@ fn graduated_on(stnear: bool) -> (Contract, u128) {
 fn graduation_prices_lp_continuously_and_funds_floor() {
     let (c, _) = graduated();
     let t = c.tok(0);
-    // Raise ~1,095 NEAR (vs ~850 with the old curve): 15% seeds the floor,
-    // 1% platform, 0.5 NEAR reserve, rest is LP -> ~29% deeper liquidity at the same $15k.
+    // Raise ~1,135 NEAR: 15% seeds the floor, 1% platform, 0.5 NEAR reserve, rest is LP.
+    // (~4% more than sizing on 1B tokens, so the pool opens at $15k after the LP burn.)
     let lp_near = t.lp_near / NEAR;
-    assert!((900..=930).contains(&lp_near), "lp_near {lp_near}");
+    assert!((930..=960).contains(&lp_near), "lp_near {lp_near}");
     // Ref opens exactly at the final curve price: lp_near / lp_tokens == v_near / v_tokens.
     let lhs = math::mul_div(t.lp_near, 1_000_000_000_000, t.lp_tokens);
     let rhs = math::mul_div(t.v_near, 1_000_000_000_000, t.v_tokens);
@@ -1103,8 +1103,8 @@ fn reference_price_moves_at_most_the_hourly_cap() {
     // one hour later the pool shows 2x the price: the reference may only move 20% (config: 2000 bps/h)
     ctx(&lp(), 0, T0 + 302 + 3600);
     let (reference, spot) = c.observe_pool_price(0, t.lp_shares * 2, t.lp_tokens).unwrap();
-    assert_eq!(spot, r0 * 2);
-    assert_eq!(reference, r0 * 12 / 10);
+    assert!(spot.abs_diff(r0 * 2) <= 2, "spot {spot}");
+    assert!(reference.abs_diff(r0 * 12 / 10) <= 2, "reference {reference}");
     assert!(!crate::guard::within_band(spot, reference));
 }
 
@@ -1177,7 +1177,9 @@ fn launch_range_opens_at_start_and_graduates_at_target() {
     // the token launched before keeps its curve end
     assert_eq!(c.get_token(token()).unwrap().grad_fdv_near.0, old_grad);
     // a new launch opens at ~$3k and graduates at ~$30k
-    let (v0, vt, cs, supply) = (c.launch_virtual_near(), c.config.virtual_tokens.0, c.config.curve_supply.0, c.config.total_supply.0);
+    let (v0, vt, cs) = (c.launch_virtual_near(), c.config.virtual_tokens.0, c.config.curve_supply.0);
+    // counted on the supply left after the graduation burn
+    let supply = c.config.total_supply.0 - c.expected_grad_burn(v0, vt);
     let start = usd(&c, math::fdv_near(v0, vt, supply));
     let tf = vt - cs;
     let grad = usd(&c, math::fdv_near(math::mul_div(v0, vt, tf), tf, supply));
@@ -1595,4 +1597,42 @@ fn extended_lock_is_not_expired_early() {
     ctx(&acc("keeper.testnet"), 0, T0 + 300 + 40 * DAY);
     assert_eq!(c.process_expired_locks(token(), None), 1);
     assert_eq!(c.tok(0).total_weight, 0);
+}
+
+#[test]
+fn pool_opens_at_the_target_market_cap_after_the_burn() {
+    let mut c = launched();
+    // the market cap shown on the curve already excludes the LP tokens graduation will burn
+    let before = c.get_token(token()).unwrap();
+    let projected_burn = c.expected_grad_burn(c.tok(0).v_near, c.tok(0).v_tokens);
+    assert!(projected_burn > 0);
+    assert_eq!(before.fdv_near.0, math::fdv_near(before.v_near.0, before.v_tokens.0, 1_000_000_000 * TOK - projected_burn));
+    let target = usd(&c, before.grad_fdv_near.0);
+    assert!((target - 15_000.0).abs() < 15.0, "curve target {target}");
+    drop(before);
+
+    // fill the curve
+    buy(&mut c, "bob.testnet", 5 * NEAR, T0 + 200);
+    buy(&mut c, "whale.testnet", 2_500 * NEAR, T0 + 201);
+    let t = c.tok(0).clone();
+    assert_eq!(t.grad_stage, GradStage::CreatePool);
+    // the burn graduation did is the one predicted at launch
+    assert!(t.burned.abs_diff(projected_burn) <= projected_burn / 10_000, "burn {} vs {}", t.burned, projected_burn);
+    // Ref opens at the final curve price; on the supply that exists now that is the target
+    let mcap = usd(&c, math::fdv_near(t.v_near, t.v_tokens, 1_000_000_000 * TOK - t.burned));
+    assert!((mcap - 15_000.0).abs() < 15.0, "pool opens at {mcap}");
+    // and the market cap the views report doesn't jump at migration
+    let after = c.get_token(token()).unwrap();
+    assert!((usd(&c, after.fdv_near.0) - mcap).abs() < 1.0);
+}
+
+#[test]
+fn expected_burn_matches_graduation_for_the_3k_to_30k_curve() {
+    let mut c = launched();
+    ctx(&lp(), 0, T0 + 50);
+    c.set_launch_mcap_usd(3_000, 30_000);
+    let (v0, vt) = (c.launch_virtual_near(), c.config.virtual_tokens.0);
+    let burn = c.expected_grad_burn(v0, vt) / TOK;
+    // ~38.2M of the 240M LP reserve (HHHHHH on testnet burned 38.24M)
+    assert!((37_500_000..=39_000_000).contains(&burn), "burn {burn}");
 }

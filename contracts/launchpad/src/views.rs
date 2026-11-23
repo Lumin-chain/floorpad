@@ -288,8 +288,8 @@ impl Contract {
             creator_claimable: U128(t.creator_claimable),
             grad_mcap_usd: t.grad_mcap_usd,
             launch_near_usd: U128(t.launch_near_usd),
-            fdv_near: U128(math::fdv_near(t.v_near, t.v_tokens, c.total_supply.0 - t.burned)),
-            grad_fdv_near: U128(grad_fdv(t, c)),
+            fdv_near: U128(math::fdv_near(t.v_near, t.v_tokens, self.mcap_supply(t))),
+            grad_fdv_near: U128(grad_fdv(t, c, self.mcap_supply(t))),
             grad_stage: t.grad_stage,
             grad_busy: t.grad_busy,
             pool_id: t.pool_id,
@@ -341,13 +341,13 @@ impl Contract {
     }
 }
 
-/// FDV (yoctoNEAR) at the end of this token's curve.
-fn grad_fdv(t: &TokenState, c: &Config) -> u128 {
+/// Market cap (yoctoNEAR) at the end of this token's curve, on `supply` (after the graduation burn).
+fn grad_fdv(t: &TokenState, c: &Config, supply: u128) -> u128 {
     // Invariant k = v_near * v_tokens; at the end v_tokens = v_tokens0 - curve_supply, where
     // v_tokens0 = v_tokens + sold is this token's own launch reserve (the config may have changed).
     let tf = (t.v_tokens + t.sold).saturating_sub(c.curve_supply.0).max(1);
     let v_end = math::mul_div(t.v_near, t.v_tokens, tf);
-    math::fdv_near(v_end, tf, c.total_supply.0)
+    math::fdv_near(v_end, tf, supply)
 }
 
 /// Slots of a ring buffer of size `cap` holding `n` total writes, newest first.
