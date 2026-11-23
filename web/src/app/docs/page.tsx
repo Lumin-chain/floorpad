@@ -26,7 +26,7 @@ export default function DocsPage() {
   const [activeSection, setActiveSection] = useState<SectionId>("overview");
   const [viewMode, setViewMode] = useState<"focus" | "all">("focus");
   const { data: cfg } = useView(() => lp<LaunchConfig>("get_config"), [], 0);
-  const gradTargetUsd = cfg ? cfg.grad_mcap_usd : NETWORK === "testnet" ? 100 : 25000;
+  const gradTargetUsd = cfg ? cfg.grad_mcap_usd : NETWORK === "testnet" ? 30000 : 25000;
 
   const curIdx = SECTIONS.findIndex((s) => s.id === activeSection);
   const prevSec = curIdx > 0 ? SECTIONS[curIdx - 1] : null;
@@ -172,7 +172,7 @@ export default function DocsPage() {
             </p>
             <h3>Live Dynamic Sizing via On-Chain Price</h3>
             <p className="muted small">
-              Virtual reserves scale dynamically using the live NEAR/USD price (read on-chain from Ref pool #4512 on mainnet, or keeper price feed on testnet) so launches currently graduate at <strong>${gradTargetUsd.toLocaleString()} USD FDV</strong> ({NETWORK} setting; mainnet target ~$25,000 USD).
+              Virtual reserves scale dynamically using the live NEAR/USD price (read on-chain from Ref pool #4512 on mainnet, or keeper price feed on testnet) so launches currently graduate at a <strong>${gradTargetUsd.toLocaleString()} market cap</strong> ({NETWORK} setting). The market cap is counted on the supply that exists after graduation: the unused LP tokens burned at migration are known at launch, so they are left out from the first trade.
             </p>
 
             <h3>Zero-Slippage Smooth Migration onto Ref Finance</h3>
@@ -180,9 +180,9 @@ export default function DocsPage() {
               When all 760,000,000 curve tokens are sold out:
             </p>
             <ol className="muted small stack" style={{ paddingLeft: 20 }}>
-              <li><strong>Ref Pool Creation:</strong> The launchpad creates a Ref Finance <code>MEME/LiNEAR</code> pool.</li>
-              <li><strong>Staking Yield:</strong> The raised liquidity is staked into LiNEAR so it generates continuous staking yield.</li>
-              <li><strong>Price Continuity:</strong> The Ref pool opens at the <strong>exact same price as the final curve trade</strong>. The token does not pump or dump on migration—its market cap is continuous.</li>
+              <li><strong>Ref Pool Creation:</strong> The launchpad creates a Ref Finance (Rhea) pool pairing the token with its staking token: <code>MEME/stNEAR</code> for new launches (tokens launched earlier use LiNEAR).</li>
+              <li><strong>Staking Yield:</strong> The raised liquidity is staked (stNEAR via Meta Pool for new launches) so it generates continuous staking yield.</li>
+              <li><strong>Price Continuity:</strong> The Ref pool opens at the <strong>exact same price as the final curve trade</strong>. The token does not pump or dump on migration, and because the market cap already excludes the tokens burned at graduation, the number does not jump either: the pool opens at the target market cap.</li>
               <li><strong>Permanent 100% LP Lock:</strong> 100% of the Ref LP shares are permanently held by the launchpad contract. They can never be withdrawn or rug-pulled.</li>
               <li><strong>Unused LP Burn:</strong> Any unused LP tokens from the 240M reserve are permanently burned on-chain.</li>
             </ol>

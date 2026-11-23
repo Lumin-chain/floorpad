@@ -525,8 +525,9 @@ impl Contract {
 
     // ---------- internal helpers ----------
 
-    /// Virtual NEAR reserve that makes the curve graduate at `grad_mcap_usd`
-    /// at the accepted NEAR/USD price.
+    /// Virtual NEAR reserve that makes the curve graduate at `grad_mcap_usd` market cap
+    /// at the accepted NEAR/USD price, counted on the supply left after the graduation burn
+    /// (so the Ref pool opens at the target, not ~4% under it).
     pub(crate) fn launch_virtual_near(&self) -> u128 {
         let c = &self.config;
         require!(self.near_usd_micro > 0, "ERR_NO_PRICE");
@@ -536,13 +537,49 @@ impl Contract {
                 "ERR_PRICE_STALE"
             );
         }
-        math::virtual_near_for_mcap(
-            c.grad_mcap_usd,
-            self.near_usd_micro,
-            c.virtual_tokens.0,
+        let size = |supply: u128| {
+            math::virtual_near_for_mcap(
+                c.grad_mcap_usd,
+                self.near_usd_micro,
+                c.virtual_tokens.0,
+                c.curve_supply.0,
+                supply,
+            )
+        };
+        // The burn barely depends on v0 (only through the fixed graduation reserve), so this
+        // converges in a couple of rounds.
+        let mut v0 = size(c.total_supply.0);
+        for _ in 0..3 {
+            v0 = size(c.total_supply.0 - self.expected_grad_burn(v0, c.virtual_tokens.0));
+        }
+        v0
+    }
+
+    /// Tokens a curve launched with (`v0`, `v_tokens0`) burns at graduation under this config.
+    pub(crate) fn expected_grad_burn(&self, v0: u128, v_tokens0: u128) -> u128 {
+        let c = &self.config;
+        math::expected_grad_burn(
+            v0,
+            v_tokens0,
             c.curve_supply.0,
-            c.total_supply.0,
+            c.lp_supply.0,
+            c.grad_vault_bps as u128,
+            c.grad_platform_bps as u128,
+            c.graduation_reserve.as_yoctonear(),
         )
+    }
+
+    /// Supply a token's market cap is counted on: what exists after graduation. While on the
+    /// curve this already excludes the LP tokens graduation will burn, so the market cap is
+    /// continuous through migration.
+    pub(crate) fn mcap_supply(&self, t: &TokenState) -> u128 {
+        let live = self.config.total_supply.0 - t.burned;
+        if t.grad_stage != GradStage::Curve {
+            return live;
+        }
+        let vt0 = t.v_tokens + t.sold;
+        let v0 = math::mul_div(t.v_near, t.v_tokens, vt0);
+        live.saturating_sub(self.expected_grad_burn(v0, vt0))
     }
 
     /// Split a curve trade's 1% platform fee and creator-configured token tax.
