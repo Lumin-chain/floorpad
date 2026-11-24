@@ -5,6 +5,7 @@ import {
   getSocialBackend,
   getToken,
   holderShare,
+  soldPct,
   isFullAccessKey,
   isValidNearAccount,
   marketCap,
@@ -123,6 +124,13 @@ function decorateCall(c: {
     x_now: c.mcap_usd > 0 ? c.last_mcap_usd / c.mcap_usd : 0,
     x_peak: c.mcap_usd > 0 ? c.peak_mcap_usd / c.mcap_usd : 0,
   };
+}
+
+/** The caller's position now: % of supply held (wallet + locked) and % of their tokens sold. */
+async function withPosition<T extends { token_id: string; account: string }>(backend: ReturnType<typeof getSocialBackend>, c: T) {
+  const holder_pct = await holderShare(c.token_id, c.account).catch(() => null);
+  const { bought, sold } = backend.tradeTotals(c.token_id, c.account);
+  return { ...c, holder_pct, sold_pct: soldPct(bought, sold) };
 }
 
 async function proxyUpstream(req: NextRequest, segments: string[], rawBody?: string) {
@@ -311,7 +319,7 @@ async function handle(req: NextRequest, context: { params: Promise<{ path: strin
       const out = await Promise.all(
         calls.map(async (c) => {
           const t = await getToken(c.token_id).catch(() => null);
-          return { ...decorateCall(c), symbol: t?.meta.symbol ?? "?", icon: t?.meta.icon ?? null };
+          return withPosition(backend, { ...decorateCall(c), symbol: t?.meta.symbol ?? "?", icon: t?.meta.icon ?? null });
         }),
       );
       return NextResponse.json(out);
@@ -469,7 +477,7 @@ async function handle(req: NextRequest, context: { params: Promise<{ path: strin
         return NextResponse.json({ error: "invalid token id" }, { status: 400 });
       }
       if (method === "GET") {
-        return NextResponse.json(backend.callsForToken(tokenId, 50).map(decorateCall));
+        return NextResponse.json(await Promise.all(backend.callsForToken(tokenId, 50).map((c) => withPosition(backend, decorateCall(c)))));
       }
       if (method === "POST") {
         if (isRateLimited(req, "write", 40)) return NextResponse.json({ error: "too many requests" }, { status: 429 });
@@ -500,7 +508,7 @@ async function handle(req: NextRequest, context: { params: Promise<{ path: strin
           last_mcap_usd: mc.usd,
           updated: now(),
         });
-        const out = { ...decorateCall(call), symbol: tok.meta.symbol, icon: tok.meta.icon };
+        const out = await withPosition(backend, { ...decorateCall(call), symbol: tok.meta.symbol, icon: tok.meta.icon });
         backend.publish(`token:${tokenId}`, "call", out);
         backend.publish("global", "call", out);
         return NextResponse.json(out);

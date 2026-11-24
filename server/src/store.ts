@@ -213,6 +213,19 @@ export function openStore(path: string) {
         .get(tokenId, isBuy, tokens, now() - withinSecs);
       return Boolean(r);
     },
+    /** Tokens an account bought and sold of one token (curve and Ref trades). */
+    tradeTotals(tokenId: string, account: string): { bought: bigint; sold: bigint } {
+      const rows = db
+        .prepare("SELECT is_buy, tokens FROM trades WHERE token_id = ? AND account = ?")
+        .all(tokenId, account) as unknown as { is_buy: number; tokens: string }[];
+      let bought = 0n;
+      let sold = 0n;
+      for (const r of rows) {
+        if (r.is_buy) bought += BigInt(r.tokens);
+        else sold += BigInt(r.tokens);
+      }
+      return { bought, sold };
+    },
     trades(tokenId: string, limit: number, account?: string): StoredTrade[] {
       if (account) {
         return db

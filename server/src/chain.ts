@@ -173,6 +173,15 @@ export async function marketCap(tokenId: string): Promise<{ near: number; usd: n
 }
 
 /** Balance + locked share of supply, for chat badges. */
+/**
+ * Share of a caller's tokens they have sold: sold / bought, from indexed curve and Ref trades.
+ * Tokens that arrived without a buy (transfers) count at most as much as was sold, so it caps at 100%.
+ */
+export function soldPct(bought: bigint, sold: bigint): number {
+  const base = bought > sold ? bought : sold;
+  return base > 0n ? Number((sold * 10_000n) / base) / 100 : 0;
+}
+
 export async function holderShare(tokenId: string, account: string): Promise<number> {
   return cached(`hold:${tokenId}:${account}`, 30_000, async () => {
     const [bal, pos, t] = await Promise.all([

@@ -40,6 +40,10 @@ export interface Callout {
   last_mcap_usd: number;
   x_now: number;
   x_peak: number;
+  /** caller's share of supply now (wallet + locked), null if unknown */
+  holder_pct?: number | null;
+  /** share of the caller's tokens they have sold (0 if never) */
+  sold_pct?: number;
   symbol?: string;
   icon?: string | null;
 }
