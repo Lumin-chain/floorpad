@@ -19,6 +19,8 @@ import {
   isValidNearAccount,
   LAUNCHPAD,
   LINEAR,
+  refCursorKey,
+  stakePrice,
   marketCap,
   REF,
   view,
@@ -494,17 +496,18 @@ async function indexRefSwaps(tok: Awaited<ReturnType<typeof getTokens>>[number],
   refBusy.add(tok.token_id);
   lastRefScan.set(tok.token_id, Date.now());
   try {
-    const since = store.refCursor(tok.token_id);
+    const curKey = refCursorKey(tok);
+    const since = store.refCursor(curKey);
     const { swaps, cursor } = await fetchRefSwaps({
       txApi: defaultTxApi(env("NEAR_NETWORK", "testnet")),
       tokenId: tok.token_id,
       poolId: tok.pool_id,
       ref: REF,
-      linear: LINEAR,
+      linear: tok.stake_token || LINEAR,
       sinceHeight: since,
     });
     if (swaps.length) {
-      const linPrice = BigInt(await cached("linear-price", 60_000, () => view<string>(LINEAR, "ft_price").catch(() => YOCTO.toString())));
+      const linPrice = await stakePrice(tok.stake_token).catch(() => YOCTO);
       for (const sw of swaps) {
         if (!store.claimSwapKey(sw.key)) continue;
         const { nearYocto, price } = swapValue(sw, linPrice, YOCTO);
@@ -526,7 +529,7 @@ async function indexRefSwaps(tok: Awaited<ReturnType<typeof getTokens>>[number],
         publish("global", "trade", payload);
       }
     }
-    if (cursor > since) store.setRefCursor(tok.token_id, cursor);
+    if (cursor > since) store.setRefCursor(curKey, cursor);
   } finally {
     refBusy.delete(tok.token_id);
   }
