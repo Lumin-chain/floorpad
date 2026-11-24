@@ -131,7 +131,7 @@ export default function DocsPage() {
               <div className="stat">
                 <div className="k">Ref Finance LP</div>
                 <div className="v">100% Locked</div>
-                <div className="s">Paired with LiNEAR to earn staking yield</div>
+                <div className="s">Paired with stNEAR to earn staking yield</div>
               </div>
               <div className="stat">
                 <div className="k">Sputnik DAO</div>
@@ -194,9 +194,9 @@ export default function DocsPage() {
           <div id="floor" className="panel stack">
             <h2><MojiLabel face="cool">4. The Redeemable Floor Vault</MojiLabel></h2>
             <p>
-              Every Floorpad token is backed by an on-chain <strong>Floor Vault</strong> holding NEAR (before graduation) and yield-bearing LiNEAR (after graduation).
+              Every Floorpad token is backed by an on-chain <strong>Floor Vault</strong> holding NEAR (before graduation) and yield-bearing stNEAR (after graduation; LiNEAR for tokens launched earlier).
             </p>
-            <h3>Why the Floor Vault Grows in NEAR / LiNEAR Terms</h3>
+            <h3>Why the Floor Vault Grows in NEAR / stNEAR Terms</h3>
             <p className="muted small">
               Floor price is calculated as:
             </p>
@@ -204,12 +204,12 @@ export default function DocsPage() {
               Floor Price (NEAR) = Vault Backing / Circulating Supply (Total Supply − Burned)
             </div>
             <p className="muted small">
-              The floor vault grows in NEAR / LiNEAR from:
+              The floor vault grows in NEAR / stNEAR from:
             </p>
             <ul className="muted small stack" style={{ paddingLeft: 20 }}>
               <li><strong>40% of all trading fees</strong> (25% goes to creator, 35% to platform) + <strong>100% of quick-flip exit penalties</strong>.</li>
               <li><strong>15% of the curve graduation raise</strong>.</li>
-              <li><strong>Continuous staking rewards</strong> from LiNEAR compounding (when allocated to floor).</li>
+              <li><strong>Continuous staking rewards</strong> from stNEAR compounding (when allocated to floor).</li>
               <li><strong>Token Redemptions:</strong> Holders can burn their tokens anytime to redeem their exact pro-rata share of the vault. Redemptions keep the 2% fee + exit fee inside the vault, raising the remaining NEAR backing per token.</li>
             </ul>
           </div>
@@ -229,7 +229,7 @@ export default function DocsPage() {
               </div>
               <div className="panel tight" style={{ background: "var(--panel-2)" }}>
                 <b>Sell Fee: 1.00% Platform + Token Tax (1.00% default) + Decaying Exit Fee</b>
-                <p className="small muted" style={{ margin: "4px 0 0" }}>Same split on the token tax on the curve (paid in NEAR), plus 100% of the decaying exit fee straight to the vault. After graduation there is no token tax on new tokens: the locked LP earns a 1% pool fee (LiNEAR on buys → floor yield; tokens on sells → burned). Older tokens' DEX tax is burned, never sold.</p>
+                <p className="small muted" style={{ margin: "4px 0 0" }}>Same split on the token tax on the curve (paid in NEAR), plus 100% of the decaying exit fee straight to the vault. After graduation there is no token tax on new tokens: the locked LP earns a 1% pool fee (stNEAR on buys → floor yield; tokens on sells → burned). Older tokens' DEX tax is burned, never sold.</p>
               </div>
             </div>
 
@@ -294,7 +294,7 @@ export default function DocsPage() {
           <div id="epochs" className="panel stack">
             <h2><MojiLabel face="hero">7. Epoch Staking Yield &amp; The 5-Way Split</MojiLabel></h2>
             <p>
-              After graduation, the locked Ref LP continuously generates LiNEAR staking rewards. Every epoch (length set in the contract config; 30 seconds on this testnet deployment so votes can be tested quickly), holders vote on how to distribute the yield:
+              After graduation, the locked Ref LP continuously generates stNEAR staking rewards. Every epoch (length set in the contract config; 30 seconds on this testnet deployment so votes can be tested quickly), holders vote on how to distribute the yield:
             </p>
             <div className="grid cards" style={{ marginTop: 8 }}>
               <div className="panel tight" style={{ background: "var(--panel-2)" }}>
@@ -307,7 +307,7 @@ export default function DocsPage() {
               </div>
               <div className="panel tight" style={{ background: "var(--panel-2)" }}>
                 <b>3. Airdrop to Lockers</b>
-                <p className="small muted" style={{ margin: "4px 0 0" }}>Distributes claimable LiNEAR dividends directly to ve-locked token holders.</p>
+                <p className="small muted" style={{ margin: "4px 0 0" }}>Distributes claimable stNEAR dividends directly to ve-locked token holders.</p>
               </div>
               <div className="panel tight" style={{ background: "var(--panel-2)" }}>
                 <b style={{ color: "var(--sky)" }}>4. AI Agent Budget</b>
@@ -380,13 +380,13 @@ export default function DocsPage() {
               <div className="panel tight" style={{ background: "var(--panel-2)" }}>
                 <b>Can the floor price ever drop?</b>
                 <p className="small muted" style={{ margin: "4px 0 0" }}>
-                  Not in NEAR / LiNEAR terms. Because the vault only receives inflows and redemptions keep fees in the vault while burning supply, the NEAR backing per remaining token is non-decreasing. However, the <strong>USD value fluctuates with NEAR&apos;s market price</strong>, and open-market pool price trades independently.
+                  Not in NEAR / stNEAR terms. Because the vault only receives inflows and redemptions keep fees in the vault while burning supply, the NEAR backing per remaining token is non-decreasing. However, the <strong>USD value fluctuates with NEAR&apos;s market price</strong>, and open-market pool price trades independently.
                 </p>
               </div>
               <div className="panel tight" style={{ background: "var(--panel-2)" }}>
                 <b>Where does the Ref Finance LP yield go?</b>
                 <p className="small muted" style={{ margin: "4px 0 0" }}>
-                  The LP is paired with LiNEAR, which accrues staking yield. This yield is distributed every epoch according to the ve-lock holder vote.
+                  The LP is paired with stNEAR (LiNEAR for tokens launched earlier), which accrues staking yield. This yield is distributed every epoch according to the ve-lock holder vote.
                 </p>
               </div>
               <div className="panel tight" style={{ background: "var(--panel-2)" }}>

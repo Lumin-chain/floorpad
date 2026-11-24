@@ -212,7 +212,7 @@ export default function BrandPage() {
             <span className="small">&ldquo;The floor only goes up&rdquo;, &ldquo;guaranteed&rdquo;, &ldquo;risk-free&rdquo;, &ldquo;can&apos;t lose&rdquo;.</span>
             <span className="small">&ldquo;Next-gen&rdquo;, &ldquo;revolutionary&rdquo;, &ldquo;to the moon&rdquo;.</span>
             <span className="xs muted">
-              The floor is measured in NEAR/LiNEAR and its dollar value moves with NEAR. Promise the mechanism, never a price.
+              The floor is measured in NEAR/stNEAR and its dollar value moves with NEAR. Promise the mechanism, never a price.
             </span>
           </div>
         </div>

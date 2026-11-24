@@ -21,6 +21,7 @@ import { getCandles, getIndexedTrades, isSocialConfigured, useStream, type Candl
 import { useView } from "@/lib/wallet";
 import type { TokenCtx } from "@/app/token/[id]/page";
 import { TokenChart } from "./TokenChart";
+import { stakeOf } from "@/lib/stake";
 
 function useTrades(t: TokenView) {
   const [liveTrades, setLiveTrades] = useState<Trade[]>([]);
@@ -115,13 +116,13 @@ export function PriceChart({ t, linearPrice }: TokenCtx) {
 
 /**
  * Protocol events shown in the trades list. `unit` says what the logged amount is:
- * tokens (burns) or LiNEAR (harvested pool fees, staking yield).
+ * tokens (burns) or the token's staking token, stNEAR or LiNEAR (harvested pool fees, staking yield).
  */
 const PROTOCOL_ROW: Record<string, { label: string; tone: string; unit: "tok" | "lin"; hint: string }> = {
   lp_harvest_burn: { label: "LP BURN", tone: "warn", unit: "tok", hint: "Token side of the harvested pool fees, burned" },
-  lp_harvest: { label: "LP HARVEST", tone: "green", unit: "lin", hint: "LiNEAR side of the harvested pool fees, added to the floor" },
+  lp_harvest: { label: "LP HARVEST", tone: "green", unit: "lin", hint: "Staked-NEAR side of the harvested pool fees, added to the floor" },
   epoch: { label: "YIELD", tone: "green", unit: "lin", hint: "Staking yield paid out this epoch" },
-  yield_funded: { label: "YIELD BOOST", tone: "green", unit: "lin", hint: "LiNEAR contributed to holder rewards" },
+  yield_funded: { label: "YIELD BOOST", tone: "green", unit: "lin", hint: "Staked NEAR contributed to holder rewards" },
   tax_burn: { label: "TAX BURN", tone: "warn", unit: "tok", hint: "DEX tax burned" },
   buyback_burn: { label: "BUYBACK", tone: "warn", unit: "tok", hint: "Tokens bought back and burned" },
   graduation_burn: { label: "GRAD BURN", tone: "warn", unit: "tok", hint: "Unsold supply burned at graduation" },
@@ -199,7 +200,7 @@ export function TradesTable({ t, trades: given, limit = 50 }: { t: TokenView; tr
                       <span className={`badge ${st.tone}`}>{st.label}</span>
                     </td>
                     <td className="muted">–</td>
-                    <td className="mono">{st.unit === "lin" ? `${fmtNear(r.ev.amount, 3)} LiNEAR` : <span className="muted">–</span>}</td>
+                    <td className="mono">{st.unit === "lin" ? `${fmtNear(r.ev.amount, 3)} ${stakeOf(t).symbol}` : <span className="muted">–</span>}</td>
                     <td className="mono">{st.unit === "tok" ? fmtTok(r.ev.amount, 0) : <span className="muted">–</span>}</td>
                     <td className="mono small ellipsis" style={{ maxWidth: 130 }} title={r.ev.account ?? LAUNCHPAD}>
                       {r.ev.account && r.ev.account !== LAUNCHPAD ? r.ev.account : <span className="badge">Floorpad protocol</span>}

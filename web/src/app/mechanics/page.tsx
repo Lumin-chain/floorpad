@@ -158,13 +158,13 @@ export default function MechanicsPage() {
           <div className="row wrap" style={{ gap: 6 }}>
             <span className="badge green">100% On-Chain</span>
             <span className="badge">Immutable Config</span>
-            <span className="badge sky">Ref MEME/LiNEAR LP Locked</span>
+            <span className="badge sky">Ref MEME/stNEAR LP Locked</span>
             <span className="badge violet">Sputnik DAO Locks</span>
           </div>
         </div>
 
         <p className="muted" style={{ marginTop: 8, maxWidth: 860 }}>
-          Floorpad pairs a bonding curve with an on-chain <strong className="green">Redeemable Floor Vault</strong> (staked NEAR: stNEAR for new launches, LiNEAR for earlier ones), a 1% platform fee plus creator/DAO-governed token taxes (default 0.5% buy / 1.0% sell + decaying 3% exit fee over 30 days on the curve, paid in NEAR; after graduation a 1% pool fee funds the floor in LiNEAR and the protocol never sells tokens), permanent Ref Finance LP locking, and Sputnik DAO lock-weighted yield governance.
+          Floorpad pairs a bonding curve with an on-chain <strong className="green">Redeemable Floor Vault</strong> (staked NEAR: stNEAR for new launches, LiNEAR for earlier ones), a 1% platform fee plus creator/DAO-governed token taxes (default 0.5% buy / 1.0% sell + decaying 3% exit fee over 30 days on the curve, paid in NEAR; after graduation a 1% pool fee funds the floor in staked NEAR and the protocol never sells tokens), permanent Ref Finance LP locking, and Sputnik DAO lock-weighted yield governance.
         </p>
 
         <div className="grid four stats" style={{ marginTop: 6 }}>
@@ -211,7 +211,7 @@ export default function MechanicsPage() {
           <div>
             <h2><MojiLabel face="hero">Interactive 60-Day Mechanics Simulator</MojiLabel></h2>
             <span className="small muted">
-              Simulate how asymmetric taxes, decaying exit fees, redemptions, and LiNEAR staking compound the floor over 60 days.
+              Simulate how asymmetric taxes, decaying exit fees, redemptions, and stNEAR staking compound the floor over 60 days.
             </span>
           </div>
           <div className="row" style={{ gap: 12 }}>
@@ -245,7 +245,7 @@ export default function MechanicsPage() {
             />
           </label>
           <label className="field" style={{ margin: 0 }}>
-            <span>LiNEAR Staking APR ({linearAprPct}%)</span>
+            <span>stNEAR Staking APR ({linearAprPct}%)</span>
             <input
               type="range"
               min={4}
@@ -465,7 +465,7 @@ export default function MechanicsPage() {
             </div>
             <div className="row between">
               <span className="small">LP Staking Asset:</span>
-              <span>LiNEAR (yield bearing)</span>
+              <span>stNEAR (yield bearing; LiNEAR for earlier tokens)</span>
             </div>
           </div>
 

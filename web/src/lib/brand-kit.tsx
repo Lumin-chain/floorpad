@@ -28,7 +28,7 @@ export const FLOOR_SLABS: [string, string][] = [
   ["SELL TAX", "→ FLOOR"],
   ["EXIT FEE", "→ FLOOR"],
   ["GRADUATION", "→ FLOOR"],
-  ["LiNEAR YIELD", "BY VOTE"],
+  ["STAKING YIELD", "BY VOTE"],
 ];
 
 // ---------- building blocks (all absolutely positioned) ----------
@@ -259,7 +259,7 @@ export const KIT: KitAsset[] = [
         ["01", "Fair curve", "One transaction deploys token, curve and DAO. No premint, no dev bag. Launch-window caps slow snipers."],
         ["02", "Floor vault", "A share of every trade's tax, every exit fee and part of the graduation raise flow into a NEAR vault. Burn tokens for your share anytime."],
         ["03", "Sell tax > buy tax", "Selling costs more than buying, and quick flips pay a decaying exit fee into the vault. Dumping pays holders."],
-        ["04", "Locked yield LP", "At graduation, liquidity moves to Ref Finance, locks forever and earns LiNEAR yield. Holders vote where it goes."],
+        ["04", "Locked yield LP", "At graduation, liquidity moves to Ref Finance, locks forever and earns stNEAR staking yield. Holders vote where it goes."],
       ];
       return (
         <Board w={1200} h={1200}>
