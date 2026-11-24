@@ -176,10 +176,29 @@ export interface TokenInfo {
   fdv_near: string;
   total_supply: string;
   burned: string;
+  /** Staking token the pool pairs with (stNEAR or LiNEAR). */
+  stake_token?: string | null;
   trade_count?: number;
   /** Account the token's AI agent posts as (launchpad `agent_account`). */
   agent_account?: string;
 }
+
+/**
+ * NEAR per staking token (scaled 1e24) for a graduated token's pool: stNEAR (Meta Pool) for new
+ * launches, LiNEAR for tokens that predate the switch (the launchpad reports it as stake_token).
+ */
+export async function stakePrice(stakeToken?: string | null): Promise<bigint> {
+  const id = stakeToken || LINEAR;
+  const method = id === LINEAR ? "ft_price" : "get_st_near_price";
+  return BigInt(await cached(`stake-price:${id}`, 60_000, () => view<string>(id, method)));
+}
+
+/**
+ * Ref-swap scan cursor key. Swaps on stNEAR pools were skipped by the LiNEAR-only indexer while
+ * its cursor still advanced, so those tokens get a fresh key: the next scan backfills their pool.
+ */
+export const refCursorKey = (t: { token_id: string; stake_token?: string | null }) =>
+  t.stake_token && t.stake_token !== LINEAR ? `${t.token_id}#${t.stake_token}` : t.token_id;
 
 const NEAR_ACCOUNT_RE = /^(([a-z0-9]+[-_])*[a-z0-9]+\.)*([a-z0-9]+[-_])*[a-z0-9]+$/;
 export const isValidNearAccount = (s: unknown): s is string =>
@@ -260,7 +279,7 @@ export async function marketCap(tokenId: string): Promise<{ near: number; usd: n
       const iMeme = pool.token_account_ids.indexOf(tokenId);
       const rMeme = BigInt(pool.amounts[iMeme]);
       const rLin = BigInt(pool.amounts[1 - iMeme]);
-      const linPrice = BigInt(await cached("linear-price", 60_000, () => view<string>(LINEAR, "ft_price")));
+      const linPrice = await stakePrice(t.stake_token);
       const supply = BigInt(t.total_supply) - BigInt(t.burned);
       fdvYocto = rMeme === 0n ? 0n : (rLin * linPrice * supply) / rMeme / YOCTO;
     } else {
@@ -657,19 +676,18 @@ class SocialBackend {
     this.refBusy.add(tok.token_id);
     this.lastRefScan.set(tok.token_id, Date.now());
     try {
-      const since = this.state.refCursors[tok.token_id] ?? 0;
+      const curKey = refCursorKey(tok);
+      const since = this.state.refCursors[curKey] ?? 0;
       const { swaps, cursor } = await fetchRefSwaps({
         txApi: defaultTxApi(NETWORK),
         tokenId: tok.token_id,
         poolId: tok.pool_id,
         ref: REF,
-        linear: LINEAR,
+        linear: tok.stake_token || LINEAR,
         sinceHeight: since,
       });
       if (swaps.length) {
-        const linPrice = BigInt(
-          await cached("linear-price", 60_000, () => view<string>(LINEAR, "ft_price").catch(() => YOCTO.toString())),
-        );
+        const linPrice = await stakePrice(tok.stake_token).catch(() => YOCTO);
         for (const sw of swaps) {
           const { nearYocto, price } = swapValue(sw, linPrice, YOCTO);
           const stored: SocialTrade = {
@@ -693,7 +711,7 @@ class SocialBackend {
         }
       }
       if (cursor > since) {
-        this.state.refCursors[tok.token_id] = cursor;
+        this.state.refCursors[curKey] = cursor;
         this.persist();
       }
     } finally {
