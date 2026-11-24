@@ -566,3 +566,26 @@ export function priceParam(usd: number): string {
   if (usd >= 0.01) return usd.toFixed(4);
   return usd.toFixed(12).replace(/0+$/, "").slice(0, 14);
 }
+
+const FT_INDEX =
+  process.env.NEXT_PUBLIC_FT_INDEX ?? (NETWORK === "mainnet" ? "https://api.fastnear.com" : "https://test.api.fastnear.com");
+
+/**
+ * Wallets holding a token right now, from FastNEAR's token index. The launchpad (unsold curve
+ * stock, locks, custody), the Ref exchange (pool liquidity) and the token account itself are not
+ * holders. The launchpad's own `holders` only counts first-time curve buyers, so it misses everyone
+ * who bought on Rhea after graduation. Null when the index is unreachable.
+ */
+export async function holderCount(t: { token_id: string }): Promise<{ count: number; capped: boolean } | null> {
+  try {
+    const r = await fetch(`${FT_INDEX}/v1/ft/${encodeURIComponent(t.token_id)}/top`, { signal: AbortSignal.timeout(6000) });
+    if (!r.ok) return null;
+    const j = (await r.json()) as { accounts?: { account_id: string; balance: string }[] };
+    const rows = j.accounts ?? [];
+    const skip = new Set([LAUNCHPAD, REF, t.token_id]);
+    const count = rows.filter((a) => !skip.has(a.account_id) && BigInt(a.balance || "0") > 0n).length;
+    return { count, capped: rows.length >= 100 };
+  } catch {
+    return null;
+  }
+}

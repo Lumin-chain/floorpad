@@ -7,6 +7,8 @@ import { api, fmtUsd, fmtX, useStream, type Callout } from "@/lib/social";
 import { useWallet } from "@/lib/wallet";
 import { Moji } from "./Brand";
 
+const fmtPct = (n: number) => (n <= 0 ? "0%" : n < 0.01 ? "<0.01%" : `${n >= 10 ? n.toFixed(1) : n.toFixed(2)}%`);
+
 export function CallRow({ c, showToken }: { c: Callout; showToken?: boolean }) {
   const up = c.x_now >= 1;
   const safeIcon = safeImageSrc(c.icon);
@@ -22,6 +24,12 @@ export function CallRow({ c, showToken }: { c: Callout; showToken?: boolean }) {
             </Link>
           )}
           <span className="mono small ellipsis">{c.account}</span>
+          {typeof c.holder_pct === "number" && (
+            <span className="badge green" title="Share of supply the caller holds now (wallet + locked)">holds {fmtPct(c.holder_pct)}</span>
+          )}
+          {!!c.sold_pct && c.sold_pct > 0 && (
+            <span className="badge warn" title="Share of the tokens the caller bought that they have sold">sold {fmtPct(c.sold_pct)}</span>
+          )}
         </div>
         <span className={`x ${up ? "green" : "bad"}`}>{fmtX(c.x_now)}</span>
       </div>

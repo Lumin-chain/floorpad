@@ -26,6 +26,7 @@ import {
   view,
   yoctoToUsd,
   type TokenView,
+  holderCount,
 } from "@/lib/near";
 import { fmtUsd } from "@/lib/social";
 import { useView, useWallet } from "@/lib/wallet";
@@ -93,6 +94,7 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
   // price of this token's staking token (LiNEAR or stNEAR), NEAR per share
   const stakeId = tok.data?.stake_token ?? LINEAR;
   const price = useView(() => stakePrice(stakeId).then((p) => p.toString()), [stakeId], 60000);
+  const holders = useView(() => holderCount({ token_id: id }), [id], 30000);
   const usd = useView(() => nearUsd(), [], 60000);
   const cfg = useView(() => lp<LaunchConfig>("get_config"), [], 0);
   const bal = useView(
@@ -228,7 +230,10 @@ export default function TokenPage({ params }: { params: Promise<{ id: string }> 
                   : "–"}
           </b>
         </div>
-        <div className="chip"><span>Holders</span><b>{t.holders}</b></div>
+        <div className="chip" title="Wallets holding the token now (the launchpad and the locked pool are not counted)">
+          <span>Holders</span>
+          <b>{holders.data ? `${holders.data.count}${holders.data.capped ? "+" : ""}` : t.holders}</b>
+        </div>
         <div className="chip"><span>Locked</span><b>{fmtTok(t.total_locked, 0)}</b></div>
         <div className="chip"><span>Burned</span><b>{fmtTok(t.burned, 0)}</b></div>
       </div>

@@ -290,6 +290,15 @@ export async function marketCap(tokenId: string): Promise<{ near: number; usd: n
   });
 }
 
+/**
+ * Share of a caller's tokens they have sold: sold / bought, from indexed curve and Ref trades.
+ * Tokens that arrived without a buy (transfers) count at most as much as was sold, so it caps at 100%.
+ */
+export function soldPct(bought: bigint, sold: bigint): number {
+  const base = bought > sold ? bought : sold;
+  return base > 0n ? Number((sold * 10_000n) / base) / 100 : 0;
+}
+
 export async function holderShare(tokenId: string, account: string): Promise<number> {
   return cached(`hold:${tokenId}:${account}`, 30_000, async () => {
     const [bal, pos, t] = await Promise.all([
@@ -543,6 +552,18 @@ class SocialBackend {
     });
     rows.sort((a, b) => b.avg_peak_x - a.avg_peak_x);
     return rows.slice(0, limit);
+  }
+
+  /** Tokens an account bought and sold of one token (curve and Ref trades). */
+  tradeTotals(tokenId: string, account: string): { bought: bigint; sold: bigint } {
+    let bought = 0n;
+    let sold = 0n;
+    for (const t of this.state.trades) {
+      if (t.token_id !== tokenId || t.account !== account) continue;
+      if (t.is_buy) bought += BigInt(t.tokens);
+      else sold += BigInt(t.tokens);
+    }
+    return { bought, sold };
   }
 
   addTrade(t: SocialTrade): boolean {

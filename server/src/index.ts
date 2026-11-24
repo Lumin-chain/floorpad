@@ -15,6 +15,7 @@ import {
   getTokens,
   getTradesFrom,
   holderShare,
+  soldPct,
   isFullAccessKey,
   isValidNearAccount,
   LAUNCHPAD,
@@ -96,6 +97,13 @@ const clean = (s: unknown, max: number) =>
     .replace(/[\u0000-\u0008\u000B-\u001F\u007F]/g, "")
     .trim()
     .slice(0, max);
+
+/** The caller's position now: % of supply held (wallet + locked) and % of their tokens sold. */
+async function withPosition<T extends { token_id: string; account: string }>(c: T) {
+  const holder_pct = await holderShare(c.token_id, c.account).catch(() => null);
+  const { bought, sold } = store.tradeTotals(c.token_id, c.account);
+  return { ...c, holder_pct, sold_pct: soldPct(bought, sold) };
+}
 
 function decorate(c: Call) {
   return { ...c, x_now: c.mcap_usd > 0 ? c.last_mcap_usd / c.mcap_usd : 0, x_peak: c.mcap_usd > 0 ? c.peak_mcap_usd / c.mcap_usd : 0 };
@@ -293,7 +301,7 @@ route("DELETE", "/messages/:id", async (req, _res, p) => {
 
 route("GET", "/tokens/:id/calls", async (_req, _res, p) => {
   if (!isValidNearAccount(p.id)) throw new HttpError(400, "invalid token id");
-  return store.callsForToken(p.id, 50).map(decorate);
+  return Promise.all(store.callsForToken(p.id, 50).map((c) => withPosition(decorate(c))));
 });
 
 route("POST", "/tokens/:id/calls", async (req, _res, p) => {
@@ -316,7 +324,7 @@ route("POST", "/tokens/:id/calls", async (req, _res, p) => {
     last_mcap_usd: mc.usd,
     updated: now(),
   });
-  const out = { ...decorate(call), symbol: t.meta.symbol, icon: t.meta.icon };
+  const out = await withPosition({ ...decorate(call), symbol: t.meta.symbol, icon: t.meta.icon });
   publish(`token:${p.id}`, "call", out);
   publish("global", "call", out);
   return out;
@@ -327,7 +335,7 @@ route("GET", "/calls", async (_req, _res, _p, q) => {
   return Promise.all(
     calls.map(async (c) => {
       const t = await getToken(c.token_id).catch(() => null);
-      return { ...decorate(c), symbol: t?.meta.symbol ?? "?", icon: t?.meta.icon ?? null };
+      return withPosition({ ...decorate(c), symbol: t?.meta.symbol ?? "?", icon: t?.meta.icon ?? null });
     }),
   );
 });
